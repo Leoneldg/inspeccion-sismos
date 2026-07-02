@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Sistema de Inspección de Edificaciones Post-Sismo
 
 Aplicación web en **PHP + MySQL** que digitaliza el instrumento de inspección
@@ -253,3 +254,6 @@ Con el `schema.sql` de este paquete eso ya no ocurre.
   (`getimagesize`) antes de guardarse, con extensión y tamaño controlados.
 - Bitácora de actividad (`log_actividad`) para acciones sensibles (login, CRUD de
   usuarios/roles, creación/edición/eliminación de inspecciones).
+=======
+# inspeccion-sismos
+>>>>>>> 61be7a868a563f71bc20338f6aba4ec1972ab1f7
