@@ -6,6 +6,10 @@ require_once __DIR__ . '/../includes/functions.php';
 
 requierePermiso('formulario', 'ver');
 
+if (!empty($_GET['guardado_offline'])) {
+    flash('info', 'Sin conexión: la inspección quedó guardada en este dispositivo y se subirá automáticamente en cuanto vuelva la señal. No cierres sesión en un dispositivo compartido hasta que se sincronice.');
+}
+
 $pageTitle    = 'Formulario de Inspección';
 $pageSubtitle = 'Listado de inspecciones registradas';
 $activeModule = 'formulario';

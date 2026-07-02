@@ -43,6 +43,38 @@
 
 canvas { max-width: 100%; }
 
+/* =====================================================================
+   Modo offline
+   ===================================================================== */
+.offline-banner {
+    display: none;
+    background: var(--rojo);
+    color: #fff;
+    text-align: center;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1200;
+}
+body.sin-conexion .offline-banner { display: block; }
+
+.pendientes-offline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #fdf3dc;
+    color: var(--amarillo);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.pendientes-offline.oculto-offline { display: none; }
+
 html, body {
     margin: 0;
     padding: 0;
@@ -598,6 +630,7 @@ body.sidebar-collapsed .sidebar .user-card { justify-content: center; padding: 1
 body.modo-tv .sidebar,
 body.modo-tv .topbar { display: none !important; }
 body.modo-tv .app-shell { grid-template-columns: 1fr; }
+body.modo-tv .main-col { grid-column: 1; grid-row: 1; }
 body.modo-tv .content { padding: 22px 30px; max-width: none; }
 
 .btn-presentacion {
