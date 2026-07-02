@@ -18,9 +18,15 @@ include __DIR__ . '/../includes/header.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
 <div class="flex items-center justify-between gap-12" style="flex-wrap:wrap;margin-bottom:18px;">
-    <div class="flex items-center gap-12">
+    <div class="flex items-center gap-12" style="flex-wrap:wrap;">
         <span class="badge badge-gris"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
         <span class="text-sm text-muted">Actualización automática cada 60s</span>
+        <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:190px;">
+            <option value="">Todas las parroquias</option>
+        </select>
+        <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
+            <i class="bi bi-x-lg"></i> Quitar filtro
+        </button>
     </div>
     <?php if (puede('formulario', 'crear')): ?>
     <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-accent btn-sm">
@@ -72,7 +78,7 @@ include __DIR__ . '/../includes/header.php';
 
     <div class="card card-mapa">
         <div class="card-header">
-            <h2 class="tv-section-title"><i class="bi bi-map-fill"></i> Mapa geográfico por parroquia</h2>
+            <h2 class="tv-section-title" id="titulo-mapa"><i class="bi bi-map-fill"></i> Mapa geográfico por parroquia</h2>
             <span class="text-sm text-muted" id="contador-mapa"></span>
         </div>
         <div class="mapa-wrap">
@@ -83,13 +89,14 @@ include __DIR__ . '/../includes/header.php';
                 <div class="item"><span class="dot" style="background:#ef4444;"></span> Acceso No Permitido</div>
                 <div class="item text-muted" id="nota-limites" style="font-size:10.5px;max-width:220px;"></div>
             </div>
+            <div id="lista-edificios" class="mapa-lista"></div>
         </div>
     </div>
 </div>
 
 <div class="card" style="margin-top:16px;">
     <div class="card-header">
-        <h2 class="tv-section-title"><i class="bi bi-geo-alt-fill"></i> Inspecciones por parroquia</h2>
+        <h2 class="tv-section-title" id="titulo-chart-parroquia"><i class="bi bi-geo-alt-fill"></i> Inspecciones por parroquia</h2>
     </div>
     <div class="card-body">
         <div style="height:480px;">
@@ -114,6 +121,8 @@ const FICHA_URL = '<?= APP_URL_BASE ?>dashboard/api_ficha.php';
 
 let map, clusterLayer, seccionesLayer, chartDecision, chartParroquia;
 let geojsonLimitesParroquias = undefined; // undefined = aún no se intentó cargar; null = no existe; objeto = cargado
+let parroquiaSeleccionada = '';           // '' = sin filtro (todas)
+let ultimaParroquiaEnMapa;                // controla cuándo animar el zoom (evita re-animar en cada refresh)
 
 function normalizarTexto(s) {
     return (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -171,9 +180,111 @@ function formatNum(n) {
     return new Intl.NumberFormat('es-VE').format(n || 0);
 }
 
+function poblarFiltroParroquia(lista) {
+    const select = document.getElementById('filtro-parroquia');
+    if (select.dataset.poblado) return; // solo la primera vez (la lista de parroquias no cambia)
+    const nombres = [...lista].map(p => p.parroquia).sort((a, b) => a.localeCompare(b, 'es'));
+    for (const nombre of nombres) {
+        const opt = document.createElement('option');
+        opt.value = nombre;
+        opt.textContent = nombre;
+        select.appendChild(opt);
+    }
+    select.dataset.poblado = '1';
+}
+
+function actualizarIndicadoresFiltro() {
+    const activo = !!parroquiaSeleccionada;
+    document.getElementById('filtro-parroquia').value = parroquiaSeleccionada;
+    document.getElementById('btn-quitar-filtro').style.display = activo ? 'inline-flex' : 'none';
+    document.getElementById('titulo-mapa').innerHTML =
+        '<i class="bi bi-map-fill"></i> Mapa geográfico' + (activo ? ' · ' + parroquiaSeleccionada : ' por parroquia');
+    document.getElementById('titulo-chart-parroquia').innerHTML =
+        '<i class="bi bi-geo-alt-fill"></i> Inspecciones por parroquia' + (activo ? ' (' + parroquiaSeleccionada + ' resaltada)' : '');
+}
+
+function renderListaEdificios(lista) {
+    const cont = document.getElementById('lista-edificios');
+    cont.innerHTML = '';
+    cont.classList.toggle('mapa-lista-hidden', !parroquiaSeleccionada);
+    if (!parroquiaSeleccionada) {
+        return;
+    }
+
+    const header = document.createElement('div');
+    header.className = 'mapa-lista-header';
+
+    const title = document.createElement('div');
+    title.className = 'mapa-lista-title';
+    title.textContent = `EDIFICIOS EN ${parroquiaSeleccionada.toUpperCase()}`;
+    header.appendChild(title);
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'mapa-lista-close';
+    close.title = 'Quitar filtro';
+    close.innerHTML = '<i class="bi bi-x-lg"></i>';
+    close.addEventListener('click', () => seleccionarParroquia(''));
+    header.appendChild(close);
+
+    cont.appendChild(header);
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'mapa-lista-subtitle';
+    subtitle.textContent = lista && lista.length
+        ? `${lista.length} inspección${lista.length === 1 ? '' : 'es'}`
+        : 'No hay inspecciones registradas en esta parroquia.';
+    cont.appendChild(subtitle);
+
+    if (!lista || !lista.length) {
+        const hint = document.createElement('div');
+        hint.className = 'mapa-lista-empty';
+        hint.textContent = 'Verifica si el filtro de parroquia está correcto o intenta otra zona.';
+        cont.appendChild(hint);
+        return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mapa-lista-items';
+    lista.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mapa-lista-item';
+        btn.innerHTML = `
+            <span class="mapa-lista-item-meta">
+                <span class="mapa-lista-item-name">${item.nombre.toUpperCase()}</span>
+                <span class="mapa-lista-item-status" style="background:${item.decision_color};">${item.decision}</span>
+            </span>
+        `;
+        btn.addEventListener('click', () => abrirFicha(item.id));
+        wrapper.appendChild(btn);
+    });
+    cont.appendChild(wrapper);
+}
+
+// Punto único de entrada para seleccionar/quitar el filtro: lo usan el
+// <select>, el botón de quitar filtro, los clics en el gráfico de barras
+// y los clics sobre el mapa (polígonos de parroquia).
+function seleccionarParroquia(nombre) {
+    parroquiaSeleccionada = nombre || '';
+    cargarDashboard();
+}
+
+document.getElementById('filtro-parroquia').addEventListener('change', function () {
+    seleccionarParroquia(this.value);
+});
+document.getElementById('btn-quitar-filtro').addEventListener('click', function () {
+    seleccionarParroquia('');
+});
+
 async function cargarDashboard() {
-    const res = await fetch(API_URL);
+    const url = API_URL + (parroquiaSeleccionada ? '?parroquia=' + encodeURIComponent(parroquiaSeleccionada) : '');
+    const res = await fetch(url);
     const data = await res.json();
+
+    poblarFiltroParroquia(data.por_parroquia);
+    actualizarIndicadoresFiltro();
+    renderListaEdificios(data.inspecciones);
 
     document.getElementById('hora-actualizacion').textContent = data.actualizado;
 
@@ -215,7 +326,12 @@ async function cargarDashboard() {
     const ctxP = document.getElementById('chart-parroquia');
     const dataP = {
         labels: data.por_parroquia.map(p => p.parroquia),
-        datasets: [{ data: data.por_parroquia.map(p => p.total), backgroundColor: '#2d4488', borderRadius: 5 }]
+        datasets: [{
+            data: data.por_parroquia.map(p => p.total),
+            backgroundColor: data.por_parroquia.map(p =>
+                p.parroquia === parroquiaSeleccionada ? '#f2a71b' : '#2d4488'),
+            borderRadius: 5,
+        }]
     };
     if (chartParroquia) { chartParroquia.data = dataP; chartParroquia.update(); }
     else {
@@ -224,6 +340,14 @@ async function cargarDashboard() {
             options: {
                 indexAxis: 'y',
                 maintainAspectRatio: false,
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const nombre = chartParroquia.data.labels[elements[0].index];
+                    seleccionarParroquia(nombre === parroquiaSeleccionada ? '' : nombre);
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
                 plugins: { legend: { display: false } },
                 scales: {
                     x: { beginAtZero: true, ticks: { precision: 0, font: { size: 12.5 } } },
@@ -241,70 +365,75 @@ async function cargarDashboard() {
     const lookupParroquia = {};
     data.secciones_geo.forEach(s => { lookupParroquia[normalizarTexto(s.parroquia)] = s; });
 
+    const esParroquiaSeleccionada = nombre => !!parroquiaSeleccionada &&
+        normalizarTexto(nombre) === normalizarTexto(parroquiaSeleccionada);
+
+    let boundsSeleccion = null; // se usa para hacer zoom si hay filtro activo
+
     if (limites) {
         L.geoJSON(limites, {
             style: function (feature) {
                 const nombre = nombreParroquiaDeFeature(feature);
                 const info = nombre ? lookupParroquia[normalizarTexto(nombre)] : null;
+                const seleccionada = esParroquiaSeleccionada(nombre);
                 return {
-                    color: info ? info.color : '#767c94',
-                    weight: 2,
-                    fillColor: info ? info.color : '#767c94',
-                    fillOpacity: info ? 0.22 : 0.06,
+                    color: seleccionada ? '#6b7280' : '#9ca3af',
+                    weight: seleccionada ? 4 : 2,
+                    fillColor: '#d1d5db',
+                    fillOpacity: parroquiaSeleccionada ? (seleccionada ? 0.32 : 0.08) : 0.12,
                 };
             },
             onEachFeature: function (feature, layer) {
                 const nombre = nombreParroquiaDeFeature(feature) || 'Parroquia';
                 const info = lookupParroquia[normalizarTexto(nombre)];
-                layer.bindTooltip(nombre + (info ? ' · ' + info.total : ' · 0'), { sticky: true, className: 'parroquia-label' });
+                layer.bindTooltip(info ? formatNum(info.total) : '0', { permanent: true, direction: 'center', className: 'parroquia-label' });
+                layer.on('click', () => seleccionarParroquia(esParroquiaSeleccionada(nombre) ? '' : nombre));
+                layer.on('mouseover', () => layer.setStyle({ weight: 4 }));
+                layer.on('mouseout', () => { if (!esParroquiaSeleccionada(nombre)) layer.setStyle({ weight: 2 }); });
+                if (esParroquiaSeleccionada(nombre)) boundsSeleccion = layer.getBounds();
             }
         }).addTo(seccionesLayer);
     } else {
         const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
         data.secciones_geo.forEach(s => {
+            const seleccionada = esParroquiaSeleccionada(s.parroquia);
             const radius = 220 + (s.total / maxTotal) * 900; // metros
-            L.circle([s.lat, s.lng], {
-                radius, color: s.color, weight: 1.5, fillColor: s.color, fillOpacity: 0.16,
+            const circulo = L.circle([s.lat, s.lng], {
+                radius,
+                color: seleccionada ? '#6b7280' : '#9ca3af',
+                weight: seleccionada ? 3 : 1.5,
+                fillColor: '#d1d5db',
+                fillOpacity: parroquiaSeleccionada ? (seleccionada ? 0.32 : 0.05) : 0.16,
             }).addTo(seccionesLayer);
+            circulo.on('click', () => seleccionarParroquia(seleccionada ? '' : s.parroquia));
             L.marker([s.lat, s.lng], {
-                icon: L.divIcon({ className: '', html: `<div class="parroquia-label">${s.parroquia} · ${s.total}</div>`, iconSize: null }),
+                icon: L.divIcon({ className: 'parroquia-label', html: `<div>${formatNum(s.total)}</div>`, iconSize: null }),
                 interactive: false,
             }).addTo(seccionesLayer);
+            if (seleccionada) boundsSeleccion = circulo.getBounds();
         });
     }
     document.getElementById('nota-limites').textContent = limites
         ? 'Límites reales de parroquia cargados desde assets/geo/parroquias_libertador.geojson'
         : 'Mostrando secciones aproximadas (círculos). Vea assets/geo/LEEME.md para usar límites reales.';
 
+    // Zoom/encuadre hacia la parroquia filtrada. Solo animamos cuando la
+    // selección CAMBIÓ (no en cada refresh automático de 60s, para no
+    // estar moviendo la cámara sola cada rato).
+    if (ultimaParroquiaEnMapa !== parroquiaSeleccionada) {
+        if (parroquiaSeleccionada && boundsSeleccion) {
+            map.flyToBounds(boundsSeleccion, { padding: [40, 40], maxZoom: 16, duration: 0.7 });
+        } else if (!parroquiaSeleccionada) {
+            map.flyTo([10.4880, -66.9200], 12, { duration: 0.7 });
+        }
+        ultimaParroquiaEnMapa = parroquiaSeleccionada;
+    }
+
     // ---- Mapa: marcadores individuales (agrupados en clusters) ----
     clusterLayer.clearLayers();
-    data.puntos.forEach(p => {
-        const icon = L.divIcon({
-            className: '',
-            html: `<div style="width:16px;height:16px;border-radius:50%;background:${p.color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>`,
-            iconSize: [16, 16],
-        });
-        const marker = L.marker([p.lat, p.lng], { icon });
-        const fotoHtml = p.portada
-            ? `<img src="${p.portada}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;margin:6px 0;">`
-            : '';
-        marker.bindPopup(`
-            <div style="min-width:200px;">
-                <strong>${p.nombre}</strong><br>
-                <span style="font-family:monospace;font-size:11px;color:#767c94;">${p.codigo}</span> · ${p.parroquia}<br>
-                <span style="color:${p.color};font-weight:700;">${p.decision}</span>
-                ${fotoHtml}
-                <div style="font-size:11.5px;color:#767c94;margin-bottom:8px;">
-                    ${p.fecha} ${p.fotos ? '· <i class="bi bi-camera-fill"></i> ' + p.fotos + ' foto(s)' : '· sin fotos'}
-                </div>
-                <button onclick="abrirFicha(${p.id})" style="width:100%;background:#172759;color:white;border:none;padding:8px;border-radius:6px;font-weight:600;cursor:pointer;font-size:12.5px;">
-                    Ver ficha técnica
-                </button>
-            </div>
-        `);
-        clusterLayer.addLayer(marker);
-    });
-    document.getElementById('contador-mapa').textContent = data.puntos.length + ' inspecciones georreferenciadas de ' + data.totales.inspecciones + ' totales';
+    document.getElementById('contador-mapa').textContent = parroquiaSeleccionada
+        ? `${formatNum(data.totales.inspecciones)} inspecciones en ${parroquiaSeleccionada}`
+        : `${formatNum(data.totales.inspecciones)} inspecciones totales`;
 }
 
 // ---- Ficha técnica (modal) ----
