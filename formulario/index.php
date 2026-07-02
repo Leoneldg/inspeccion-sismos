@@ -132,7 +132,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if ($totalPaginas > 1): ?>
-<div class="flex gap-8" style="margin-top:16px;justify-content:center;">
+<div class="flex wrap-on-small gap-8" style="margin-top:16px;justify-content:center;">
     <?php for ($p = 1; $p <= $totalPaginas; $p++): ?>
         <a class="btn btn-sm <?= $p === $pagina ? 'btn-primary' : 'btn-outline' ?>"
            href="?pagina=<?= $p ?>&q=<?= urlencode($q) ?>&parroquia=<?= urlencode($parroquia) ?>"><?= $p ?></a>
