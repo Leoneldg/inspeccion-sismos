@@ -3,7 +3,7 @@
  * Requiere que la página que incluye este archivo haya definido:
  *   $pageTitle    (string)
  *   $pageSubtitle (string, opcional)
- *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios')
+ *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios' | 'import_export')
  */
 $pageTitle    = $pageTitle ?? APP_NAME;
 $pageSubtitle = $pageSubtitle ?? '';
@@ -50,6 +50,11 @@ $flashes = obtenerFlashes();
         <?php if (puede('formulario', 'ver')): ?>
         <a href="<?= APP_URL_BASE ?>formulario/index.php" class="nav-item <?= $activeModule === 'formulario' ? 'active' : '' ?>" title="Formulario de Inspección">
             <i class="bi bi-clipboard2-check-fill"></i> <span>Formulario de Inspección</span>
+        </a>
+        <?php endif; ?>
+        <?php if (puede('import_export', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item <?= $activeModule === 'import_export' ? 'active' : '' ?>" title="Importar / Exportar">
+            <i class="bi bi-upload"></i> <span>Importar / Exportar</span>
         </a>
         <?php endif; ?>
         <?php if (puede('usuarios', 'ver')): ?>

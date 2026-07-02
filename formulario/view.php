@@ -53,6 +53,9 @@ function fila($label, $valor) {
         <?php if (puede('formulario', 'editar')): ?>
         <a href="<?= APP_URL_BASE ?>formulario/create.php?id=<?= (int)$r['id'] ?>" class="btn btn-primary btn-sm"><i class="bi bi-pencil"></i> Editar</a>
         <?php endif; ?>
+        <?php if (puede('import_export', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>dashboard/export_pdf.php?id=<?= (int)$r['id'] ?>" class="btn btn-danger btn-sm" target="_blank"><i class="bi bi-file-earmark-pdf-fill"></i> Exportar PDF</a>
+        <?php endif; ?>
         <a href="<?= APP_URL_BASE ?>formulario/index.php" class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Volver</a>
     </div>
 </div>

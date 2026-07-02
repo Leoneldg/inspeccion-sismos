@@ -242,9 +242,18 @@ INSERT INTO modulos (clave, nombre, icono, orden) VALUES
 ('formulario', 'Formulario de Inspección', 'bi-clipboard-check', 2),
 ('usuarios',   'Usuarios y Permisos', 'bi-people-fill', 3);
 
+-- Módulo para importación y exportación de datos (agregado por feature import/export)
+INSERT IGNORE INTO modulos (clave, nombre, icono, orden) VALUES
+('import_export', 'Importar / Exportar', 'bi-upload', 4);
+
 -- Administrador: todo en todos los módulos
 INSERT INTO rol_modulo_permisos (rol_id, modulo_id, ver, crear, editar, eliminar)
 SELECT (SELECT id FROM roles WHERE nombre='Administrador'), id, 1, 1, 1, 1 FROM modulos;
+
+-- Asegurar que el nuevo módulo import_export tenga permisos para Administrador (por si no existía en el momento anterior)
+INSERT INTO rol_modulo_permisos (rol_id, modulo_id, ver, crear, editar, eliminar)
+SELECT (SELECT id FROM roles WHERE nombre='Administrador'), (SELECT id FROM modulos WHERE clave='import_export'), 1,1,1,1
+WHERE NOT EXISTS (SELECT 1 FROM rol_modulo_permisos rmp JOIN modulos m ON m.id=rmp.modulo_id WHERE rmp.rol_id=(SELECT id FROM roles WHERE nombre='Administrador') AND m.clave='import_export');
 
 -- Inspector: formulario completo, dashboard solo lectura, sin usuarios
 INSERT INTO rol_modulo_permisos (rol_id, modulo_id, ver, crear, editar, eliminar) VALUES

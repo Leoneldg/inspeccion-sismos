@@ -32,8 +32,29 @@ function permisosUsuario(): array
     if (!isLoggedIn()) {
         return [];
     }
+    // Si hay caché, comprobar si el rol es Administrador y si existen módulos nuevos
     if (isset($_SESSION['permisos'])) {
-        return $_SESSION['permisos'];
+        $cached = $_SESSION['permisos'];
+        // si el usuario es Administrador, forzar refresco si hay módulos nuevos
+        if (!empty($_SESSION['rol_nombre']) && $_SESSION['rol_nombre'] === 'Administrador') {
+            $placeholders = implode(', ', array_fill(0, count($cached), '?'));
+            $keys = array_keys($cached);
+            if (count($keys) > 0) {
+                $stmt = db()->prepare("SELECT COUNT(*) AS cnt FROM modulos WHERE clave NOT IN ($placeholders)");
+                $stmt->execute($keys);
+                $row = $stmt->fetch();
+                if ($row && (int)$row['cnt'] > 0) {
+                    unset($_SESSION['permisos']); // invalida caché para recargar
+                } else {
+                    return $cached;
+                }
+            } else {
+                // cached vacío (raro), invalida
+                unset($_SESSION['permisos']);
+            }
+        } else {
+            return $cached;
+        }
     }
 
     $stmt = db()->prepare(
@@ -52,6 +73,16 @@ function permisosUsuario(): array
             'editar'   => (bool)$row['editar'],
             'eliminar' => (bool)$row['eliminar'],
         ];
+    }
+    // Si el usuario es Administrador, asegurar que tenga permisos para todos los módulos
+    if (!empty($_SESSION['rol_nombre']) && $_SESSION['rol_nombre'] === 'Administrador') {
+        $mods = db()->query('SELECT clave FROM modulos')->fetchAll();
+        foreach ($mods as $m) {
+            $k = $m['clave'];
+            if (!isset($permisos[$k])) {
+                $permisos[$k] = ['ver' => true, 'crear' => true, 'editar' => true, 'eliminar' => true];
+            }
+        }
     }
     $_SESSION['permisos'] = $permisos;
     return $permisos;
