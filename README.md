@@ -1,0 +1,1 @@
+# inspeccion-sismos
