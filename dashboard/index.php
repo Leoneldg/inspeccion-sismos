@@ -29,7 +29,7 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
-<div style="display:grid;grid-template-columns: 1.4fr 1fr;gap:16px;margin-bottom:16px;">
+<div class="split-grid cols-14-10" style="margin-bottom:16px;">
     <div class="kpi-hero tv-hero">
         <div class="icon"><i class="bi bi-clipboard2-data-fill"></i></div>
         <div>
@@ -58,7 +58,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-heart-fill"></i></div><div><div class="num" id="kpi-mascotas">—</div><div class="lbl">Mascotas</div></div></div>
 </div>
 
-<div style="display:grid;grid-template-columns: 1fr 1.4fr;gap:16px;align-items:start;">
+<div class="split-grid cols-10-14 align-start">
     <div class="card">
         <div class="card-header">
             <h2 class="tv-section-title"><i class="bi bi-bar-chart-fill"></i> Estado de acceso a la edificación</h2>
@@ -392,6 +392,11 @@ document.getElementById('btn-modo-tv').addEventListener('click', function () {
         document.exitFullscreen().catch(() => {});
     }
     setTimeout(() => map.invalidateSize(), 250);
+});
+
+// Recalcula el tamaño del mapa cuando cambia el layout (sidebar, resize)
+window.addEventListener('sismos:layout-change', () => {
+    if (map) map.invalidateSize();
 });
 
 initMap();

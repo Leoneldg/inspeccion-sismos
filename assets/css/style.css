@@ -41,6 +41,8 @@
 
 * { box-sizing: border-box; }
 
+canvas { max-width: 100%; }
+
 html, body {
     margin: 0;
     padding: 0;
@@ -49,6 +51,7 @@ html, body {
     font-family: var(--font-body);
     font-size: 15px;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
 }
 
 h1, h2, h3, h4, .display {
@@ -79,9 +82,42 @@ a:hover { color: var(--azul-800); }
 
 @media (max-width: 960px) {
     .app-shell { grid-template-columns: 1fr; }
-    .sidebar { display: none; }
-    .sidebar.open { display: block; }
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 280px;
+        max-width: 82vw;
+        height: 100vh;
+        height: 100dvh;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+        z-index: 1100;
+        /* Sin esto, aunque esté "fixed" y fuera de pantalla, el navegador
+           igual le reserva su propia fila de 100vh dentro del grid de una
+           sola columna y empuja todo el contenido real hacia abajo. */
+        grid-column: 1;
+        grid-row: 1;
+    }
+    .main-col { grid-column: 1; grid-row: 1; }
+    .sidebar.open {
+        transform: translateX(0);
+        box-shadow: 0 0 40px rgba(0,0,0,.35);
+    }
+    /* El chevron de "colapsar" es un control de escritorio; se oculta
+       más abajo en este archivo (después de definirse el botón), para
+       que gane en la cascada sobre su regla base. */
 }
+
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(11,19,48,0.5);
+    z-index: 1090;
+}
+.sidebar-backdrop.show { display: block; }
+@media (min-width: 961px) { .sidebar-backdrop { display: none !important; } }
 
 .sidebar {
     background: linear-gradient(180deg, var(--azul-950) 0%, var(--azul-900) 100%);
@@ -90,10 +126,13 @@ a:hover { color: var(--azul-800); }
     display: flex;
     flex-direction: column;
     gap: 6px;
-    position: sticky;
-    top: 0;
     height: 100vh;
+    height: 100dvh;
     overflow-y: auto;
+    border-radius: 0;
+}
+@media (min-width: 961px) {
+    .sidebar { position: sticky; top: 0; }
 }
 
 .sidebar .brand {
@@ -198,6 +237,7 @@ a:hover { color: var(--azul-800); }
     border: 1px solid var(--gris-300);
     border-radius: var(--radio);
     box-shadow: var(--sombra-sm);
+    min-width: 0;
 }
 
 .card-header {
@@ -206,8 +246,10 @@ a:hover { color: var(--azul-800); }
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 12px;
 }
-.card-header h2 { font-size: 15px; font-weight: 600; }
+.card-header h2 { font-size: 15px; font-weight: 600; min-width: 0; }
 .card-body { padding: 20px; }
 
 .btn {
@@ -258,6 +300,9 @@ a:hover { color: var(--azul-800); }
 }
 @media (max-width: 1200px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .kpi-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+    .kpi-card, .kpi-hero { justify-content: center; }
+}
 
 .kpi-card {
     background: var(--blanco);
@@ -467,13 +512,12 @@ table.data-table tr:hover td { background: var(--azul-50); }
 }
 .empty-state i { font-size: 34px; color: var(--gris-300); margin-bottom: 10px; display: block; }
 
-#map-inspecciones { height: 380px; border-radius: 0 0 var(--radio) var(--radio); }
+#map-inspecciones { height: clamp(280px, 55vh, 520px); border-radius: 0 0 var(--radio) var(--radio); }
 .card.card-mapa { align-self: start; }
 
 /* =====================================================================
    Sidebar colapsable
    ===================================================================== */
-.sidebar { position: sticky; top: 0; transition: width .18s ease; }
 .sidebar-toggle {
     position: absolute;
     top: 18px;
@@ -490,6 +534,12 @@ table.data-table tr:hover td { background: var(--azul-50); }
     transition: transform .18s ease;
 }
 .sidebar-toggle:hover { filter: brightness(1.08); }
+
+/* En móvil el menú se abre/cierra con la hamburguesa + el fondo oscuro,
+   no con este chevron (que es exclusivo del colapso de escritorio). */
+@media (max-width: 960px) {
+    .sidebar-toggle { display: none; }
+}
 
 body.sidebar-collapsed .app-shell { grid-template-columns: 76px 1fr; }
 body.sidebar-collapsed .sidebar { padding-left: 10px; padding-right: 10px; }
@@ -526,6 +576,25 @@ body.modo-tv .content { padding: 22px 30px; max-width: none; }
     gap: 16px;
 }
 @media (max-width: 1400px) { .tv-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .tv-kpi-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+    .tv-kpi-card { justify-content: center; }
+}
+
+/* ---------------------------------------------------------------------
+   Layouts de 2 columnas (dashboard, usuarios, ficha) que antes iban con
+   grid-template-columns fijo inline y no se adaptaban a pantallas chicas.
+   --------------------------------------------------------------------- */
+.split-grid { display: grid; gap: 16px; }
+.split-grid.cols-14-10  { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.split-grid.cols-10-14  { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.split-grid.cols-sidebar{ grid-template-columns: 380px minmax(0, 1fr); }
+.split-grid.cols-21     { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.split-grid.align-start { align-items: start; }
+.split-grid > * { min-width: 0; }
+@media (max-width: 900px) {
+    .split-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}
 
 .tv-kpi-card {
     background: var(--blanco);
@@ -658,7 +727,7 @@ body.modo-tv .content { padding: 22px 30px; max-width: none; }
    Selector de ubicación en el formulario (mapa tipo "Google Maps")
    ===================================================================== */
 .mapa-selector {
-    height: 320px;
+    height: clamp(240px, 42vh, 380px);
     border-radius: var(--radio-sm);
     border: 1px solid var(--gris-300);
     overflow: hidden;

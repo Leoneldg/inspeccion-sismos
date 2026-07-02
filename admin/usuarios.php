@@ -28,7 +28,7 @@ $usuarios = $pdo->query(
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div style="display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start;">
+<div class="split-grid cols-sidebar align-start">
 
 <?php if (puede('usuarios', $editUser ? 'editar' : 'crear')): ?>
 <div class="card">

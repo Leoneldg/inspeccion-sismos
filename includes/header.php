@@ -72,10 +72,12 @@ $flashes = obtenerFlashes();
         </div>
     </aside>
 
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
     <div class="main-col">
         <div class="topbar">
             <div class="flex items-center gap-12">
-                <button class="btn-menu" onclick="document.getElementById('sidebar').classList.toggle('open')"><i class="bi bi-list"></i></button>
+                <button class="btn-menu" id="btn-menu" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
                 <div>
                     <div class="title"><?= e($pageTitle) ?></div>
                     <?php if ($pageSubtitle): ?><div class="subtitle"><?= e($pageSubtitle) ?></div><?php endif; ?>

@@ -488,6 +488,11 @@ include __DIR__ . '/../includes/header.php';
     steps.forEach(s => s.addEventListener('click', () => { current = +s.dataset.step; render(); }));
 
     render();
+
+    // Recalcula el tamaño del mapa cuando cambia el layout (sidebar, resize)
+    window.addEventListener('sismos:layout-change', () => {
+        if (mapaUbicacion) mapaUbicacion.invalidateSize();
+    });
 })();
 </script>
 

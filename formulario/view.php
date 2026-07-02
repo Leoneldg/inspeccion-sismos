@@ -57,7 +57,7 @@ function fila($label, $valor) {
     </div>
 </div>
 
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
+<div class="split-grid cols-21">
 <div>
     <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><h2><i class="bi bi-building"></i> Identificación y ubicación</h2></div>
