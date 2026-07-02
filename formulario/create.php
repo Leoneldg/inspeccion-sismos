@@ -492,6 +492,96 @@ include __DIR__ . '/../includes/header.php';
     window.addEventListener('sismos:layout-change', () => {
         if (mapaUbicacion) mapaUbicacion.invalidateSize();
     });
+
+    // ---- Envío con soporte offline ----
+    const form = document.getElementById('form-inspeccion');
+    const btnGuardar = document.getElementById('btn-guardar');
+    const textoOriginalBtn = btnGuardar.innerHTML;
+    const INDEX_URL = '<?= APP_URL_BASE ?>formulario/index.php';
+
+    function mostrarConfirmacionOffline() {
+        // OJO: no navegamos a otra página — si de verdad no hay señal, esa
+        // navegación tampoco cargaría. La confirmación queda en esta misma
+        // página; el usuario decide cuándo volver al listado.
+        const wizard = form;
+        wizard.style.display = 'none';
+        const aviso = document.createElement('div');
+        aviso.className = 'card';
+        aviso.style.padding = '32px';
+        aviso.style.textAlign = 'center';
+        aviso.innerHTML = `
+            <div style="font-size:40px;color:var(--amarillo);margin-bottom:10px;"><i class="bi bi-cloud-arrow-up"></i></div>
+            <h2 style="margin:0 0 8px;">Guardado localmente</h2>
+            <p class="text-sm text-muted" style="max-width:420px;margin:0 auto 20px;">
+                No hay conexión en este momento. La inspección quedó guardada en este
+                dispositivo y se subirá sola en cuanto vuelva la señal (no hace falta
+                que hagas nada más).
+            </p>
+            <div class="flex gap-8" style="justify-content:center;">
+                <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Registrar otra</a>
+                <a href="${INDEX_URL}" class="btn btn-outline">Volver al listado</a>
+            </div>
+        `;
+        wizard.after(aviso);
+    }
+
+    async function guardarOffline() {
+        const formData = new FormData(form);
+        await window.SismosOffline.guardarPendiente(form.action, formData, {
+            nombre_edificio: (document.querySelector('[name="nombre_edificio"]') || {}).value || '',
+        });
+        await window.SismosOffline.actualizarBadge();
+        mostrarConfirmacionOffline();
+    }
+
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const invalid = form.querySelector(':invalid');
+        if (invalid) {
+            // El campo inválido puede estar en un paso distinto al actual
+            // (p. ej. si se saltó un paso con los números de arriba). Si no
+            // navegamos ahí primero, reportValidity() no muestra nada
+            // porque el campo está oculto (display:none).
+            const pane = invalid.closest('.wizard-pane');
+            if (pane && !pane.classList.contains('active')) {
+                current = +pane.dataset.pane;
+                render();
+            }
+            invalid.reportValidity();
+            return;
+        }
+
+        btnGuardar.disabled = true;
+
+        if (!navigator.onLine) {
+            btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
+            try {
+                await guardarOffline();
+            } catch (err) {
+                btnGuardar.disabled = false;
+                btnGuardar.innerHTML = textoOriginalBtn;
+                alert('No se pudo guardar localmente. Verifica que el navegador permita almacenamiento (IndexedDB).');
+            }
+            return;
+        }
+
+        btnGuardar.innerHTML = '<i class="bi bi-arrow-repeat"></i> Guardando…';
+        try {
+            const formData = new FormData(form);
+            const resp = await fetch(form.action, { method: 'POST', body: formData, credentials: 'same-origin' });
+            window.location.href = resp.redirected ? resp.url : INDEX_URL;
+        } catch (err) {
+            // La red falló justo al enviar (típico de señal intermitente): no se pierde nada.
+            btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
+            try {
+                await guardarOffline();
+            } catch (err2) {
+                btnGuardar.disabled = false;
+                btnGuardar.innerHTML = textoOriginalBtn;
+                alert('Se perdió la conexión y no se pudo guardar localmente. Intenta de nuevo.');
+            }
+        }
+    });
 })();
 </script>
 

@@ -22,6 +22,10 @@ $flashes = obtenerFlashes();
 <link rel="stylesheet" href="<?= APP_URL_BASE ?>assets/css/style.css?v=<?= ASSET_VERSION ?>">
 </head>
 <body>
+<div class="offline-banner">
+    <i class="bi bi-wifi-off"></i>
+    Sin conexión: lo que guardes se sube automáticamente al recuperar señal.
+</div>
 <script>
     // Aplica el estado colapsado del sidebar ANTES de pintar, evitando parpadeo.
     if (localStorage.getItem('sidebar_collapsed') === '1') {
@@ -87,6 +91,10 @@ $flashes = obtenerFlashes();
                     <div class="title"><?= e($pageTitle) ?></div>
                     <?php if ($pageSubtitle): ?><div class="subtitle"><?= e($pageSubtitle) ?></div><?php endif; ?>
                 </div>
+            </div>
+            <div class="pendientes-offline oculto-offline" data-pendientes-offline-wrap title="Inspecciones guardadas localmente esperando señal para subirse">
+                <i class="bi bi-cloud-arrow-up"></i>
+                <span data-pendientes-offline>0</span> por subir
             </div>
         </div>
         <div class="content">

@@ -50,7 +50,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="tv-kpi-grid" style="margin-bottom:20px;">
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-people-fill"></i></div><div><div class="num" id="kpi-familias">—</div><div class="lbl">Familias</div></div></div>
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-fill"></i></div><div><div class="num" id="kpi-hombres">—</div><div class="lbl">Hombres</div></div></div>
-    <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-dress"></i></div><div><div class="num" id="kpi-mujeres">—</div><div class="lbl">Mujeres</div></div></div>
+    <div class="tv-kpi-card"><div class="icon"><i class="bi bi-gender-female"></i></div><div><div class="num" id="kpi-mujeres">—</div><div class="lbl">Mujeres</div></div></div>
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-emoji-smile-fill"></i></div><div><div class="num" id="kpi-ninos">—</div><div class="lbl">Niños</div></div></div>
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-wheelchair"></i></div><div><div class="num" id="kpi-mreducida">—</div><div class="lbl">M. Reducida</div></div></div>
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-walking"></i></div><div><div class="num" id="kpi-terceraedad">—</div><div class="lbl">3ra. Edad</div></div></div>
@@ -58,7 +58,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="tv-kpi-card"><div class="icon"><i class="bi bi-heart-fill"></i></div><div><div class="num" id="kpi-mascotas">—</div><div class="lbl">Mascotas</div></div></div>
 </div>
 
-<div class="split-grid cols-10-14 align-start">
+<div class="split-grid cols-10-14 align-start dashboard-chart-map">
     <div class="card">
         <div class="card-header">
             <h2 class="tv-section-title"><i class="bi bi-bar-chart-fill"></i> Estado de acceso a la edificación</h2>
