@@ -1,0 +1,9 @@
+# Evita la ejecución de scripts dentro de la carpeta de archivos subidos
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<FilesMatch "\.(php|php\d|phtml|pl|py|cgi|sh)$">
+    Require all denied
+</FilesMatch>
+Options -ExecCGI -Indexes
+AddType text/plain .php .phtml .pl .py .cgi .sh
