@@ -99,8 +99,15 @@ function catalogoCategoriasFoto(): array
 // ---------------------------------------------------------------------
 // Registro fotográfico
 // ---------------------------------------------------------------------
-const FOTO_MAX_BYTES = 8 * 1024 * 1024; // 8 MB por imagen
+const FOTO_MAX_BYTES = 8 * 1024 * 1024; // 8 MB por imagen (antes de comprimir)
 const FOTO_EXT_PERMITIDAS = ['jpg', 'jpeg', 'png', 'webp'];
+
+// Compresión: bajamos resolución y calidad lo justo para que el registro
+// fotográfico no infle la base de datos ni el disco del servidor, sin que
+// se note a simple vista (no es para "destruir" la foto, solo aligerarla).
+const FOTO_LADO_MAXIMO   = 1920; // px — nada se guarda más grande que esto por su lado mayor
+const FOTO_CALIDAD_JPEG  = 78;   // 0-100 (78 es un buen punto medio calidad/peso)
+const FOTO_CALIDAD_WEBP  = 78;   // 0-100
 
 /**
  * Reorganiza el arreglo anidado de $_FILES['fotos'] (estructura PHP nativa)
@@ -140,6 +147,149 @@ function tablaFotosExiste(): bool
 }
 
 /**
+ * Recomprime una imagen ya guardada en disco: la reescala si es más grande
+ * de FOTO_LADO_MAXIMO por su lado mayor, corrige la rotación EXIF típica de
+ * fotos de celular, y la reguarda con calidad reducida (JPEG/WEBP) o
+ * compresión sin pérdida (PNG). Si algo falla o GD no está disponible,
+ * deja el archivo original tal cual (nunca rompe la subida por esto).
+ *
+ * Devuelve el nombre de archivo final (puede cambiar de extensión si una
+ * PNG sin transparencia se convierte a JPEG para pesar mucho menos).
+ */
+function comprimirImagenEnDisco(string $rutaAbsoluta, string $ext): string
+{
+    $nombreArchivo = basename($rutaAbsoluta);
+
+    if (!function_exists('imagecreatetruecolor')) {
+        return $nombreArchivo; // GD no disponible en este servidor: no tocamos el archivo
+    }
+
+    $ext = strtolower($ext);
+    try {
+        $info = @getimagesize($rutaAbsoluta);
+        if ($info === false) {
+            return $nombreArchivo;
+        }
+        [$anchoOriginal, $altoOriginal, $tipo] = $info;
+
+        // Cargar la imagen según su tipo real (no confiar solo en la extensión del nombre)
+        $origen = match ($tipo) {
+            IMAGETYPE_JPEG => @imagecreatefromjpeg($rutaAbsoluta),
+            IMAGETYPE_PNG  => @imagecreatefrompng($rutaAbsoluta),
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($rutaAbsoluta) : false,
+            default        => false,
+        };
+        if (!$origen) {
+            return $nombreArchivo;
+        }
+
+        // Corrige la rotación si el celular guardó la foto "acostada" con
+        // una bandera EXIF en vez de rotar los píxeles de verdad.
+        if ($tipo === IMAGETYPE_JPEG && function_exists('exif_read_data') && function_exists('imagerotate')) {
+            $exif = @exif_read_data($rutaAbsoluta);
+            $orientacion = $exif['Orientation'] ?? 1;
+            $origen = match ($orientacion) {
+                3 => imagerotate($origen, 180, 0),
+                6 => imagerotate($origen, -90, 0),
+                8 => imagerotate($origen, 90, 0),
+                default => $origen,
+            };
+            $anchoOriginal = imagesx($origen);
+            $altoOriginal  = imagesy($origen);
+        }
+
+        // Reescalar si excede el lado máximo permitido
+        $ladoMayor = max($anchoOriginal, $altoOriginal);
+        if ($ladoMayor > FOTO_LADO_MAXIMO) {
+            $factor = FOTO_LADO_MAXIMO / $ladoMayor;
+            $anchoNuevo = max(1, (int)round($anchoOriginal * $factor));
+            $altoNuevo  = max(1, (int)round($altoOriginal * $factor));
+
+            $destino = imagecreatetruecolor($anchoNuevo, $altoNuevo);
+            if ($tipo === IMAGETYPE_PNG || $tipo === IMAGETYPE_WEBP) {
+                imagealphablending($destino, false);
+                imagesavealpha($destino, true);
+            }
+            imagecopyresampled($destino, $origen, 0, 0, 0, 0, $anchoNuevo, $altoNuevo, $anchoOriginal, $altoOriginal);
+            imagedestroy($origen);
+            $origen = $destino;
+        }
+
+        // ¿La PNG tiene transparencia real? Si no, conviene pasarla a JPEG:
+        // una "foto" guardada como PNG pesa varias veces más sin ganar nada.
+        $tienenAlpha = false;
+        if ($tipo === IMAGETYPE_PNG) {
+            $tienenAlpha = detectarTransparenciaPng($origen);
+        }
+
+        $rutaSinExt = preg_replace('/\.[^.]+$/', '', $rutaAbsoluta);
+        $nombreFinal = $nombreArchivo;
+        $ok = false;
+
+        if ($tipo === IMAGETYPE_WEBP && function_exists('imagewebp')) {
+            $ok = imagewebp($origen, $rutaAbsoluta, FOTO_CALIDAD_WEBP);
+        } elseif ($tipo === IMAGETYPE_PNG && $tienenAlpha) {
+            $ok = imagepng($origen, $rutaAbsoluta, 6); // 0-9, compresión sin pérdida
+        } elseif ($tipo === IMAGETYPE_PNG) {
+            // PNG sin transparencia: probamos JPEG (normalmente mucho más
+            // liviano para fotos) y nos quedamos con lo que pese menos, para
+            // no arriesgarnos a que en algún caso raro salga más pesado.
+            // Aplanamos sobre fondo blanco primero: si quedó algún resto de
+            // transparencia en los bordes (aunque no se haya detectado como
+            // "con transparencia"), evita que salga con bordes oscuros.
+            $planaParaJpeg = imagecreatetruecolor(imagesx($origen), imagesy($origen));
+            imagefill($planaParaJpeg, 0, 0, imagecolorallocate($planaParaJpeg, 255, 255, 255));
+            imagecopy($planaParaJpeg, $origen, 0, 0, 0, 0, imagesx($origen), imagesy($origen));
+
+            $rutaJpegTmp = $rutaSinExt . '_tmp.jpg';
+            imagejpeg($planaParaJpeg, $rutaJpegTmp, FOTO_CALIDAD_JPEG);
+            imagedestroy($planaParaJpeg);
+            imagepng($origen, $rutaAbsoluta, 6);
+            clearstatcache();
+            if (is_file($rutaJpegTmp) && filesize($rutaJpegTmp) < filesize($rutaAbsoluta)) {
+                @unlink($rutaAbsoluta);
+                $rutaJpegFinal = $rutaSinExt . '.jpg';
+                rename($rutaJpegTmp, $rutaJpegFinal);
+                $nombreFinal = basename($rutaJpegFinal);
+            } else {
+                @unlink($rutaJpegTmp);
+            }
+            $ok = true;
+        } else {
+            // JPEG normal
+            $ok = imagejpeg($origen, $rutaAbsoluta, FOTO_CALIDAD_JPEG);
+        }
+
+        imagedestroy($origen);
+        return $ok ? $nombreFinal : $nombreArchivo;
+    } catch (Throwable $e) {
+        // Cualquier imprevisto: nos quedamos con el archivo tal cual se subió.
+        return $nombreArchivo;
+    }
+}
+
+/** true si la imagen GD tiene algún píxel con transparencia real (no 100% opaca). */
+function detectarTransparenciaPng($imagen): bool
+{
+    $ancho = imagesx($imagen);
+    $alto  = imagesy($imagen);
+    // Muestreo por rejilla en vez de píxel a píxel: suficiente para decidir
+    // y mucho más rápido en imágenes grandes.
+    $pasoX = max(1, (int)($ancho / 60));
+    $pasoY = max(1, (int)($alto / 60));
+    for ($x = 0; $x < $ancho; $x += $pasoX) {
+        for ($y = 0; $y < $alto; $y += $pasoY) {
+            $rgba = imagecolorat($imagen, $x, $y);
+            $alpha = ($rgba >> 24) & 0x7F; // 0 = opaco, 127 = totalmente transparente en GD
+            if ($alpha > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
  * Valida, mueve a disco y registra en la base de datos una foto de inspección.
  * Devuelve true si se guardó correctamente.
  */
@@ -175,6 +325,11 @@ function guardarFotoInspeccion(int $inspeccionId, string $categoria, array $arch
     if (!move_uploaded_file($archivo['tmp_name'], $destino)) {
         return false;
     }
+
+    // Baja resolución/calidad para no inflar el servidor. Si por lo que sea
+    // no se puede comprimir, se guarda igual la foto original: nunca se
+    // pierde una subida por culpa de esto.
+    $nombreArchivo = comprimirImagenEnDisco($destino, $ext);
 
     $rutaRelativa = 'uploads/inspecciones/' . $inspeccionId . '/' . $nombreArchivo;
 
