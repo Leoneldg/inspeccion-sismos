@@ -349,34 +349,50 @@ function detectarTransparenciaPng($imagen): bool
  */
 function guardarFotoInspeccionRapido(int $inspeccionId, string $categoria, array $archivo): ?int
 {
+    $etiqueta = "[fotos] inspeccion=$inspeccionId categoria=$categoria nombre=" . ($archivo['name'] ?? '?');
+
     if (!tablaFotosExiste()) {
-        return null; // instalación sin database/actualizacion_v2.sql aplicado
+        error_log("$etiqueta -> FALLÓ: no existe la tabla inspeccion_fotos (falta database/actualizacion_v2.sql)");
+        return null;
     }
     if ($archivo['error'] !== UPLOAD_ERR_OK) {
+        error_log("$etiqueta -> FALLÓ: código de error de subida PHP = {$archivo['error']} (ver UPLOAD_ERR_* — 1/2 = excede upload_max_filesize/post_max_size, 6 = falta carpeta temporal, 7 = no se pudo escribir en disco temporal)");
         return null;
     }
     if ($archivo['size'] > FOTO_MAX_BYTES) {
+        error_log("$etiqueta -> FALLÓ: pesa {$archivo['size']} bytes, supera el máximo permitido por la app (" . FOTO_MAX_BYTES . ' bytes)');
         return null;
     }
     $ext = strtolower(pathinfo($archivo['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, FOTO_EXT_PERMITIDAS, true)) {
+        error_log("$etiqueta -> FALLÓ: extensión \"$ext\" no permitida");
         return null;
     }
     // Verifica que el contenido sea realmente una imagen
     $info = @getimagesize($archivo['tmp_name']);
     if ($info === false) {
+        error_log("$etiqueta -> FALLÓ: getimagesize() no pudo leer \"{$archivo['tmp_name']}\" como imagen (¿archivo temporal corrupto, incompleto, o ya no existe?)");
         return null;
     }
 
     $dir = rtrim(UPLOAD_DIR, '/') . '/' . $inspeccionId . '/';
     if (!is_dir($dir)) {
-        mkdir($dir, 0775, true);
+        if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
+            error_log("$etiqueta -> FALLÓ: no se pudo crear el directorio \"$dir\" (revisar permisos del usuario que corre PHP-FPM sobre " . UPLOAD_DIR . ')');
+            return null;
+        }
+    }
+    if (!is_writable($dir)) {
+        error_log("$etiqueta -> FALLÓ: el directorio \"$dir\" no tiene permiso de escritura para el usuario que corre PHP-FPM");
+        return null;
     }
 
     $nombreArchivo = $categoria . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
     $destino = $dir . $nombreArchivo;
 
     if (!move_uploaded_file($archivo['tmp_name'], $destino)) {
+        $err = error_get_last();
+        error_log("$etiqueta -> FALLÓ: move_uploaded_file() devolvió false al mover de \"{$archivo['tmp_name']}\" a \"$destino\". Último error PHP: " . ($err['message'] ?? 'ninguno'));
         return null;
     }
 

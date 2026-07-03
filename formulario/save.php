@@ -18,6 +18,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// Si el navegador mandó contenido (Content-Length > 0) pero PHP no recibió
+// NADA en $_POST ni $_FILES, es la huella clásica de que se superó
+// post_max_size o upload_max_filesize: PHP descarta TODO el request en
+// silencio (sin marcar error en ningún campo puntual). Sin este log, esto
+// se ve igual que "el usuario dejó campos vacíos".
+if (empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    error_log('[save.php] POST y FILES vacíos con Content-Length=' . $_SERVER['CONTENT_LENGTH']
+        . ' bytes — se superó post_max_size (actual: ' . ini_get('post_max_size')
+        . ') o upload_max_filesize (actual: ' . ini_get('upload_max_filesize')
+        . '). El request se descartó completo, incluyendo los datos del formulario, no solo la foto.');
+    flash('error', 'La foto es demasiado pesada para el límite actual del servidor. Contacte al administrador.');
+    header('Location: ' . APP_URL_BASE . 'formulario/index.php');
+    exit;
+}
+
 if (!csrfValidar($_POST['csrf'] ?? null)) {
     flash('error', 'La sesión del formulario expiró, intente nuevamente.');
     header('Location: ' . APP_URL_BASE . 'formulario/index.php');
