@@ -130,7 +130,7 @@ CREATE TABLE inspecciones (
     tipo_estructural              VARCHAR(100) DEFAULT NULL,
     material_acero               TINYINT(1) NOT NULL DEFAULT 0,
     material_conexiones          TINYINT(1) NOT NULL DEFAULT 0,
-    material_mamposteria         TINYINT(1) NOT NULL DEFAULT 0,
+    material_mamposteria         TINYINT(1) DEFAULT 0,
     material_otros                TINYINT(1) NOT NULL DEFAULT 0,
     material_otros_especifique   VARCHAR(255) DEFAULT NULL,
 
