@@ -75,6 +75,24 @@ body.sin-conexion .offline-banner { display: block; }
 }
 .pendientes-offline.oculto-offline { display: none; }
 
+.btn-reintentar-offline {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 6px;
+    padding: 3px 10px;
+    border: none;
+    border-radius: 999px;
+    background: #fde3e3;
+    color: #b42318;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-reintentar-offline:hover { background: #fbcfcf; }
+.btn-reintentar-offline.oculto-offline { display: none; }
+
 html, body {
     margin: 0;
     padding: 0;

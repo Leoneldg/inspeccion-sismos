@@ -147,6 +147,57 @@ function tablaFotosExiste(): bool
 }
 
 /**
+ * true si existe la tabla envios_formulario (deduplicación de envíos, usada
+ * por el modo offline para no crear inspecciones duplicadas si un envío se
+ * reintenta). Instalaciones sin database/actualizacion_v3.sql aplicado
+ * simplemente no tienen deduplicación (se degrada de forma segura, igual
+ * que tablaFotosExiste()).
+ */
+function tablaEnviosExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        $existe = (bool)db()->query("SHOW TABLES LIKE 'envios_formulario'")->fetch();
+    }
+    return $existe;
+}
+
+/**
+ * Si este envío (identificado por un ID generado en el navegador) ya fue
+ * procesado antes, devuelve el ID de la inspección resultante. Sirve para
+ * que un reintento del modo offline (o un doble-clic, o un fetch() que
+ * "pareció" fallar pero sí llegó a procesarse en el servidor) no cree una
+ * inspección duplicada ni vuelva a subir las mismas fotos.
+ */
+function envioYaProcesado(?string $clientSubmissionId): ?int
+{
+    if (!$clientSubmissionId || !tablaEnviosExiste()) {
+        return null;
+    }
+    $stmt = db()->prepare('SELECT inspeccion_id FROM envios_formulario WHERE client_submission_id = :id');
+    $stmt->execute(['id' => $clientSubmissionId]);
+    $row = $stmt->fetch();
+    return $row ? (int)$row['inspeccion_id'] : null;
+}
+
+/** Registra que un envío (client_submission_id) ya fue procesado, para deduplicar reintentos. */
+function registrarEnvioProcesado(?string $clientSubmissionId, int $inspeccionId): void
+{
+    if (!$clientSubmissionId || !tablaEnviosExiste()) {
+        return;
+    }
+    try {
+        db()->prepare(
+            'INSERT INTO envios_formulario (client_submission_id, inspeccion_id) VALUES (:id, :insp)
+             ON DUPLICATE KEY UPDATE inspeccion_id = inspeccion_id'
+        )->execute(['id' => $clientSubmissionId, 'insp' => $inspeccionId]);
+    } catch (Throwable $e) {
+        // No interrumpir el guardado si esto falla (p. ej. condición de carrera con
+        // el UNIQUE de client_submission_id): la deduplicación es un plus, no algo crítico.
+    }
+}
+
+/**
  * Recomprime una imagen ya guardada en disco: la reescala si es más grande
  * de FOTO_LADO_MAXIMO por su lado mayor, corrige la rotación EXIF típica de
  * fotos de celular, y la reguarda con calidad reducida (JPEG/WEBP) o
@@ -231,30 +282,23 @@ function comprimirImagenEnDisco(string $rutaAbsoluta, string $ext): string
         } elseif ($tipo === IMAGETYPE_PNG && $tienenAlpha) {
             $ok = imagepng($origen, $rutaAbsoluta, 6); // 0-9, compresión sin pérdida
         } elseif ($tipo === IMAGETYPE_PNG) {
-            // PNG sin transparencia: probamos JPEG (normalmente mucho más
-            // liviano para fotos) y nos quedamos con lo que pese menos, para
-            // no arriesgarnos a que en algún caso raro salga más pesado.
-            // Aplanamos sobre fondo blanco primero: si quedó algún resto de
-            // transparencia en los bordes (aunque no se haya detectado como
-            // "con transparencia"), evita que salga con bordes oscuros.
+            // PNG sin transparencia: para una foto (no un screenshot/diseño),
+            // JPEG es casi siempre mucho más liviano, así que convertimos
+            // directo en vez de codificar en ambos formatos y comparar pesos
+            // (eso duplicaba el trabajo de CPU por cada foto PNG). Aplanamos
+            // sobre fondo blanco primero para evitar bordes oscuros si quedó
+            // algún resto de transparencia que no se detectó como tal.
             $planaParaJpeg = imagecreatetruecolor(imagesx($origen), imagesy($origen));
             imagefill($planaParaJpeg, 0, 0, imagecolorallocate($planaParaJpeg, 255, 255, 255));
             imagecopy($planaParaJpeg, $origen, 0, 0, 0, 0, imagesx($origen), imagesy($origen));
 
-            $rutaJpegTmp = $rutaSinExt . '_tmp.jpg';
-            imagejpeg($planaParaJpeg, $rutaJpegTmp, FOTO_CALIDAD_JPEG);
+            $rutaJpegFinal = $rutaSinExt . '.jpg';
+            $ok = imagejpeg($planaParaJpeg, $rutaJpegFinal, FOTO_CALIDAD_JPEG);
             imagedestroy($planaParaJpeg);
-            imagepng($origen, $rutaAbsoluta, 6);
-            clearstatcache();
-            if (is_file($rutaJpegTmp) && filesize($rutaJpegTmp) < filesize($rutaAbsoluta)) {
+            if ($ok) {
                 @unlink($rutaAbsoluta);
-                $rutaJpegFinal = $rutaSinExt . '.jpg';
-                rename($rutaJpegTmp, $rutaJpegFinal);
                 $nombreFinal = basename($rutaJpegFinal);
-            } else {
-                @unlink($rutaJpegTmp);
             }
-            $ok = true;
         } else {
             // JPEG normal
             $ok = imagejpeg($origen, $rutaAbsoluta, FOTO_CALIDAD_JPEG);
@@ -293,25 +337,35 @@ function detectarTransparenciaPng($imagen): bool
  * Valida, mueve a disco y registra en la base de datos una foto de inspección.
  * Devuelve true si se guardó correctamente.
  */
-function guardarFotoInspeccion(int $inspeccionId, string $categoria, array $archivo): bool
+/**
+ * Valida y mueve la foto a disco, y crea su registro en la base de datos
+ * CON EL ARCHIVO ORIGINAL (sin comprimir todavía). Esto es intencional:
+ * mover un archivo y hacer un INSERT es rápido (milisegundos); comprimir con
+ * GD es lo que puede tardar segundos por foto. Separar ambos pasos permite
+ * responder al usuario de inmediato y comprimir después, sin arriesgar la
+ * subida (la foto ya quedó guardada y visible con su versión original).
+ *
+ * Devuelve el ID de la foto insertada, o null si no se guardó.
+ */
+function guardarFotoInspeccionRapido(int $inspeccionId, string $categoria, array $archivo): ?int
 {
     if (!tablaFotosExiste()) {
-        return false; // instalación sin database/actualizacion_v2.sql aplicado
+        return null; // instalación sin database/actualizacion_v2.sql aplicado
     }
     if ($archivo['error'] !== UPLOAD_ERR_OK) {
-        return false;
+        return null;
     }
     if ($archivo['size'] > FOTO_MAX_BYTES) {
-        return false;
+        return null;
     }
     $ext = strtolower(pathinfo($archivo['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, FOTO_EXT_PERMITIDAS, true)) {
-        return false;
+        return null;
     }
     // Verifica que el contenido sea realmente una imagen
     $info = @getimagesize($archivo['tmp_name']);
     if ($info === false) {
-        return false;
+        return null;
     }
 
     $dir = rtrim(UPLOAD_DIR, '/') . '/' . $inspeccionId . '/';
@@ -323,36 +377,84 @@ function guardarFotoInspeccion(int $inspeccionId, string $categoria, array $arch
     $destino = $dir . $nombreArchivo;
 
     if (!move_uploaded_file($archivo['tmp_name'], $destino)) {
-        return false;
+        return null;
     }
-
-    // Baja resolución/calidad para no inflar el servidor. Si por lo que sea
-    // no se puede comprimir, se guarda igual la foto original: nunca se
-    // pierde una subida por culpa de esto.
-    $nombreArchivo = comprimirImagenEnDisco($destino, $ext);
 
     $rutaRelativa = 'uploads/inspecciones/' . $inspeccionId . '/' . $nombreArchivo;
 
-    db()->prepare(
+    $stmt = db()->prepare(
         'INSERT INTO inspeccion_fotos (inspeccion_id, categoria, ruta, nombre_original) VALUES (:i, :c, :r, :n)'
-    )->execute([
+    );
+    $stmt->execute([
         'i' => $inspeccionId,
         'c' => $categoria,
         'r' => $rutaRelativa,
         'n' => $archivo['name'],
     ]);
 
-    return true;
+    return (int)db()->lastInsertId();
 }
 
-/** Procesa todas las categorías de $_FILES['fotos'] para una inspección. */
-function guardarFotosInspeccion(int $inspeccionId, array $filesField): void
+/**
+ * Procesa todas las categorías de $_FILES['fotos'] para una inspección,
+ * guardando cada archivo tal cual (sin comprimir). Devuelve los IDs de las
+ * fotos insertadas, para poder comprimirlas después con comprimirFotoPorId().
+ *
+ * @return int[]
+ */
+function guardarFotosInspeccion(int $inspeccionId, array $filesField): array
 {
+    $ids = [];
     $agrupadas = normalizarArchivosSubidos($filesField);
     foreach ($agrupadas as $categoria => $archivos) {
         foreach ($archivos as $archivo) {
-            guardarFotoInspeccion($inspeccionId, $categoria, $archivo);
+            $id = guardarFotoInspeccionRapido($inspeccionId, $categoria, $archivo);
+            if ($id !== null) {
+                $ids[] = $id;
+            }
         }
+    }
+    return $ids;
+}
+
+/**
+ * Comprime en disco una foto ya guardada (ver guardarFotoInspeccionRapido)
+ * y actualiza su ruta en la base de datos si el nombre de archivo cambió
+ * (p. ej. una PNG que se convirtió a JPEG por pesar menos). Pensada para
+ * llamarse DESPUÉS de responder al navegador (ver formulario/save.php),
+ * para que la compresión nunca sea lo que haga lenta la respuesta.
+ *
+ * Si algo falla, no rompe nada: la foto original ya está guardada y visible
+ * desde antes de llamar a esta función.
+ */
+function comprimirFotoPorId(int $fotoId): void
+{
+    if (!tablaFotosExiste()) {
+        return;
+    }
+    try {
+        $stmt = db()->prepare('SELECT ruta FROM inspeccion_fotos WHERE id = :id');
+        $stmt->execute(['id' => $fotoId]);
+        $foto = $stmt->fetch();
+        if (!$foto) {
+            return;
+        }
+        $rutaAbsoluta = __DIR__ . '/../' . $foto['ruta'];
+        if (!is_file($rutaAbsoluta)) {
+            return;
+        }
+        $extOriginal = strtolower(pathinfo($rutaAbsoluta, PATHINFO_EXTENSION));
+        $nombreFinal = comprimirImagenEnDisco($rutaAbsoluta, $extOriginal);
+        $nombreOriginal = basename($rutaAbsoluta);
+
+        if ($nombreFinal !== $nombreOriginal) {
+            $rutaNueva = preg_replace('/[^\/]+$/', $nombreFinal, $foto['ruta']);
+            db()->prepare('UPDATE inspeccion_fotos SET ruta = :r WHERE id = :id')
+                ->execute(['r' => $rutaNueva, 'id' => $fotoId]);
+        }
+    } catch (Throwable $e) {
+        // Igual que antes: cualquier imprevisto en la compresión no debe
+        // afectar la foto ya guardada.
     }
 }
 

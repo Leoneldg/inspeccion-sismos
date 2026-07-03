@@ -4,6 +4,13 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+// Guardar/editar una inspección con varias fotos implica trabajo de CPU
+// (compresión de imágenes) que puede tardar más que el límite por defecto
+// de PHP en algunos servidores (30s). Le damos más margen aquí; el trabajo
+// pesado de verdad (comprimir) igual se hace después de responder al
+// navegador, ver más abajo.
+@set_time_limit(120);
+
 requireLogin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -19,6 +26,19 @@ if (!csrfValidar($_POST['csrf'] ?? null)) {
 
 $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
 requierePermiso('formulario', $id ? 'editar' : 'crear');
+
+// Deduplicación de envíos (modo offline / reintentos de red): si este mismo
+// envío ya se procesó antes -aunque el navegador haya interpretado esa vez
+// como "fallo de red" por un timeout- no lo volvemos a procesar. Evita crear
+// inspecciones duplicadas o volver a subir las mismas fotos al reintentar.
+$clientSubmissionId = trim((string)($_POST['client_submission_id'] ?? '')) ?: null;
+if (!$id && $clientSubmissionId) {
+    $idExistente = envioYaProcesado($clientSubmissionId);
+    if ($idExistente) {
+        header('Location: ' . APP_URL_BASE . 'formulario/view.php?id=' . $idExistente);
+        exit;
+    }
+}
 
 // Validaciones mínimas de campos requeridos
 $errores = [];
@@ -162,19 +182,55 @@ try {
         flash('success', 'Inspección registrada correctamente con el código ' . $campos['codigo'] . '.');
     }
 
-    // Eliminación de fotos marcadas (solo edición)
+    // A partir de aquí, el registro principal YA está guardado. Si algo
+    // pasa con las fotos (incluso un corte de conexión del cliente), la
+    // inspección en sí no se pierde ni queda a medias.
+    registrarEnvioProcesado($clientSubmissionId, (int)$id);
+
+    // Eliminación de fotos marcadas (solo edición) — es rápido (solo
+    // borra archivo + fila), se hace antes de responder.
     if (!empty($_POST['eliminar_foto']) && is_array($_POST['eliminar_foto'])) {
         foreach ($_POST['eliminar_foto'] as $fotoId) {
             eliminarFotoInspeccion((int)$fotoId, (int)$id);
         }
     }
 
-    // Registro fotográfico nuevo
+    // Registro fotográfico nuevo: se guarda YA (archivo movido + fila en BD,
+    // visible de inmediato en la ficha), pero SIN comprimir todavía. Eso es
+    // lo que puede tardar varios segundos con varias fotos, y es la causa
+    // más probable de que el guardado "se sienta lento" en producción.
+    $fotoIdsPendientesDeComprimir = [];
     if (!empty($_FILES['fotos'])) {
-        guardarFotosInspeccion((int)$id, $_FILES['fotos']);
+        $fotoIdsPendientesDeComprimir = guardarFotosInspeccion((int)$id, $_FILES['fotos']);
     }
 
-    header('Location: ' . APP_URL_BASE . 'formulario/view.php?id=' . $id);
+    $destino = APP_URL_BASE . 'formulario/view.php?id=' . $id;
+
+    // Si el servidor corre bajo PHP-FPM (lo normal en producción), podemos
+    // enviarle la respuesta al navegador YA MISMO y seguir ejecutando en
+    // segundo plano para comprimir las fotos. El usuario ve el guardado
+    // como instantáneo; la compresión (que solo aligera el archivo, la foto
+    // original ya quedó guardada y visible) termina segundos después sin
+    // que nadie tenga que esperarla.
+    if ($fotoIdsPendientesDeComprimir && function_exists('fastcgi_finish_request')) {
+        header('Location: ' . $destino);
+        // Cierra la conexión con el navegador; el script sigue corriendo.
+        session_write_close();
+        fastcgi_finish_request();
+
+        foreach ($fotoIdsPendientesDeComprimir as $fotoId) {
+            comprimirFotoPorId($fotoId);
+        }
+        exit;
+    }
+
+    // Sin PHP-FPM (p. ej. servidor de desarrollo con `php -S`, o mod_php):
+    // comprimimos de forma síncrona, como antes.
+    foreach ($fotoIdsPendientesDeComprimir as $fotoId) {
+        comprimirFotoPorId($fotoId);
+    }
+
+    header('Location: ' . $destino);
     exit;
 
 } catch (Throwable $e) {

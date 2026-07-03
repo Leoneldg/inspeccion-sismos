@@ -95,6 +95,11 @@ $flashes = obtenerFlashes();
             <div class="pendientes-offline oculto-offline" data-pendientes-offline-wrap title="Inspecciones guardadas localmente esperando señal para subirse">
                 <i class="bi bi-cloud-arrow-up"></i>
                 <span data-pendientes-offline>0</span> por subir
+                <button type="button" class="btn-reintentar-offline oculto-offline" data-pendientes-offline-error
+                        title="Algunas no se pudieron sincronizar automáticamente (sesión expirada u otro error). Click para reintentar."
+                        onclick="window.SismosOffline && window.SismosOffline.reintentarFallidos()">
+                    <i class="bi bi-exclamation-triangle-fill"></i> <span data-pendientes-offline-error-count>0</span> con error, reintentar
+                </button>
             </div>
         </div>
         <div class="content">

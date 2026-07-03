@@ -17,7 +17,13 @@ define('DB_PASS', getenv('DB_PASS') ?: '');
 // Aplicación
 // ---------------------------------------------------------------------
 define('APP_NAME', 'Inspección de Edificaciones Post-Sismo');
-define('APP_URL_BASE', '/inspecciones-sismos/'); // cambiar si se despliega en subcarpeta, ej: '/inspecciones-sismos/'
+// Ruta base donde se sirve la aplicación. Se puede fijar con la variable de
+// entorno APP_URL_BASE (recomendado en producción, para no tener que tocar
+// código si el despliegue cambia de subcarpeta o pasa a la raíz del
+// dominio); si no está definida, usa '/inspecciones-sismos/' por defecto.
+// IMPORTANTE: debe terminar en '/', y si se sirve desde la raíz del
+// dominio debe ser exactamente '/'.
+define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/inspecciones-sismos/');
 define('APP_TIMEZONE', 'America/Caracas');
 
 // ---------------------------------------------------------------------
@@ -45,12 +51,21 @@ date_default_timezone_set(APP_TIMEZONE);
 // Sesión segura
 // ---------------------------------------------------------------------
 if (session_status() === PHP_SESSION_NONE) {
+    // Este sistema se usa en campo con el modo offline (assets/js/offline.js):
+    // un inspector puede llenar el formulario sin señal y que el navegador
+    // recién lo envíe horas después, al volver la conexión. Si la sesión
+    // expira antes de eso (el default de PHP son ~24 minutos de
+    // inactividad), ese envío se rechaza por sesión/CSRF inválido y el modo
+    // offline lo reintenta sin éxito. Le damos 12 horas de margen.
+    $vidaSesionSegundos = 12 * 60 * 60;
+    ini_set('session.gc_maxlifetime', (string)$vidaSesionSegundos);
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_strict_mode', 1);
     if (!empty($_SERVER['HTTPS'])) {
         ini_set('session.cookie_secure', 1);
     }
     session_name('inspsismo_sess');
+    session_set_cookie_params($vidaSesionSegundos);
     session_start();
 }
 

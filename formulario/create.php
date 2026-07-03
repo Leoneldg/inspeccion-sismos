@@ -77,6 +77,11 @@ include __DIR__ . '/../includes/header.php';
 <form method="post" action="<?= APP_URL_BASE ?>formulario/save.php" id="form-inspeccion" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
 <?php if ($editId): ?><input type="hidden" name="id" value="<?= (int)$editId ?>"><?php endif; ?>
+<!-- Identificador único de este envío (generado en el navegador). Sirve para
+     que, si la señal se corta o el guardado tarda y el modo offline reintenta
+     más tarde, el servidor sepa que es el MISMO envío y no cree una
+     inspección duplicada ni vuelva a subir las mismas fotos. -->
+<input type="hidden" name="client_submission_id" id="client_submission_id">
 
 <div class="wizard-steps">
     <div class="step active" data-step="1">1. Profesionales</div>
@@ -498,6 +503,20 @@ include __DIR__ . '/../includes/header.php';
     const btnGuardar = document.getElementById('btn-guardar');
     const textoOriginalBtn = btnGuardar.innerHTML;
     const INDEX_URL = '<?= APP_URL_BASE ?>formulario/index.php';
+
+    // Un solo ID por "intento de guardado" de esta página: si el primer
+    // envío falla y se reintenta (offline o por red inestable), viaja el
+    // mismo ID, así el servidor puede reconocer que es un reintento y no
+    // duplicar nada. Si el usuario termina y arranca una inspección nueva
+    // (recarga la página), se genera uno distinto.
+    (function inicializarClientSubmissionId() {
+        const input = document.getElementById('client_submission_id');
+        if (window.crypto && crypto.randomUUID) {
+            input.value = crypto.randomUUID();
+        } else {
+            input.value = 'csid-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+        }
+    })();
 
     function mostrarConfirmacionOffline() {
         // OJO: no navegamos a otra página — si de verdad no hay señal, esa
