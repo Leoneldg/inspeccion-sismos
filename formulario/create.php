@@ -34,12 +34,12 @@ function val($row, $key, $default = '') {
 }
 
 /** Imprime el bloque de subida de fotos + miniaturas existentes para una categoría dada. */
-function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes): void {
+function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes, bool $multiple = true, string $capture = 'environment'): void {
     $existentes = $fotosExistentes[$categoria] ?? [];
     ?>
     <div class="foto-input-box">
         <label><i class="bi bi-camera-fill"></i> <?= e($etiqueta) ?></label>
-        <input type="file" name="fotos[<?= e($categoria) ?>][]" accept="image/*" capture="environment" multiple>
+        <input type="file" name="fotos[<?= e($categoria) ?>][]" accept="image/*" capture="<?= e($capture) ?>"<?= $multiple ? ' multiple' : '' ?>>
         <?php if ($existentes): ?>
         <div class="foto-existente-grid">
             <?php foreach ($existentes as $f): ?>
@@ -106,6 +106,9 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>Teléfono</label><input name="ing1_telefono" class="form-control" value="<?= e(val($row,'ing1_telefono')) ?>"></div>
         <div class="field"><label>Profesión</label><input name="ing1_profesion" class="form-control" value="<?= e(val($row,'ing1_profesion')) ?>"></div>
         <div class="field"><label>N° de inscripción en el colegio de ingenieros</label><input name="ing1_inscripcion" class="form-control" value="<?= e(val($row,'ing1_inscripcion')) ?>"></div>
+    </div>
+    <div class="form-grid cols-2">
+        <?php bloqueFotos('foto_inspector', 'Foto del inspector (tipo carnet)', $fotosExistentes, false, 'user'); ?>
     </div>
 
     <div class="section-title"><i class="bi bi-person-badge"></i> Segundo profesional (opcional)</div>
@@ -382,6 +385,7 @@ include __DIR__ . '/../includes/header.php';
         <button type="submit" class="btn btn-accent" id="btn-guardar" style="display:none;"><i class="bi bi-save-fill"></i> Guardar inspección</button>
     </div>
 </div>
+<div class="progreso-guardado" id="progreso-guardado" aria-live="polite"></div>
 </div>
 </form>
 
@@ -502,7 +506,60 @@ include __DIR__ . '/../includes/header.php';
     const form = document.getElementById('form-inspeccion');
     const btnGuardar = document.getElementById('btn-guardar');
     const textoOriginalBtn = btnGuardar.innerHTML;
+    const cajaProgreso = document.getElementById('progreso-guardado');
     const INDEX_URL = '<?= APP_URL_BASE ?>formulario/index.php';
+    const PROGRESO_URL = '<?= APP_URL_BASE ?>formulario/progreso.php';
+
+    // ---- Badge de progreso (debajo del botón) ----
+    // Muestra en vivo qué parte del guardado ya terminó el servidor, para
+    // que la espera no se sienta como que "no está pasando nada". Se
+    // alimenta consultando formulario/progreso.php mientras el guardado
+    // real ocurre en paralelo — no es una animación simulada.
+    const ICONOS_PASO = {
+        pendiente:   '<i class="bi bi-circle"></i>',
+        en_progreso: '<i class="bi bi-arrow-repeat girando"></i>',
+        listo:       '<i class="bi bi-check-circle-fill"></i>',
+        error:       '<i class="bi bi-exclamation-circle-fill"></i>',
+    };
+
+    function renderizarProgreso(pasos) {
+        if (!pasos || !pasos.length) {
+            cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso">' + ICONOS_PASO.en_progreso + ' Enviando…</div>';
+            return;
+        }
+        cajaProgreso.innerHTML = pasos.map(function (p) {
+            const icono = ICONOS_PASO[p.estado] || ICONOS_PASO.pendiente;
+            return '<div class="paso-progreso ' + p.estado + '">' + icono + ' ' + p.texto + '</div>';
+        }).join('');
+    }
+
+    let pollingId = null;
+    function iniciarPollingProgreso(token) {
+        cajaProgreso.classList.add('activo');
+        renderizarProgreso(null); // feedback inmediato, antes de la primera respuesta del servidor
+        let intentos = 0;
+        pollingId = setInterval(async function () {
+            intentos++;
+            if (intentos > 240) { // ~2 minutos a 500ms: red de seguridad, no debería llegar aquí
+                detenerPollingProgreso();
+                return;
+            }
+            try {
+                const r = await fetch(PROGRESO_URL + '?token=' + encodeURIComponent(token), { credentials: 'same-origin' });
+                if (!r.ok) return;
+                const data = await r.json();
+                renderizarProgreso(data.pasos);
+            } catch (e) {
+                // Un fallo puntual de polling no es grave: se reintenta en el próximo tick.
+            }
+        }, 500);
+    }
+    function detenerPollingProgreso() {
+        if (pollingId) {
+            clearInterval(pollingId);
+            pollingId = null;
+        }
+    }
 
     // Un solo ID por "intento de guardado" de esta página: si el primer
     // envío falla y se reintenta (offline o por red inestable), viaja el
@@ -574,29 +631,40 @@ include __DIR__ . '/../includes/header.php';
 
         if (!navigator.onLine) {
             btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
+            cajaProgreso.classList.add('activo');
+            cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso"><i class="bi bi-cloud-arrow-up"></i> Sin conexión: guardando en este dispositivo…</div>';
             try {
                 await guardarOffline();
             } catch (err) {
                 btnGuardar.disabled = false;
                 btnGuardar.innerHTML = textoOriginalBtn;
+                cajaProgreso.classList.remove('activo');
+                cajaProgreso.innerHTML = '';
                 alert('No se pudo guardar localmente. Verifica que el navegador permita almacenamiento (IndexedDB).');
             }
             return;
         }
 
-        btnGuardar.innerHTML = '<i class="bi bi-arrow-repeat"></i> Guardando…';
+        btnGuardar.innerHTML = '<i class="bi bi-arrow-repeat girando"></i> Guardando…';
+        const tokenEnvio = document.getElementById('client_submission_id').value;
+        iniciarPollingProgreso(tokenEnvio);
         try {
             const formData = new FormData(form);
             const resp = await fetch(form.action, { method: 'POST', body: formData, credentials: 'same-origin' });
+            detenerPollingProgreso();
             window.location.href = resp.redirected ? resp.url : INDEX_URL;
         } catch (err) {
             // La red falló justo al enviar (típico de señal intermitente): no se pierde nada.
+            detenerPollingProgreso();
             btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
+            cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso"><i class="bi bi-cloud-arrow-up"></i> Sin conexión: guardando en este dispositivo…</div>';
             try {
                 await guardarOffline();
             } catch (err2) {
                 btnGuardar.disabled = false;
                 btnGuardar.innerHTML = textoOriginalBtn;
+                cajaProgreso.classList.remove('activo');
+                cajaProgreso.innerHTML = '';
                 alert('Se perdió la conexión y no se pudo guardar localmente. Intenta de nuevo.');
             }
         }

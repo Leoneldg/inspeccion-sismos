@@ -55,6 +55,26 @@ if (!$id && $clientSubmissionId) {
     }
 }
 
+// Progreso "en vivo" para mostrar en la pantalla mientras se guarda (ver
+// formulario/progreso.php, que el navegador consulta en paralelo). Se arma
+// la lista de pasos ahora, ANTES de validar nada, para que el usuario vea
+// feedback desde el primer instante tras apretar "Guardar".
+if ($clientSubmissionId) {
+    $totalFotosNuevas = contarArchivosSubidos($_FILES['fotos'] ?? []);
+    $pasos = [
+        ['clave' => 'validando', 'texto' => 'Validando datos', 'estado' => 'en_progreso'],
+        ['clave' => 'ficha', 'texto' => 'Guardando ficha técnica', 'estado' => 'pendiente'],
+    ];
+    if ($totalFotosNuevas > 0) {
+        $pasos[] = [
+            'clave' => 'fotos', 'texto' => "Guardando fotos (0 de $totalFotosNuevas)",
+            'estado' => 'pendiente', 'total' => $totalFotosNuevas, 'hechas' => 0,
+        ];
+    }
+    $pasos[] = ['clave' => 'listo', 'texto' => 'Listo', 'estado' => 'pendiente'];
+    progresoIniciar($clientSubmissionId, $pasos);
+}
+
 // Validaciones mínimas de campos requeridos
 $errores = [];
 foreach (['ing1_nombre', 'ing1_cedula', 'nombre_edificio', 'fecha_inspeccion', 'parroquia', 'decision_final'] as $req) {
@@ -63,10 +83,13 @@ foreach (['ing1_nombre', 'ing1_cedula', 'nombre_edificio', 'fecha_inspeccion', '
     }
 }
 if ($errores) {
+    progresoActualizar($clientSubmissionId, 'validando', 'error', implode(' ', $errores));
     flash('error', implode(' ', $errores));
     header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));
     exit;
 }
+progresoActualizar($clientSubmissionId, 'validando', 'listo');
+progresoActualizar($clientSubmissionId, 'ficha', 'en_progreso');
 
 $danosEstructurales = [];
 foreach (['columna', 'viga', 'muro', 'nodo', 'losa', 'mamposteria'] as $k) {
@@ -201,6 +224,7 @@ try {
     // pasa con las fotos (incluso un corte de conexión del cliente), la
     // inspección en sí no se pierde ni queda a medias.
     registrarEnvioProcesado($clientSubmissionId, (int)$id);
+    progresoActualizar($clientSubmissionId, 'ficha', 'listo');
 
     // Eliminación de fotos marcadas (solo edición) — es rápido (solo
     // borra archivo + fila), se hace antes de responder.
@@ -216,8 +240,10 @@ try {
     // más probable de que el guardado "se sienta lento" en producción.
     $fotoIdsPendientesDeComprimir = [];
     if (!empty($_FILES['fotos'])) {
-        $fotoIdsPendientesDeComprimir = guardarFotosInspeccion((int)$id, $_FILES['fotos']);
+        progresoActualizar($clientSubmissionId, 'fotos', 'en_progreso');
+        $fotoIdsPendientesDeComprimir = guardarFotosInspeccion((int)$id, $_FILES['fotos'], $clientSubmissionId);
     }
+    progresoActualizar($clientSubmissionId, 'listo', 'listo');
 
     $destino = APP_URL_BASE . 'formulario/view.php?id=' . $id;
 
@@ -249,6 +275,7 @@ try {
     exit;
 
 } catch (Throwable $e) {
+    progresoActualizar($clientSubmissionId, 'ficha', 'error', 'Ocurrió un error al guardar');
     flash('error', APP_DEBUG ? $e->getMessage() : 'Ocurrió un error al guardar la inspección. Verifique los datos e intente nuevamente.');
     header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));
     exit;

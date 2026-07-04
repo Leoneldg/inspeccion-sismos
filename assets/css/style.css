@@ -93,6 +93,34 @@ body.sin-conexion .offline-banner { display: block; }
 .btn-reintentar-offline:hover { background: #fbcfcf; }
 .btn-reintentar-offline.oculto-offline { display: none; }
 
+.progreso-guardado {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 20px;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .25s ease, padding .25s ease;
+}
+.progreso-guardado.activo {
+    max-height: 160px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--gris-100);
+}
+.paso-progreso {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--gris-400);
+}
+.paso-progreso.en_progreso { color: var(--texto, #1f2933); font-weight: 600; }
+.paso-progreso.listo { color: #1a8a4a; }
+.paso-progreso.error { color: #b42318; font-weight: 600; }
+.paso-progreso i { font-size: 15px; }
+.paso-progreso .girando { animation: girar-progreso 0.9s linear infinite; }
+@keyframes girar-progreso { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 html, body {
     margin: 0;
     padding: 0;

@@ -89,12 +89,21 @@ function catalogoElementosNoEstructurales(): array
 function catalogoCategoriasFoto(): array
 {
     return array_merge(
+        ['foto_inspector' => 'Foto del inspector (tipo carnet)'],
         ['general' => 'Vista general de la edificación'],
         catalogoElementosEstructurales(),
         catalogoElementosNoEstructurales(),
         ['decision' => 'Etiqueta / cartel de decisión colocado']
     );
 }
+
+/**
+ * Categorías de foto que son "una sola, no una galería": al subir una
+ * nueva, se reemplaza automáticamente cualquier foto anterior de esa misma
+ * categoría en la inspección, en vez de acumularse. Pensada para la foto
+ * tipo carnet del inspector (siempre debe haber como máximo una vigente).
+ */
+const CATEGORIAS_FOTO_UNICA = ['foto_inspector'];
 
 // ---------------------------------------------------------------------
 // Registro fotográfico
@@ -398,6 +407,19 @@ function guardarFotoInspeccionRapido(int $inspeccionId, string $categoria, array
 
     $rutaRelativa = 'uploads/inspecciones/' . $inspeccionId . '/' . $nombreArchivo;
 
+    // Categorías "de una sola foto" (p. ej. la del inspector): la nueva
+    // reemplaza a cualquier anterior, en vez de acumularse en galería.
+    // Se hace recién aquí, con el archivo nuevo ya guardado con éxito en
+    // disco, para no arriesgarse a borrar la foto vigente si algo de lo de
+    // arriba hubiera fallado.
+    if (in_array($categoria, CATEGORIAS_FOTO_UNICA, true)) {
+        $anteriores = db()->prepare('SELECT id FROM inspeccion_fotos WHERE inspeccion_id = :i AND categoria = :c');
+        $anteriores->execute(['i' => $inspeccionId, 'c' => $categoria]);
+        foreach ($anteriores->fetchAll() as $anterior) {
+            eliminarFotoInspeccion((int)$anterior['id'], $inspeccionId);
+        }
+    }
+
     $stmt = db()->prepare(
         'INSERT INTO inspeccion_fotos (inspeccion_id, categoria, ruta, nombre_original) VALUES (:i, :c, :r, :n)'
     );
@@ -412,13 +434,135 @@ function guardarFotoInspeccionRapido(int $inspeccionId, string $categoria, array
 }
 
 /**
+ * Sistema de progreso "en vivo" para el guardado del formulario.
+ *
+ * Por qué archivos y no la sesión de PHP: mientras save.php está corriendo,
+ * PHP mantiene la sesión BLOQUEADA para ese usuario (así evita corrupción si
+ * dos pestañas escriben a la vez). Si el navegador intentara consultar el
+ * progreso vía la sesión mientras save.php sigue trabajando, esa consulta
+ * quedaría congelada esperando a que save.php termine — literalmente lo
+ * opuesto de lo que queremos. Por eso el progreso se guarda en un archivo
+ * aparte, identificado por el mismo client_submission_id que ya viaja en el
+ * formulario, sin relación con la sesión.
+ */
+define('PROGRESO_DIR', __DIR__ . '/../storage/progreso/');
+
+function progresoRuta(?string $token): ?string
+{
+    if (!$token) {
+        return null;
+    }
+    $token = preg_replace('/[^a-zA-Z0-9\-]/', '', $token);
+    if ($token === '') {
+        return null;
+    }
+    if (!is_dir(PROGRESO_DIR)) {
+        @mkdir(PROGRESO_DIR, 0775, true);
+    }
+    return PROGRESO_DIR . $token . '.json';
+}
+
+/** Crea el progreso inicial de un envío, con la lista de pasos en estado "pendiente". */
+function progresoIniciar(?string $token, array $pasos): void
+{
+    $ruta = progresoRuta($token);
+    if (!$ruta) {
+        return;
+    }
+    @file_put_contents($ruta, json_encode(['pasos' => $pasos, 'actualizado' => time()]), LOCK_EX);
+
+    // Limpieza oportunista de progresos viejos (huérfanos por envíos que
+    // nunca terminaron, pestañas cerradas, etc.), sin necesidad de un cron.
+    if (mt_rand(1, 20) === 1) {
+        foreach (glob(PROGRESO_DIR . '*.json') ?: [] as $f) {
+            if (@filemtime($f) < time() - 3600) {
+                @unlink($f);
+            }
+        }
+    }
+}
+
+/** Marca un paso puntual como 'en_progreso' o 'listo', opcionalmente cambiando su texto. */
+function progresoActualizar(?string $token, string $clave, string $estado, ?string $texto = null): void
+{
+    $ruta = progresoRuta($token);
+    if (!$ruta || !is_file($ruta)) {
+        return;
+    }
+    $data = json_decode((string)@file_get_contents($ruta), true);
+    if (!$data || empty($data['pasos'])) {
+        return;
+    }
+    foreach ($data['pasos'] as &$p) {
+        if ($p['clave'] === $clave) {
+            $p['estado'] = $estado;
+            if ($texto !== null) {
+                $p['texto'] = $texto;
+            }
+        }
+    }
+    unset($p);
+    $data['actualizado'] = time();
+    @file_put_contents($ruta, json_encode($data), LOCK_EX);
+}
+
+/** Suma 1 al contador de fotos ya guardadas del paso 'fotos' y actualiza su texto. */
+function progresoIncrementarFotos(?string $token): void
+{
+    $ruta = progresoRuta($token);
+    if (!$ruta || !is_file($ruta)) {
+        return;
+    }
+    $data = json_decode((string)@file_get_contents($ruta), true);
+    if (!$data || empty($data['pasos'])) {
+        return;
+    }
+    foreach ($data['pasos'] as &$p) {
+        if ($p['clave'] === 'fotos') {
+            $p['hechas'] = ($p['hechas'] ?? 0) + 1;
+            $total = $p['total'] ?? $p['hechas'];
+            $p['texto'] = "Guardando fotos ({$p['hechas']} de $total)";
+            $p['estado'] = $p['hechas'] >= $total ? 'listo' : 'en_progreso';
+        }
+    }
+    unset($p);
+    $data['actualizado'] = time();
+    @file_put_contents($ruta, json_encode($data), LOCK_EX);
+}
+
+/** Lee el progreso actual de un envío. Devuelve null si no existe (aún no arrancó o ya se limpió). */
+function progresoLeer(?string $token): ?array
+{
+    $ruta = progresoRuta($token);
+    if (!$ruta || !is_file($ruta)) {
+        return null;
+    }
+    $data = json_decode((string)@file_get_contents($ruta), true);
+    return $data ?: null;
+}
+
+/** Cuenta cuántos archivos hay en total dentro de $_FILES['fotos'][categoria][], sumando todas las categorías. */
+function contarArchivosSubidos(array $filesField): int
+{
+    $total = 0;
+    foreach (normalizarArchivosSubidos($filesField) as $archivos) {
+        foreach ($archivos as $archivo) {
+            if (($archivo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $total++;
+            }
+        }
+    }
+    return $total;
+}
+
+/**
  * Procesa todas las categorías de $_FILES['fotos'] para una inspección,
  * guardando cada archivo tal cual (sin comprimir). Devuelve los IDs de las
  * fotos insertadas, para poder comprimirlas después con comprimirFotoPorId().
  *
  * @return int[]
  */
-function guardarFotosInspeccion(int $inspeccionId, array $filesField): array
+function guardarFotosInspeccion(int $inspeccionId, array $filesField, ?string $progresoToken = null): array
 {
     $ids = [];
     $agrupadas = normalizarArchivosSubidos($filesField);
@@ -428,6 +572,7 @@ function guardarFotosInspeccion(int $inspeccionId, array $filesField): array
             if ($id !== null) {
                 $ids[] = $id;
             }
+            progresoIncrementarFotos($progresoToken);
         }
     }
     return $ids;
