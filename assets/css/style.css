@@ -779,6 +779,44 @@ body.modo-tv .content { padding: 22px 30px; max-width: none; }
     .dashboard-chart-map { grid-template-columns: 1fr; }
 }
 
+/* Columna izquierda del dashboard: hero + KPIs + gráfica apiladas,
+   con el mapa ocupando la columna derecha (más ancha). */
+.dashboard-left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+.dashboard-left-col .tv-kpi-grid { margin-bottom: 0; }
+/* La columna izquierda del dashboard es más angosta que el ancho completo
+   (comparte fila con el mapa), así que aquí los 8 KPIs van de a 2 por
+   fila en vez de 4 -- si no, en TV/monitores grandes los números y
+   etiquetas quedan apretados o se desbordan de la tarjeta. */
+.dashboard-left-col .tv-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* Tamaños de letra fluidos: escalan un poco con el ancho de pantalla sin
+   depender de un breakpoint fijo, para que se vean bien tanto en laptop
+   como en un TV grande (que suele tener el navegador a resolución alta). */
+.kpi-hero .num     { font-size: clamp(32px, 2.6vw, 46px); }
+.tv-kpi-card .num  { font-size: clamp(19px, 1.5vw, 26px); }
+.tv-kpi-card .lbl  { font-size: clamp(10px, .8vw, 12px); }
+.tv-kpi-card .num, .kpi-hero .num { white-space: nowrap; }
+
+/* Modo presentación (TV): todo un poco más grande para verse bien desde
+   lejos. Solo afecta tamaños de letra/ícono, no colores ni estructura. */
+body.modo-tv .kpi-hero .num    { font-size: clamp(38px, 3.4vw, 58px); }
+body.modo-tv .kpi-hero .lbl    { font-size: clamp(14px, 1.1vw, 17px); }
+body.modo-tv .kpi-hero .icon   { width: 70px; height: 70px; font-size: 32px; }
+body.modo-tv .tv-kpi-card .num { font-size: clamp(22px, 1.9vw, 32px); }
+body.modo-tv .tv-kpi-card .lbl { font-size: clamp(11px, .95vw, 13px); }
+body.modo-tv .tv-kpi-card .icon{ width: 38px; height: 38px; font-size: 17px; }
+body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
+
+/* Leyenda de decisión final: ahora es clickeable para filtrar (ver JS). */
+.leyenda-decision-item { transition: opacity .15s ease, background .15s ease; border-radius: 6px; padding: 3px 7px; margin: -3px -7px; }
+.leyenda-decision-item:hover { background: var(--gris-100); }
+.leyenda-decision-item.activa { font-weight: 700; }
+
 /* ---------------------------------------------------------------------
    Layouts de 2 columnas (dashboard, usuarios, ficha) que antes iban con
    grid-template-columns fijo inline y no se adaptaban a pantallas chicas.

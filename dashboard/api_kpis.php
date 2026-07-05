@@ -44,9 +44,25 @@ try {
 
     $parroquiaFiltro = trim((string)($_GET['parroquia'] ?? ''));
     $tieneFiltro = $parroquiaFiltro !== '';
-    $paramsFiltro = $tieneFiltro ? ['p' => $parroquiaFiltro] : [];
 
-    // ---- KPIs agregados (si hay filtro, solo esa parroquia) ----
+    // Filtro de decisión final: llega como la etiqueta corta ("Acceso
+    // Permitido", etc.) porque es lo que ya maneja el frontend; aquí se
+    // traduce a la clave real de la columna decision_final.
+    $decisionFiltroCorto = trim((string)($_GET['decision'] ?? ''));
+    $decisionFiltroClave = null;
+    foreach ($catalogo as $clave => $meta) {
+        if ($meta['corto'] === $decisionFiltroCorto) { $decisionFiltroClave = $clave; break; }
+    }
+    $tieneDecisionFiltro = $decisionFiltroClave !== null;
+
+    // Condición combinable (parroquia Y/O decisión) reutilizada en varias consultas.
+    $condiciones = [];
+    $paramsFiltro = [];
+    if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
+    if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
+    $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
+
+    // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("
         SELECT
             COUNT(*)                            AS inspecciones,
@@ -59,15 +75,17 @@ try {
             COALESCE(SUM(gestantes),0)          AS gestantes,
             COALESCE(SUM(mascotas),0)           AS mascotas
         FROM inspecciones
-        " . ($tieneFiltro ? 'WHERE parroquia = :p' : '') . "
+        $whereSql
     ");
     $stmt->execute($paramsFiltro);
     $totales = $stmt->fetch();
 
-    // ---- Distribución por decisión final (semáforo), respeta el filtro ----
+    // ---- Distribución por decisión final (semáforo). Respeta el filtro de
+    // parroquia, pero NUNCA el de decisión (es la fuente del propio filtro:
+    // siempre deben verse las 3 barras para poder elegir/comparar). ----
     $stmt = $pdo->prepare('SELECT decision_final, COUNT(*) AS total FROM inspecciones ' .
         ($tieneFiltro ? 'WHERE parroquia = :p ' : '') . 'GROUP BY decision_final');
-    $stmt->execute($paramsFiltro);
+    $stmt->execute($tieneFiltro ? ['p' => $parroquiaFiltro] : []);
     $decisionRows = $stmt->fetchAll();
     $decision = [];
     foreach ($catalogo as $clave => $meta) {
@@ -88,19 +106,19 @@ try {
     // aún no ejecutaron database/actualizacion_v2.sql) ----
     $tieneFotos = tablaFotosExiste();
 
-    // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta el filtro) ----
+    // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta ambos filtros) ----
     $puntos = [];
-    $condParroquia = $tieneFiltro ? ' AND i.parroquia = :p' : '';
+    $condPuntos = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
     $sqlPuntos = $tieneFotos
         ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
                   (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condParroquia"
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos"
         : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   0 AS cantidad_fotos, NULL AS foto_portada
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condParroquia";
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos";
     $stmt = $pdo->prepare($sqlPuntos);
     $stmt->execute($paramsFiltro);
     foreach ($stmt->fetchAll() as $row) {
@@ -121,8 +139,8 @@ try {
     }
 
     $inspecciones = [];
-    if ($tieneFiltro) {
-        $stmt = $pdo->prepare('SELECT id, nombre_edificio, decision_final FROM inspecciones WHERE parroquia = :p ORDER BY nombre_edificio');
+    if ($tieneFiltro || $tieneDecisionFiltro) {
+        $stmt = $pdo->prepare("SELECT id, nombre_edificio, decision_final FROM inspecciones $whereSql ORDER BY nombre_edificio");
         $stmt->execute($paramsFiltro);
         foreach ($stmt->fetchAll() as $row) {
             $meta = $catalogo[$row['decision_final']] ?? ['color' => '#767c94', 'corto' => $row['decision_final']];
@@ -135,26 +153,36 @@ try {
         }
     }
 
-    // ---- Secciones geográficas por parroquia: centroide, total y decisión predominante ----
+    // ---- Secciones geográficas por parroquia: centroide, total y decisión
+    // predominante. Respeta el filtro de decisión (si hay uno activo, el
+    // total y el color mostrado son solo de esa decisión). ----
     $porParroquia = [];
-    $stmt = $pdo->query("
+    $condGeo = $tieneDecisionFiltro ? 'AND decision_final = :d' : '';
+    $stmt = $pdo->prepare("
         SELECT parroquia,
                COUNT(*) AS total,
                AVG(latitud) AS lat,
                AVG(longitud) AS lng
         FROM inspecciones
-        WHERE latitud IS NOT NULL AND longitud IS NOT NULL
+        WHERE latitud IS NOT NULL AND longitud IS NOT NULL $condGeo
         GROUP BY parroquia
     ");
+    $stmt->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
     $parroquiasGeo = $stmt->fetchAll();
 
     $stmtDom = $pdo->prepare("
         SELECT decision_final, COUNT(*) AS n FROM inspecciones WHERE parroquia = :p GROUP BY decision_final ORDER BY n DESC LIMIT 1
     ");
     foreach ($parroquiasGeo as $pg) {
-        $stmtDom->execute(['p' => $pg['parroquia']]);
-        $dom = $stmtDom->fetch();
-        $metaDom = $dom ? ($catalogo[$dom['decision_final']] ?? ['color' => '#767c94']) : ['color' => '#767c94'];
+        if ($tieneDecisionFiltro) {
+            // Con filtro de decisión activo, el color de la sección es
+            // directamente el de esa decisión (no hace falta calcular la dominante).
+            $metaDom = $catalogo[$decisionFiltroClave] ?? ['color' => '#767c94'];
+        } else {
+            $stmtDom->execute(['p' => $pg['parroquia']]);
+            $dom = $stmtDom->fetch();
+            $metaDom = $dom ? ($catalogo[$dom['decision_final']] ?? ['color' => '#767c94']) : ['color' => '#767c94'];
+        }
         $porParroquia[] = [
             'parroquia' => $pg['parroquia'],
             'total'     => (int)$pg['total'],
@@ -164,8 +192,29 @@ try {
         ];
     }
 
-    // ---- Conteo por parroquia (para el gráfico de barras horizontal, incluye sin coordenadas) ----
-    $conteoParroquia = $pdo->query('SELECT parroquia, COUNT(*) AS total FROM inspecciones GROUP BY parroquia ORDER BY total DESC')->fetchAll();
+    // ---- Conteo por parroquia (para el gráfico de barras horizontal, incluye sin coordenadas).
+    // Respeta el filtro de decisión, para que el ranking normal también se pueda ver
+    // "filtrado" cuando se elige una decisión desde la gráfica de semáforo. ----
+    $sqlConteoParroquia = 'SELECT parroquia, COUNT(*) AS total FROM inspecciones' .
+        ($tieneDecisionFiltro ? ' WHERE decision_final = :d' : '') . ' GROUP BY parroquia ORDER BY total DESC';
+    $stmt = $pdo->prepare($sqlConteoParroquia);
+    $stmt->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
+    $conteoParroquia = $stmt->fetchAll();
+
+    // ---- Conteo por parroquia + decisión final (para el ranking filtrable
+    // "parroquias con más casos en rojo/amarillo/verde"). No respeta ningún
+    // filtro: siempre es la foto completa, para poder rankear todas las decisiones. ----
+    $conteoParroquiaDecision = [];
+    $stmt = $pdo->query('SELECT parroquia, decision_final, COUNT(*) AS total FROM inspecciones GROUP BY parroquia, decision_final');
+    foreach ($stmt->fetchAll() as $row) {
+        $meta = $catalogo[$row['decision_final']] ?? ['corto' => $row['decision_final'], 'color' => '#767c94'];
+        $conteoParroquiaDecision[] = [
+            'parroquia' => $row['parroquia'],
+            'decision'  => $meta['corto'],
+            'color'     => $meta['color'],
+            'total'     => (int)$row['total'],
+        ];
+    }
 
     echo json_encode([
         'totales'         => $totales,
@@ -173,8 +222,10 @@ try {
         'puntos'          => $puntos,
         'inspecciones'    => $inspecciones,
         'por_parroquia'   => $conteoParroquia,
+        'por_parroquia_decision' => $conteoParroquiaDecision,
         'secciones_geo'   => $porParroquia,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
+        'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
         'actualizado'     => date('H:i:s'),
     ], JSON_UNESCAPED_UNICODE);
 
