@@ -216,6 +216,38 @@ try {
         ];
     }
 
+    // ---- KPIs personalizados (definidos en Configuración del Sistema).
+    // El nombre de columna SIEMPRE se valida contra catalogoCamposKpi()
+    // (lista blanca) antes de interpolarlo en SQL, porque los nombres de
+    // columna no se pueden pasar como parámetro con PDO. ----
+    $kpisCustom = [];
+    $camposKpiValidos = catalogoCamposKpi();
+    foreach (obtenerConfigKpisCustom() as $def) {
+        $campo = $def['campo'] ?? '';
+        if (!isset($camposKpiValidos[$campo])) {
+            continue; // campo desconocido/no vigente: se ignora en vez de romper el dashboard
+        }
+        $meta = $camposKpiValidos[$campo];
+
+        if (($def['tipo'] ?? '') === 'conteo') {
+            $condsKpi = $condiciones;
+            $paramsKpi = $paramsFiltro;
+            $condsKpi[] = "$campo = :kpi_valor";
+            $paramsKpi['kpi_valor'] = (string)($def['valor'] ?? '');
+            $sql = 'SELECT COUNT(*) AS n FROM inspecciones' . ($condsKpi ? ' WHERE ' . implode(' AND ', $condsKpi) : '');
+            $stmtKpi = $pdo->prepare($sql);
+            $stmtKpi->execute($paramsKpi);
+            $kpisCustom[$def['id']] = (int)$stmtKpi->fetch()['n'];
+        } elseif ($meta['tipo'] === 'numero' && in_array($def['tipo'] ?? '', ['suma', 'promedio'], true)) {
+            $fn = $def['tipo'] === 'promedio' ? 'AVG' : 'SUM';
+            $sql = "SELECT COALESCE($fn($campo),0) AS n FROM inspecciones $whereSql";
+            $stmtKpi = $pdo->prepare($sql);
+            $stmtKpi->execute($paramsFiltro);
+            $n = (float)$stmtKpi->fetch()['n'];
+            $kpisCustom[$def['id']] = $def['tipo'] === 'promedio' ? round($n, 1) : $n;
+        }
+    }
+
     echo json_encode([
         'totales'         => $totales,
         'decision'        => $decision,
@@ -224,6 +256,7 @@ try {
         'por_parroquia'   => $conteoParroquia,
         'por_parroquia_decision' => $conteoParroquiaDecision,
         'secciones_geo'   => $porParroquia,
+        'kpis_custom'     => $kpisCustom,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
         'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
         'actualizado'     => date('H:i:s'),

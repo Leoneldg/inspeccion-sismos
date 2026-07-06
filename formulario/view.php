@@ -23,6 +23,9 @@ if (!$r) {
 $danosEst = json_decode($r['danos_estructurales'] ?? '{}', true) ?: [];
 $danosNo  = json_decode($r['danos_no_estructurales'] ?? '{}', true) ?: [];
 $extra    = json_decode($r['datos_adicionales'] ?? '{}', true) ?: [];
+$pisoCriticoData = json_decode($r['elementos_piso_critico'] ?? '{}', true) ?: [];
+$accionesData    = json_decode($r['acciones_recomendadas'] ?? '{}', true) ?: [];
+$elementosPisoCritico = catalogoElementosPisoCritico();
 $nivelesDano = catalogoNivelDano();
 $elementosEstruct = catalogoElementosEstructurales();
 $elementosNoEstruct = catalogoElementosNoEstructurales();
@@ -66,11 +69,16 @@ function fila($label, $valor) {
         <div class="card-header"><h2><i class="bi bi-building"></i> Identificación y ubicación</h2></div>
         <div class="card-body">
             <?php
+            fila('Planilla N°', $r['planilla_numero'] ?: $r['codigo']);
+            fila('Tipo de evento', $r['tipo_evento']);
+            fila('Fecha del evento', $r['fecha_evento']);
             fila('Nombre del edificio', $r['nombre_edificio']);
             fila('Fecha de inspección', $r['fecha_inspeccion']);
             fila('Horario', ($r['hora_inicio'] ?: '—') . ' a ' . ($r['hora_culminacion'] ?: '—'));
             fila('N° de pisos / sótanos / semisótanos', $r['num_pisos'] . ' / ' . $r['num_sotanos'] . ' / ' . $r['num_semisotanos']);
+            fila('Año de construcción', $r['anio_construccion']);
             fila('Cantidad de apartamentos', $r['cantidad_apartamentos']);
+            fila('N° de personas (general)', $r['numero_personas']);
             fila('Parroquia', $r['parroquia']);
             fila('Municipio / Ciudad / Estado', trim(($r['municipio']?:'—').' / '.($r['ciudad']?:'—').' / '.($r['estado']?:'—')));
             fila('Urbanización / Sector', trim(($r['urbanizacion']?:'—').' / '.($r['sector']?:'—')));
@@ -87,10 +95,28 @@ function fila($label, $valor) {
             fila('Uso de la edificación', $r['uso_edificacion']);
             fila('Tipo estructural', $r['tipo_estructural']);
             fila('Colapso de la estructura', $r['colapso_estructura']);
-            fila('Riesgo de edificios aledaños', $r['riesgo_edificios_aledanos']);
-            fila('Amenaza geológica', $r['amenaza_geologica']);
+            fila('Peligro por edificios aledaños', $r['riesgo_edificios_aledanos']);
+            fila('Peligro geológico o geotécnico', $r['amenaza_geologica']);
             fila('Asentamiento / Inclinación', trim(($r['asentamiento_edificio']?:'—').' / '.($r['inclinacion_edificio']?:'—')));
             fila('Requiere inspección interna', $r['requiere_inspeccion_interna']);
+            fila('Riesgo Externo', $r['riesgo_externo']);
+            ?>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h2><i class="bi bi-building-fill-exclamation"></i> Piso crítico</h2></div>
+        <div class="card-body">
+            <?php
+            fila('Pisos inspeccionados', $r['pisos_inspeccionados']);
+            fila('Acceso a miembros estructurales', $r['acceso_miembros_estructurales']);
+            fila('Piso crítico', $r['piso_critico']);
+            foreach ($elementosPisoCritico as $k => $label) {
+                fila('N° con daño severo/completo — ' . $label, $pisoCriticoData['severo'][$k] ?? null);
+            }
+            fila('Riesgo Estructural por daño Severo/Completo', $r['riesgo_estructural_severo']);
+            fila('Riesgo Estructural por Daño Moderado', $r['riesgo_estructural_moderado']);
+            fila('Riesgo de Componentes', $r['riesgo_componentes']);
             ?>
         </div>
     </div>
@@ -121,6 +147,20 @@ function fila($label, $valor) {
             <p><strong>Medidas de seguridad:</strong><br><?= nl2br(e($r['medidas_seguridad'] ?: '—')) ?></p>
             <p><strong>Observaciones:</strong><br><?= nl2br(e($r['observaciones'] ?: '—')) ?></p>
             <p><strong>Recomendaciones:</strong><br><?= nl2br(e($r['recomendaciones'] ?: '—')) ?></p>
+            <?php
+            $insDet = array_keys(array_filter($accionesData['inspeccion_detallada'] ?? []));
+            $medPrev = $accionesData['medidas_prevencion'] ?? [];
+            $medPrevTexto = array_keys(array_filter($medPrev, fn($v,$k) => $k !== 'otra_texto' && $v, ARRAY_FILTER_USE_BOTH));
+            $catInsDet = catalogoInspeccionDetallada();
+            $catMedPrev = catalogoMedidasPrevencion();
+            ?>
+            <p><strong>Inspección detallada recomendada:</strong><br>
+                <?= $insDet ? e(implode(', ', array_map(fn($k) => $catInsDet[$k] ?? $k, $insDet))) : '—' ?>
+            </p>
+            <p><strong>Medidas de prevención:</strong><br>
+                <?= $medPrevTexto ? e(implode(', ', array_map(fn($k) => $catMedPrev[$k] ?? $k, $medPrevTexto))) : '—' ?>
+                <?= !empty($medPrev['otra_texto']) ? ' · '.e($medPrev['otra_texto']) : '' ?>
+            </p>
         </div>
     </div>
 

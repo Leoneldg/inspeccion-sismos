@@ -45,7 +45,62 @@ function catalogoParroquias(): array
 
 function catalogoUsoEdificacion(): array
 {
-    return ['Vivienda Unifamiliar', 'Vivienda Multifamiliar', 'Vivienda Popular', 'Comercial', 'Oficina', 'Educativo', 'Médico/Asistencial', 'Gubernamental', 'Industrial', 'Otro'];
+    return [
+        'Vivienda Unifamiliar', 'Vivienda Multifamiliar', 'Vivienda Popular',
+        'Comercial', 'Oficina', 'Educativo', 'Médico/Asistencial', 'Gubernamental',
+        'Industrial', 'Seguridad', 'Cultural/Recreativo', 'Religioso', 'Otro',
+    ];
+}
+
+/** Escala de riesgo A/B/C de la planilla FUNVISIS (Externo, Daño Moderado, Componentes). */
+function catalogoNivelRiesgo(): array
+{
+    return [
+        'A. Bajo'  => ['color' => '#2E7D32', 'corto' => 'Bajo — Acceso permitido'],
+        'B. Medio' => ['color' => '#C9A227', 'corto' => 'Medio — Acceso restringido'],
+        'C. Alto'  => ['color' => '#A61C1C', 'corto' => 'Alto — Acceso no permitido'],
+    ];
+}
+
+/** Riesgo estructural por daño Severo/Completo (punto 3 de la planilla): solo dos estados posibles. */
+function catalogoRiesgoSevero(): array
+{
+    return ['No hay' => 'No hay (N=0), continuar inspección', 'C. Alto' => 'C. Alto (N≥1)'];
+}
+
+/** Nivel de acceso a los miembros estructurales principales (punto 3 de la planilla). */
+function catalogoAccesoMiembros(): array
+{
+    return ['Todos', 'Casi todos', 'Pocos', 'Ninguno'];
+}
+
+/** Tipos de elemento evaluados en el piso crítico (puntos 3 y 4 de la planilla). */
+function catalogoElementosPisoCritico(): array
+{
+    return [
+        'columna_union'         => 'Columna / Unión',
+        'muro_concreto'         => 'Muro de concreto',
+        'muro_mamposteria'      => 'Muro de mampostería',
+        'viga_arriostramiento'  => 'Viga o elemento de arriostramiento',
+    ];
+}
+
+/** Tipos de inspección detallada recomendada (punto 7 de la planilla). */
+function catalogoInspeccionDetallada(): array
+{
+    return ['estructura' => 'Estructura', 'geologia' => 'Geología o Geotecnia', 'instalaciones' => 'Instalaciones'];
+}
+
+/** Medidas de prevención recomendadas (punto 7 de la planilla). */
+function catalogoMedidasPrevencion(): array
+{
+    return [
+        'acordonar'                 => 'Acordonar',
+        'cerrar_calles'             => 'Cerrar calles',
+        'apuntalar'                 => 'Apuntalar',
+        'desconectar_gas'           => 'Desconectar gas',
+        'desconectar_electricidad'  => 'Desconectar electricidad',
+    ];
 }
 
 function catalogoTipoEstructural(): array
@@ -67,9 +122,9 @@ function catalogoNivelDano(): array
 function catalogoDecisionFinal(): array
 {
     return [
-        'Edificación Inspeccionada - Acceso Permitido' => ['color' => '#22c55e', 'corto' => 'Acceso Permitido'],
-        'Acceso Restringido - Precaución al Entrar'    => ['color' => '#eab308', 'corto' => 'Precaución al Entrar'],
-        'Edificación Insegura - Acceso No Permitido'   => ['color' => '#ef4444', 'corto' => 'Acceso No Permitido'],
+        'Edificación Inspeccionada - Acceso Permitido' => ['color' => '#2E7D32', 'corto' => 'Acceso Permitido'],
+        'Acceso Restringido - Precaución al Entrar'    => ['color' => '#C9A227', 'corto' => 'Precaución al Entrar'],
+        'Edificación Insegura - Acceso No Permitido'   => ['color' => '#A61C1C', 'corto' => 'Acceso No Permitido'],
     ];
 }
 
@@ -665,4 +720,209 @@ function nullSiVacio($v)
 function intPost(string $key, $default = 0): int
 {
     return isset($_POST[$key]) && $_POST[$key] !== '' ? (int)$_POST[$key] : $default;
+}
+
+// ---------------------------------------------------------------------
+// Configuración del panel (Superadministrador): secciones del formulario
+// y widgets del dashboard. Se guarda en la tabla panel_config (clave/valor
+// JSON genérico) para no tener que tocar el esquema cada vez que se agregue
+// una opción de personalización nueva.
+// ---------------------------------------------------------------------
+
+/** ¿Existe ya la tabla panel_config? (por si no se ha corrido la migración v5). */
+function tablaPanelConfigExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        try {
+            db()->query('SELECT 1 FROM panel_config LIMIT 1');
+            $existe = true;
+        } catch (Throwable $e) {
+            $existe = false;
+        }
+    }
+    return $existe;
+}
+
+/** Lee un valor de panel_config ya decodificado, o null si no existe. */
+function obtenerConfigValor(string $clave)
+{
+    if (!tablaPanelConfigExiste()) {
+        return null;
+    }
+    $stmt = db()->prepare('SELECT valor FROM panel_config WHERE clave = :clave');
+    $stmt->execute(['clave' => $clave]);
+    $row = $stmt->fetch();
+    return $row ? json_decode($row['valor'], true) : null;
+}
+
+/** Guarda (crea o actualiza) un valor de panel_config. */
+function guardarConfigValor(string $clave, $valor, ?int $usuarioId): void
+{
+    $json = json_encode($valor, JSON_UNESCAPED_UNICODE);
+    db()->prepare(
+        'INSERT INTO panel_config (clave, valor, actualizado_por) VALUES (:clave, :valor, :uid)
+         ON DUPLICATE KEY UPDATE valor = VALUES(valor), actualizado_por = VALUES(actualizado_por)'
+    )->execute(['clave' => $clave, 'valor' => $json, 'uid' => $usuarioId]);
+}
+
+/** Secciones opcionales del formulario que el Superadministrador puede activar/desactivar. */
+function catalogoSeccionesFormulario(): array
+{
+    return [
+        'planilla_header'            => 'Datos de la planilla (N°, tipo y fecha del evento)',
+        'anio_personas'              => 'Año de construcción y N° de personas (general)',
+        'materiales_extendidos'      => 'Materiales extendidos (Concreto, Mampostería formal/informal)',
+        'riesgo_externo'             => 'Riesgo Externo calculado (A/B/C)',
+        'piso_critico'               => 'Piso crítico y elementos con daño Severo/Completo',
+        'dano_moderado_piso_critico' => 'Tabla de elementos con daño Moderado en el piso crítico',
+        'riesgo_componentes'         => 'Riesgo de Componentes no estructurales',
+        'acciones_recomendadas'      => 'Acciones recomendadas (Inspección Detallada y Medidas de Prevención)',
+    ];
+}
+
+/** Estado activo/inactivo de cada sección opcional del formulario (con defaults = true). */
+function obtenerConfigFormulario(): array
+{
+    $defaults = array_fill_keys(array_keys(catalogoSeccionesFormulario()), true);
+    $guardado = obtenerConfigValor('formulario_secciones');
+    return is_array($guardado) ? array_merge($defaults, $guardado) : $defaults;
+}
+
+/**
+ * Lista blanca de columnas de "inspecciones" habilitadas para construir KPIs
+ * personalizados en el dashboard. Es una lista blanca a propósito: estos
+ * nombres se interpolan directamente en SQL (no se pueden parametrizar
+ * nombres de columna con PDO), así que solo deben poder usarse los campos
+ * de aquí, nunca lo que el usuario escriba libremente.
+ * tipo 'numero' => admite Suma/Promedio. tipo 'texto' => admite Conteo de
+ * coincidencias contra 'opciones' (catálogo de valores válidos).
+ */
+function catalogoCamposKpi(): array
+{
+    // 'opciones' siempre se normaliza a un mapa valor_guardado => etiqueta,
+    // nunca a una lista simple, para que la validación del valor elegido
+    // (más abajo, en admin/guardar_configuracion.php) sea inequívoca:
+    // la CLAVE es siempre el valor real que hay que comparar en SQL.
+    $mapa = fn(array $lista) => array_combine($lista, $lista);
+    $si_no = ['1' => 'Sí', '0' => 'No'];
+
+    return [
+        // ---- Numéricos (Suma / Promedio) ----
+        'familias'               => ['label' => 'Familias', 'tipo' => 'numero'],
+        'hombres'                => ['label' => 'Hombres', 'tipo' => 'numero'],
+        'mujeres'                => ['label' => 'Mujeres', 'tipo' => 'numero'],
+        'ninos'                  => ['label' => 'Niños', 'tipo' => 'numero'],
+        'adultos_tercera_edad'   => ['label' => 'Adultos de 3ra edad', 'tipo' => 'numero'],
+        'gestantes'              => ['label' => 'Gestantes', 'tipo' => 'numero'],
+        'movilidad_reducida'     => ['label' => 'Movilidad reducida', 'tipo' => 'numero'],
+        'mascotas'               => ['label' => 'Mascotas', 'tipo' => 'numero'],
+        'cantidad_apartamentos'  => ['label' => 'Cantidad de apartamentos', 'tipo' => 'numero'],
+        'num_pisos'              => ['label' => 'N° de pisos', 'tipo' => 'numero'],
+        'num_semisotanos'        => ['label' => 'N° de semisótanos', 'tipo' => 'numero'],
+        'num_sotanos'            => ['label' => 'N° de sótanos', 'tipo' => 'numero'],
+        'numero_personas'        => ['label' => 'N° de personas (general)', 'tipo' => 'numero'],
+        'anio_construccion'      => ['label' => 'Año de construcción', 'tipo' => 'numero'],
+        'm2_losas'               => ['label' => 'm² de losas afectadas', 'tipo' => 'numero'],
+        'muros_reconstruir'      => ['label' => 'Muros a reconstruir', 'tipo' => 'numero'],
+        'pct_dano_iii'           => ['label' => '% Daño III (Moderado)', 'tipo' => 'numero'],
+        'pct_dano_iv'            => ['label' => '% Daño IV (Severo)', 'tipo' => 'numero'],
+        'pct_dano_v'             => ['label' => '% Daño V (Completo)', 'tipo' => 'numero'],
+
+        // ---- De categoría (Conteo de coincidencias contra un valor) ----
+        'decision_final'                => ['label' => 'Decisión final', 'tipo' => 'texto', 'opciones' => $mapa(array_keys(catalogoDecisionFinal()))],
+        'riesgo_externo'                 => ['label' => 'Riesgo Externo', 'tipo' => 'texto', 'opciones' => $mapa(array_keys(catalogoNivelRiesgo()))],
+        'riesgo_estructural_severo'      => ['label' => 'Riesgo Estructural (Severo/Completo)', 'tipo' => 'texto', 'opciones' => $mapa(array_keys(catalogoRiesgoSevero()))],
+        'riesgo_estructural_moderado'    => ['label' => 'Riesgo Estructural (Moderado)', 'tipo' => 'texto', 'opciones' => $mapa(array_keys(catalogoNivelRiesgo()))],
+        'riesgo_componentes'            => ['label' => 'Riesgo de Componentes', 'tipo' => 'texto', 'opciones' => $mapa(array_keys(catalogoNivelRiesgo()))],
+        'colapso_estructura'            => ['label' => 'Colapso de la estructura', 'tipo' => 'texto', 'opciones' => $mapa(['No', 'Parcial', 'Total'])],
+        'requiere_inspeccion_interna'   => ['label' => '¿Requiere inspección interna?', 'tipo' => 'texto', 'opciones' => $mapa(['Si', 'No'])],
+        'requiere_intervencion'          => ['label' => '¿Requiere intervención?', 'tipo' => 'texto', 'opciones' => $mapa(['Si', 'No'])],
+        'acceso_miembros_estructurales' => ['label' => 'Acceso a miembros estructurales', 'tipo' => 'texto', 'opciones' => $mapa(catalogoAccesoMiembros())],
+        'uso_edificacion'                => ['label' => 'Uso de la edificación', 'tipo' => 'texto', 'opciones' => $mapa(catalogoUsoEdificacion())],
+        'tipo_estructural'               => ['label' => 'Tipo estructural', 'tipo' => 'texto', 'opciones' => $mapa(catalogoTipoEstructural())],
+        'parroquia'                      => ['label' => 'Parroquia', 'tipo' => 'texto', 'opciones' => $mapa(catalogoParroquias())],
+        'material_concreto'             => ['label' => 'Material: Concreto', 'tipo' => 'texto', 'opciones' => $si_no],
+        'material_acero'                 => ['label' => 'Material: Acero', 'tipo' => 'texto', 'opciones' => $si_no],
+        'material_mamposteria'          => ['label' => 'Material: Mampostería (general)', 'tipo' => 'texto', 'opciones' => $si_no],
+        'mamposteria_formal'             => ['label' => 'Material: Mampostería formal', 'tipo' => 'texto', 'opciones' => $si_no],
+        'mamposteria_informal'          => ['label' => 'Material: Mampostería informal', 'tipo' => 'texto', 'opciones' => $si_no],
+        'material_otros'                 => ['label' => 'Material: Otros', 'tipo' => 'texto', 'opciones' => $si_no],
+    ];
+}
+
+/** KPIs personalizados guardados (ya fusionados con defaults y ordenados). */
+function obtenerConfigKpisCustom(): array
+{
+    $guardado = obtenerConfigValor('dashboard_kpis_custom');
+    $lista = is_array($guardado) ? $guardado : [];
+    usort($lista, fn($a, $b) => ($a['orden'] ?? 0) <=> ($b['orden'] ?? 0));
+    return $lista;
+}
+
+/** Widgets configurables del dashboard: id => etiqueta descriptiva. */
+function catalogoWidgetsDashboard(): array
+{
+    return [
+        'kpi_inspecciones' => 'Tarjeta grande — Inspecciones realizadas',
+        'kpi_personas'     => 'Tarjeta grande — Personas afectadas',
+        'kpi_grid'         => 'Cuadrícula de mini-tarjetas (familias, hombres, mujeres, niños, etc.)',
+        'kpis_custom'      => 'Cuadrícula de KPIs personalizados (definidos abajo)',
+        'chart_decision'   => 'Gráfico — Estado de acceso a la edificación',
+        'mapa'             => 'Mapa geográfico por parroquia',
+        'chart_parroquia'  => 'Gráfico — Inspecciones por parroquia',
+    ];
+}
+
+
+
+/**
+ * Devuelve la lista de widgets del dashboard ya fusionada con los valores
+ * guardados, ordenada por "orden". Cada elemento:
+ * ['id','label','visible','orden','color','color2','gradiente']
+ */
+function obtenerConfigDashboard(): array
+{
+    $labels = catalogoWidgetsDashboard();
+    $defaults = [];
+    $i = 1;
+    foreach ($labels as $id => $label) {
+        $defaults[$id] = ['id' => $id, 'visible' => true, 'orden' => $i++, 'color' => null, 'color2' => null, 'gradiente' => false];
+    }
+
+    $guardado = obtenerConfigValor('dashboard_widgets');
+    if (is_array($guardado)) {
+        foreach ($guardado as $w) {
+            if (!empty($w['id']) && isset($defaults[$w['id']])) {
+                $defaults[$w['id']] = array_merge($defaults[$w['id']], $w);
+            }
+        }
+    }
+
+    foreach ($defaults as $id => &$w) {
+        $w['label'] = $labels[$id];
+    }
+    unset($w);
+
+    $lista = array_values($defaults);
+    usort($lista, fn($a, $b) => ($a['orden'] ?? 0) <=> ($b['orden'] ?? 0));
+    return $lista;
+}
+
+/**
+ * Estilo CSS inline (background + color de texto) para un widget del
+ * dashboard, a partir de su configuración de color/degradado. Devuelve
+ * cadena vacía si no hay personalización (se usa el color por defecto del CSS).
+ */
+function estiloWidgetDashboard(array $widget): string
+{
+    if (empty($widget['color'])) {
+        return '';
+    }
+    if (!empty($widget['gradiente']) && !empty($widget['color2'])) {
+        $bg = 'linear-gradient(135deg, ' . $widget['color'] . ', ' . $widget['color2'] . ')';
+    } else {
+        $bg = $widget['color'];
+    }
+    return 'background:' . $bg . ';color:#fff;';
 }

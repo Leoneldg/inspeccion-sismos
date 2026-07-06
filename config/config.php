@@ -11,7 +11,7 @@ define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
 define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_NAME', getenv('DB_NAME') ?: 'inspecciones_sismos');
 define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
 
 // ---------------------------------------------------------------------
 // Aplicación
@@ -23,7 +23,7 @@ define('APP_NAME', 'Inspección de Edificaciones Post-Sismo');
 // dominio); si no está definida, usa '/inspecciones-sismos/' por defecto.
 // IMPORTANTE: debe terminar en '/', y si se sirve desde la raíz del
 // dominio debe ser exactamente '/'.
-define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/');
+define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/inspecciones-sismos/');
 define('APP_TIMEZONE', 'America/Caracas');
 
 // ---------------------------------------------------------------------

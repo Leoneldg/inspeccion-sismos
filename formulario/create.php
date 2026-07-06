@@ -21,12 +21,16 @@ if ($editId) {
     $danosEst = json_decode($row['danos_estructurales'] ?? '{}', true) ?: [];
     $danosNo  = json_decode($row['danos_no_estructurales'] ?? '{}', true) ?: [];
     $extra    = json_decode($row['datos_adicionales'] ?? '{}', true) ?: [];
+    $pisoCriticoData = json_decode($row['elementos_piso_critico'] ?? '{}', true) ?: [];
+    $accionesData    = json_decode($row['acciones_recomendadas'] ?? '{}', true) ?: [];
     $fotosExistentes = obtenerFotosInspeccion($editId);
 } else {
     requierePermiso('formulario', 'crear');
     $danosEst = [];
     $danosNo  = [];
     $extra    = [];
+    $pisoCriticoData = [];
+    $accionesData    = [];
 }
 
 function val($row, $key, $default = '') {
@@ -59,6 +63,8 @@ function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes
 $pageTitle    = $editId ? 'Editar inspección' : 'Nueva inspección';
 $pageSubtitle = 'Instrumento para Inspección de Edificaciones Afectadas por Sismos';
 $activeModule = 'formulario';
+
+$seccionesActivas = obtenerConfigFormulario();
 
 $parroquias      = catalogoParroquias();
 sort($parroquias, SORT_LOCALE_STRING);
@@ -99,6 +105,15 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- PASO 1 -->
 <div class="wizard-pane active" data-pane="1">
+    <?php if ($seccionesActivas['planilla_header']): ?>
+    <div class="section-title"><i class="bi bi-file-earmark-text-fill"></i> Datos de la planilla</div>
+    <div class="form-grid">
+        <div class="field"><label>Planilla N°</label><input name="planilla_numero" class="form-control" value="<?= e(val($row,'planilla_numero')) ?>" placeholder="Se asigna un código automático si se deja vacío"></div>
+        <div class="field" style="grid-column:span 2;"><label>Tipo de evento</label><input name="tipo_evento" class="form-control" value="<?= e(val($row,'tipo_evento')) ?>" placeholder="Ej: Sismo de magnitud 6.5"></div>
+        <div class="field"><label>Fecha del evento</label><input type="date" name="fecha_evento" class="form-control" value="<?= e(val($row,'fecha_evento')) ?>"></div>
+    </div>
+    <?php endif; ?>
+
     <div class="section-title"><i class="bi bi-person-badge-fill"></i> Profesional responsable de la inspección</div>
     <div class="form-grid">
         <div class="field"><label class="req">Nombre y apellido</label><input required name="ing1_nombre" class="form-control" value="<?= e(val($row,'ing1_nombre')) ?>"></div>
@@ -133,6 +148,10 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>N° de pisos</label><input type="number" min="0" name="num_pisos" class="form-control" value="<?= e(val($row,'num_pisos', 0)) ?>"></div>
         <div class="field"><label>N° de semisótanos</label><input type="number" min="0" name="num_semisotanos" class="form-control" value="<?= e(val($row,'num_semisotanos', 0)) ?>"></div>
         <div class="field"><label>N° de sótanos</label><input type="number" min="0" name="num_sotanos" class="form-control" value="<?= e(val($row,'num_sotanos', 0)) ?>"></div>
+        <?php if ($seccionesActivas['anio_personas']): ?>
+        <div class="field"><label>Año de construcción</label><input type="number" min="0" max="2100" name="anio_construccion" class="form-control" value="<?= e(val($row,'anio_construccion')) ?>"></div>
+        <div class="field"><label>N° de personas (general)</label><input type="number" min="0" name="numero_personas" class="form-control" value="<?= e(val($row,'numero_personas')) ?>"></div>
+        <?php endif; ?>
     </div>
 
     <div class="section-title"><i class="bi bi-geo-alt-fill"></i> Ubicación</div>
@@ -198,9 +217,16 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <label style="margin-top:10px;">Materiales presentes</label>
     <div class="form-grid cols-4">
+        <?php if ($seccionesActivas['materiales_extendidos']): ?>
+        <div class="check-row"><input type="checkbox" name="material_concreto" id="m0" value="1" <?= val($row,'material_concreto')?'checked':'' ?>><label for="m0">Concreto</label></div>
+        <?php endif; ?>
         <div class="check-row"><input type="checkbox" name="material_acero" id="m1" value="1" <?= val($row,'material_acero')?'checked':'' ?>><label for="m1">Acero</label></div>
         <div class="check-row"><input type="checkbox" name="material_conexiones" id="m2" value="1" <?= val($row,'material_conexiones')?'checked':'' ?>><label for="m2">Conexiones</label></div>
-        <div class="check-row"><input type="checkbox" name="material_mamposteria" id="m3" value="1" <?= val($row,'material_mamposteria')?'checked':'' ?>><label for="m3">Mampostería</label></div>
+        <div class="check-row"><input type="checkbox" name="material_mamposteria" id="m3" value="1" <?= val($row,'material_mamposteria')?'checked':'' ?>><label for="m3">Mampostería (general)</label></div>
+        <?php if ($seccionesActivas['materiales_extendidos']): ?>
+        <div class="check-row"><input type="checkbox" name="mamposteria_formal" id="m5" value="1" <?= val($row,'mamposteria_formal')?'checked':'' ?>><label for="m5">Mampostería formal</label></div>
+        <div class="check-row"><input type="checkbox" name="mamposteria_informal" id="m6" value="1" <?= val($row,'mamposteria_informal')?'checked':'' ?>><label for="m6">Mampostería informal</label></div>
+        <?php endif; ?>
         <div class="check-row"><input type="checkbox" name="material_otros" id="m4" value="1" <?= val($row,'material_otros')?'checked':'' ?>><label for="m4">Otros</label></div>
     </div>
     <div class="field"><label>Especifique otros materiales</label><input name="material_otros_especifique" class="form-control" value="<?= e(val($row,'material_otros_especifique')) ?>"></div>
@@ -217,31 +243,35 @@ include __DIR__ . '/../includes/header.php';
             </select>
         </div>
         <div class="field">
-            <label>Riesgo de edificios aledaños</label>
+            <label>Peligro por edificios aledaños</label>
             <select name="riesgo_edificios_aledanos" class="form-control">
-                <option value="No" <?= val($row,'riesgo_edificios_aledanos')==='No'?'selected':'' ?>>No</option>
-                <option value="Si" <?= val($row,'riesgo_edificios_aledanos')==='Si'?'selected':'' ?>>Sí</option>
+                <?php foreach (['No','Moderado','Elevado','Si'] as $o): ?>
+                <option value="<?= e($o) ?>" <?= val($row,'riesgo_edificios_aledanos')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
+                <?php endforeach; ?>
             </select>
         </div>
         <div class="field">
-            <label>Amenaza geológica</label>
+            <label>Peligro geológico o geotécnico</label>
             <select name="amenaza_geologica" class="form-control">
-                <option value="No" <?= val($row,'amenaza_geologica')==='No'?'selected':'' ?>>No</option>
-                <option value="Si" <?= val($row,'amenaza_geologica')==='Si'?'selected':'' ?>>Sí</option>
+                <?php foreach (['No','Moderado','Elevado','Si'] as $o): ?>
+                <option value="<?= e($o) ?>" <?= val($row,'amenaza_geologica')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
+                <?php endforeach; ?>
             </select>
         </div>
         <div class="field">
             <label>Asentamiento del edificio</label>
             <select name="asentamiento_edificio" class="form-control">
-                <option value="No" <?= val($row,'asentamiento_edificio')==='No'?'selected':'' ?>>No</option>
-                <option value="Si" <?= val($row,'asentamiento_edificio')==='Si'?'selected':'' ?>>Sí</option>
+                <?php foreach (['No','Hasta 20 cm','Mayor a 20 cm','Si'] as $o): ?>
+                <option value="<?= e($o) ?>" <?= val($row,'asentamiento_edificio')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
+                <?php endforeach; ?>
             </select>
         </div>
         <div class="field">
             <label>Inclinación del edificio</label>
             <select name="inclinacion_edificio" class="form-control">
-                <option value="No" <?= val($row,'inclinacion_edificio')==='No'?'selected':'' ?>>No</option>
-                <option value="Si" <?= val($row,'inclinacion_edificio')==='Si'?'selected':'' ?>>Sí</option>
+                <?php foreach (['No','Hasta 2cm/60cm','Mayor que 2cm/60cm','Si'] as $o): ?>
+                <option value="<?= e($o) ?>" <?= val($row,'inclinacion_edificio')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
+                <?php endforeach; ?>
             </select>
         </div>
         <div class="field">
@@ -251,11 +281,80 @@ include __DIR__ . '/../includes/header.php';
                 <option value="Si" <?= val($row,'requiere_inspeccion_interna')==='Si'?'selected':'' ?>>Sí</option>
             </select>
         </div>
+        <?php if ($seccionesActivas['riesgo_externo']): ?>
+        <div class="field">
+            <label>Riesgo Externo (A/B/C)</label>
+            <select name="riesgo_externo" class="form-control">
+                <option value="">Seleccione…</option>
+                <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
+                <option value="<?= e($k) ?>" <?= val($row,'riesgo_externo')===$k?'selected':'' ?>><?= e($k) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <p class="help-text">A. Bajo si todos los aspectos son "No". B. Medio si hay al menos un "Moderado" y ninguno "Elevado". C. Alto si hay al menos un "Elevado" (en ese caso no continúe la inspección interna).</p>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
 <!-- PASO 5 -->
 <div class="wizard-pane" data-pane="5">
+    <?php if ($seccionesActivas['piso_critico']): ?>
+    <div class="section-title"><i class="bi bi-building-fill-exclamation"></i> Piso crítico y elementos con daño severo/completo</div>
+    <div class="form-grid cols-2">
+        <div class="field"><label>Pisos inspeccionados</label><input name="pisos_inspeccionados" class="form-control" value="<?= e(val($row,'pisos_inspeccionados')) ?>" placeholder="Ej: PB, 1, 2, 3"></div>
+        <div class="field">
+            <label>Acceso a miembros estructurales principales</label>
+            <select name="acceso_miembros_estructurales" class="form-control">
+                <option value="">Seleccione…</option>
+                <?php foreach (catalogoAccesoMiembros() as $o): ?>
+                <option value="<?= e($o) ?>" <?= val($row,'acceso_miembros_estructurales')===$o?'selected':'' ?>><?= e($o) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="field"><label>Piso crítico</label><input name="piso_critico" class="form-control" value="<?= e(val($row,'piso_critico')) ?>"></div>
+    </div>
+    <label style="margin-top:10px;">N° de elementos con daño Severo/Completo (N), por tipo de elemento en el piso crítico</label>
+    <div class="form-grid cols-4">
+        <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
+        <div class="field"><label><?= e($label) ?></label><input type="number" min="0" name="elementos_piso_critico[severo][<?= $key ?>]" class="form-control" value="<?= e($pisoCriticoData['severo'][$key] ?? '') ?>"></div>
+        <?php endforeach; ?>
+    </div>
+    <div class="field" style="margin-top:8px;">
+        <label>Riesgo Estructural por daño Severo/Completo</label>
+        <select name="riesgo_estructural_severo" class="form-control">
+            <option value="">Seleccione…</option>
+            <?php foreach (catalogoRiesgoSevero() as $k => $v): ?>
+            <option value="<?= e($k) ?>" <?= val($row,'riesgo_estructural_severo')===$k?'selected':'' ?>><?= e($v) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <p class="help-text">Si es catalogado como C. Alto, no continúe con la inspección interna: vaya a Decisión y coloque Etiqueta roja.</p>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($seccionesActivas['dano_moderado_piso_critico']): ?>
+    <div class="section-title"><i class="bi bi-table"></i> Elementos estructurales con daño Moderado en el piso crítico</div>
+    <div class="form-grid cols-4" style="margin-bottom:4px;">
+        <div></div><div class="text-sm text-muted">Sin daño/Menor</div><div class="text-sm text-muted">Moderado</div><div class="text-sm text-muted">N° examinados</div>
+    </div>
+    <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
+    <div class="form-grid cols-4" style="margin-bottom:6px;">
+        <div class="field"><label><?= e($label) ?></label></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][sin_dano]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['sin_dano'] ?? '') ?>"></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][moderado]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['moderado'] ?? '') ?>"></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][examinados]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['examinados'] ?? '') ?>"></div>
+    </div>
+    <?php endforeach; ?>
+    <div class="field" style="margin-top:8px;">
+        <label>Riesgo Estructural por Daño Moderado</label>
+        <select name="riesgo_estructural_moderado" class="form-control">
+            <option value="">Seleccione…</option>
+            <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
+            <option value="<?= e($k) ?>" <?= val($row,'riesgo_estructural_moderado')===$k?'selected':'' ?>><?= e($k) ?> <?= $k==='A. Bajo'?'(< 10%)':($k==='B. Medio'?'(10-30%)':'(> 30%)') ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <?php endif; ?>
+
     <div class="section-title"><i class="bi bi-bricks"></i> Daño en elementos estructurales</div>
     <div class="form-grid cols-2">
         <?php foreach ($elementosEstruct as $key => $label): ?>
@@ -310,6 +409,17 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endforeach; ?>
     </div>
+    <?php if ($seccionesActivas['riesgo_componentes']): ?>
+    <div class="field" style="max-width:420px;">
+        <label>Riesgo de Componentes (no estructurales)</label>
+        <select name="riesgo_componentes" class="form-control">
+            <option value="">Seleccione…</option>
+            <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
+            <option value="<?= e($k) ?>" <?= val($row,'riesgo_componentes')===$k?'selected':'' ?>><?= e($k) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-droplet-half"></i> Servicios y elementos complementarios</div>
     <div class="form-grid cols-4">
@@ -369,6 +479,23 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>Observaciones</label><textarea name="observaciones" class="form-control"><?= e(val($row,'observaciones')) ?></textarea></div>
         <div class="field"><label>Recomendaciones</label><textarea name="recomendaciones" class="form-control"><?= e(val($row,'recomendaciones')) ?></textarea></div>
     </div>
+
+    <?php if ($seccionesActivas['acciones_recomendadas']): ?>
+    <div class="section-title"><i class="bi bi-list-check"></i> Acciones recomendadas</div>
+    <label>Inspección Detallada</label>
+    <div class="form-grid cols-4" style="margin-bottom:10px;">
+        <?php foreach (catalogoInspeccionDetallada() as $key => $label): $chk = !empty($accionesData['inspeccion_detallada'][$key]); ?>
+        <div class="check-row"><input type="checkbox" name="inspeccion_detallada[<?= $key ?>]" id="idet_<?= $key ?>" value="1" <?= $chk?'checked':'' ?>><label for="idet_<?= $key ?>"><?= e($label) ?></label></div>
+        <?php endforeach; ?>
+    </div>
+    <label>Medidas de Prevención</label>
+    <div class="form-grid cols-4">
+        <?php foreach (catalogoMedidasPrevencion() as $key => $label): $chk = !empty($accionesData['medidas_prevencion'][$key]); ?>
+        <div class="check-row"><input type="checkbox" name="medidas_prevencion[<?= $key ?>]" id="mprev_<?= $key ?>" value="1" <?= $chk?'checked':'' ?>><label for="mprev_<?= $key ?>"><?= e($label) ?></label></div>
+        <?php endforeach; ?>
+    </div>
+    <div class="field" style="margin-top:8px;"><label>Otra medida de prevención</label><input name="medida_prevencion_otra" class="form-control" value="<?= e($accionesData['medidas_prevencion']['otra_texto'] ?? '') ?>"></div>
+    <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-camera-fill"></i> Registro fotográfico</div>
     <div class="form-grid cols-2">

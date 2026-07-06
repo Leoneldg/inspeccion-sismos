@@ -3,7 +3,7 @@
  * Requiere que la página que incluye este archivo haya definido:
  *   $pageTitle    (string)
  *   $pageSubtitle (string, opcional)
- *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios' | 'import_export')
+ *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios' | 'roles' | 'import_export' | 'configuracion')
  */
 $pageTitle    = $pageTitle ?? APP_NAME;
 $pageSubtitle = $pageSubtitle ?? '';
@@ -68,6 +68,11 @@ $flashes = obtenerFlashes();
         </a>
         <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule === 'roles' ? 'active' : '' ?>" title="Roles y Permisos">
             <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>
+        </a>
+        <?php endif; ?>
+        <?php if (puede('configuracion', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="nav-item <?= $activeModule === 'configuracion' ? 'active' : '' ?>" title="Configuración del Sistema">
+            <i class="bi bi-sliders"></i> <span>Configuración del Sistema</span>
         </a>
         <?php endif; ?>
 

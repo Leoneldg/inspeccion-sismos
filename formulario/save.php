@@ -116,6 +116,33 @@ $datosAdicionales = [
     'maquinarias'        => trim($_POST['extra_maquinarias'] ?? ''),
 ];
 
+// Punto 3 y 4 de la planilla FUNVISIS: elementos del piso crítico con daño
+// severo/completo (conteo N) y con daño moderado (sin daño/moderado/examinados).
+$elementosPisoCritico = ['severo' => [], 'moderado' => []];
+foreach (array_keys(catalogoElementosPisoCritico()) as $k) {
+    $sev = $_POST['elementos_piso_critico']['severo'][$k] ?? '';
+    if ($sev !== '') $elementosPisoCritico['severo'][$k] = (int)$sev;
+
+    $mod = $_POST['elementos_piso_critico']['moderado'][$k] ?? [];
+    $fila = array_filter([
+        'sin_dano'   => nullSiVacio($mod['sin_dano'] ?? ''),
+        'moderado'   => nullSiVacio($mod['moderado'] ?? ''),
+        'examinados' => nullSiVacio($mod['examinados'] ?? ''),
+    ], fn($v) => $v !== null);
+    if ($fila) $elementosPisoCritico['moderado'][$k] = $fila;
+}
+
+// Punto 7 de la planilla: acciones recomendadas (inspección detallada + medidas de prevención).
+$accionesRecomendadas = [
+    'inspeccion_detallada' => array_fill_keys(
+        array_keys(array_filter($_POST['inspeccion_detallada'] ?? [])), true
+    ),
+    'medidas_prevencion'   => array_merge(
+        array_fill_keys(array_keys(array_filter($_POST['medidas_prevencion'] ?? [])), true),
+        ['otra_texto' => trim($_POST['medida_prevencion_otra'] ?? '')]
+    ),
+];
+
 $campos = [
     'ing1_nombre'                => trim($_POST['ing1_nombre']),
     'ing1_cedula'                => trim($_POST['ing1_cedula']),
@@ -128,6 +155,10 @@ $campos = [
     'ing2_profesion'             => nullSiVacio(trim($_POST['ing2_profesion'] ?? '')),
     'ing2_inscripcion'           => nullSiVacio(trim($_POST['ing2_inscripcion'] ?? '')),
 
+    'planilla_numero'            => nullSiVacio(trim($_POST['planilla_numero'] ?? '')),
+    'tipo_evento'                => nullSiVacio(trim($_POST['tipo_evento'] ?? '')),
+    'fecha_evento'               => nullSiVacio($_POST['fecha_evento'] ?? ''),
+
     'nombre_edificio'            => trim($_POST['nombre_edificio']),
     'fecha_inspeccion'           => $_POST['fecha_inspeccion'],
     'hora_inicio'                => nullSiVacio($_POST['hora_inicio'] ?? ''),
@@ -136,6 +167,8 @@ $campos = [
     'num_pisos'                  => intPost('num_pisos'),
     'num_semisotanos'            => intPost('num_semisotanos'),
     'num_sotanos'                => intPost('num_sotanos'),
+    'anio_construccion'          => nullSiVacio($_POST['anio_construccion'] ?? ''),
+    'numero_personas'            => nullSiVacio($_POST['numero_personas'] ?? ''),
 
     'estado'                     => nullSiVacio(trim($_POST['estado'] ?? '')),
     'ciudad'                     => nullSiVacio(trim($_POST['ciudad'] ?? '')),
@@ -153,9 +186,12 @@ $campos = [
 
     'uso_edificacion'             => nullSiVacio($_POST['uso_edificacion'] ?? ''),
     'tipo_estructural'             => nullSiVacio($_POST['tipo_estructural'] ?? ''),
+    'material_concreto'           => !empty($_POST['material_concreto']) ? 1 : 0,
     'material_acero'              => !empty($_POST['material_acero']) ? 1 : 0,
     'material_conexiones'         => !empty($_POST['material_conexiones']) ? 1 : 0,
     'material_mamposteria'        => !empty($_POST['material_mamposteria']) ? 1 : 0,
+    'mamposteria_formal'          => !empty($_POST['mamposteria_formal']) ? 1 : 0,
+    'mamposteria_informal'        => !empty($_POST['mamposteria_informal']) ? 1 : 0,
     'material_otros'              => !empty($_POST['material_otros']) ? 1 : 0,
     'material_otros_especifique'  => nullSiVacio(trim($_POST['material_otros_especifique'] ?? '')),
 
@@ -165,6 +201,14 @@ $campos = [
     'asentamiento_edificio'       => $_POST['asentamiento_edificio'] ?? 'No',
     'inclinacion_edificio'        => $_POST['inclinacion_edificio'] ?? 'No',
     'requiere_inspeccion_interna' => $_POST['requiere_inspeccion_interna'] ?? 'No',
+    'riesgo_externo'              => nullSiVacio($_POST['riesgo_externo'] ?? ''),
+
+    'pisos_inspeccionados'          => nullSiVacio(trim($_POST['pisos_inspeccionados'] ?? '')),
+    'acceso_miembros_estructurales' => nullSiVacio($_POST['acceso_miembros_estructurales'] ?? ''),
+    'piso_critico'                  => nullSiVacio(trim($_POST['piso_critico'] ?? '')),
+    'riesgo_estructural_severo'     => nullSiVacio($_POST['riesgo_estructural_severo'] ?? ''),
+    'elementos_piso_critico'        => json_encode($elementosPisoCritico, JSON_UNESCAPED_UNICODE),
+    'riesgo_estructural_moderado'   => nullSiVacio($_POST['riesgo_estructural_moderado'] ?? ''),
 
     'danos_estructurales'         => json_encode($danosEstructurales, JSON_UNESCAPED_UNICODE),
     'requiere_intervencion'       => $_POST['requiere_intervencion'] ?? 'No',
@@ -173,6 +217,7 @@ $campos = [
     'pct_dano_v'                  => nullSiVacio($_POST['pct_dano_v'] ?? ''),
 
     'danos_no_estructurales'      => json_encode($danosNoEstructurales, JSON_UNESCAPED_UNICODE),
+    'riesgo_componentes'          => nullSiVacio($_POST['riesgo_componentes'] ?? ''),
 
     'familias'                    => intPost('familias'),
     'ninos'                       => intPost('ninos'),
@@ -193,6 +238,7 @@ $campos = [
     'lugares_medidas'              => nullSiVacio(trim($_POST['lugares_medidas'] ?? '')),
     'observaciones'                => nullSiVacio(trim($_POST['observaciones'] ?? '')),
     'recomendaciones'              => nullSiVacio(trim($_POST['recomendaciones'] ?? '')),
+    'acciones_recomendadas'         => json_encode($accionesRecomendadas, JSON_UNESCAPED_UNICODE),
 
     'datos_adicionales'            => json_encode($datosAdicionales, JSON_UNESCAPED_UNICODE),
 ];

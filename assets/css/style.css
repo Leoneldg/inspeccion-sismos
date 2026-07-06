@@ -788,11 +788,64 @@ body.modo-tv .content { padding: 22px 30px; max-width: none; }
     min-width: 0;
 }
 .dashboard-left-col .tv-kpi-grid { margin-bottom: 0; }
-/* La columna izquierda del dashboard es más angosta que el ancho completo
-   (comparte fila con el mapa), así que aquí los 8 KPIs van de a 2 por
-   fila en vez de 4 -- si no, en TV/monitores grandes los números y
-   etiquetas quedan apretados o se desbordan de la tarjeta. */
-.dashboard-left-col .tv-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* La cuadrícula de KPIs va en 4 columnas igual que en la columna izquierda
+   completa (antes se forzaba a 2 por ser más angosta, pero la referencia
+   de diseño mantiene 4 incluso en esa columna). */
+
+/* =====================================================================
+   Tema oscuro del dashboard (panel izquierdo: hero + KPIs + gráficos, y
+   encabezado del mapa). Exclusivo de dashboard/index.php — estas clases
+   no se usan en ninguna otra pantalla del sistema, así que se puede
+   restylear sin afectar el resto de la app.
+   ===================================================================== */
+.dashboard-left-col {
+    background: #111d36;
+    border-radius: 10px;
+    padding: 6px;
+    gap: 6px;
+}
+.dashboard-left-col .split-grid { gap: 6px; }
+.dashboard-left-col .card {
+    background: #16233f;
+    border: none;
+    border-radius: 6px;
+    box-shadow: none;
+    color: #e3e9f7;
+}
+.dashboard-left-col .card-header { border-bottom-color: rgba(255,255,255,.12); }
+.dashboard-left-col .card-header h2,
+.dashboard-left-col .tv-section-title { color: #fff; }
+.dashboard-left-col .text-muted,
+.dashboard-left-col .help-text { color: #94a6d1; }
+.dashboard-left-col .leyenda-decision-item:hover { background: rgba(255,255,255,.08); }
+
+.kpi-hero {
+    background: #4b6693;
+    box-shadow: none;
+    border-radius: 6px;
+}
+.kpi-hero .icon { background: #fff; color: #33415c; border-radius: 50%; }
+
+.tv-kpi-grid { gap: 3px; }
+.tv-kpi-card {
+    background: #4b6693;
+    border: none;
+    border-radius: 4px;
+    box-shadow: none;
+}
+.tv-kpi-card .icon { background: #fff; color: #33415c; border-radius: 50%; }
+.tv-kpi-card .num, .tv-kpi-card .lbl { color: #fff; }
+/* Segunda fila de la cuadrícula de 8 KPIs (4 columnas x 2 filas) en un
+   azul más oscuro, igual que la referencia de diseño. */
+.tv-kpi-grid > .tv-kpi-card:nth-child(n+5) { background: #1e2f57; }
+
+.card-mapa .card-header {
+    background: #111d36;
+    border-bottom-color: rgba(255,255,255,.12);
+}
+.card-mapa .card-header h2,
+.card-mapa .card-header .text-muted { color: #fff; }
+
 
 /* Tamaños de letra fluidos: escalan un poco con el ancho de pantalla sin
    depender de un breakpoint fijo, para que se vean bien tanto en laptop
@@ -826,6 +879,7 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .split-grid.cols-10-14  { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
 .split-grid.cols-sidebar{ grid-template-columns: 380px minmax(0, 1fr); }
 .split-grid.cols-21     { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.split-grid.cols-11     { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .split-grid.align-start { align-items: start; }
 .split-grid > * { min-width: 0; }
 @media (max-width: 900px) {
@@ -1098,6 +1152,35 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .foto-galeria img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .15s ease; }
 .foto-galeria a:hover img { transform: scale(1.06); }
 .foto-categoria-titulo { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--azul-700); margin: 16px 0 6px; }
+
+/* Visor de foto en grande (lightbox), se muestra por encima del modal de ficha técnica */
+.lightbox-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.88);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    z-index: 1100;
+}
+.lightbox-overlay img {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radio-sm);
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+}
+.lightbox-close {
+    position: fixed;
+    top: 18px;
+    right: 22px;
+    background: rgba(255,255,255,0.15);
+    border: none; color: white;
+    width: 38px; height: 38px; border-radius: 50%;
+    cursor: pointer; font-size: 17px;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1101;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.28); }
 
 /* =====================================================================
    Selector de ubicación en el formulario (mapa tipo "Google Maps")
