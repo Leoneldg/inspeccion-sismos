@@ -173,7 +173,6 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>Sector</label><input name="sector" class="form-control" value="<?= e(val($row,'sector')) ?>"></div>
         <div class="field"><label>Avenida o calle</label><input name="avenida_calle" class="form-control" value="<?= e(val($row,'avenida_calle')) ?>"></div>
         <div class="field"><label>Nombre de la comunidad</label><input name="nombre_comunidad" class="form-control" value="<?= e(val($row,'nombre_comunidad')) ?>"></div>
-        <div class="field"><label>Huso</label><input name="huso" class="form-control" value="<?= e(val($row,'huso')) ?>"></div>
     </div>
 
     <label style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
