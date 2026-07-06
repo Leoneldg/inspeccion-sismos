@@ -106,13 +106,6 @@ include __DIR__ . '/../includes/header.php';
 <!-- PASO 1 -->
 <div class="wizard-pane active" data-pane="1">
     <?php if ($seccionesActivas['planilla_header']): ?>
-    <div class="section-title"><i class="bi bi-file-earmark-text-fill"></i> Datos de la planilla</div>
-    <div class="form-grid">
-        <div class="field"><label>Planilla N°</label><input name="planilla_numero" class="form-control" value="<?= e(val($row,'planilla_numero')) ?>" placeholder="Se asigna un código automático si se deja vacío"></div>
-        <div class="field" style="grid-column:span 2;"><label>Tipo de evento</label><input name="tipo_evento" class="form-control" value="<?= e(val($row,'tipo_evento')) ?>" placeholder="Ej: Sismo de magnitud 6.5"></div>
-        <div class="field"><label>Fecha del evento</label><input type="date" name="fecha_evento" class="form-control" value="<?= e(val($row,'fecha_evento')) ?>"></div>
-    </div>
-    <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-person-badge-fill"></i> Profesional responsable de la inspección</div>
     <div class="form-grid">
