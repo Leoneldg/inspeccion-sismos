@@ -1,23 +1,73 @@
 ACTUALIZACIÓN — Inspección de Edificaciones Post-Sismo
 =======================================================
 
-Archivos incluidos:
+PASO OBLIGATORIO ANTES QUE NADA:
+  mysql -u root -p inspecciones_sismos < database/actualizacion_v6.sql
 
-includes/functions.php
-  - catalogoUsoEdificacion() reemplazado con las opciones pedidas:
-    Casa, Quinta, Edificio Residencial, Edificio de Oficina,
-    Edificio Gubernamental, Escuela, Hospital, Clínica,
-    Centro de Atención Médica (CDI), Galpón, Local Comercial,
-    Centro Comercial.
+Esta migración es idempotente (se puede correr aunque ya la hayas
+corrido antes; no la vuelve a aplicar dos veces) y AGREGA, sin borrar
+nada:
+  - Tabla `ingenieros` (directorio de profesionales).
+  - Módulo "Ingenieros / Inspectores" + permisos por rol.
+  - Columnas ing1_id / ing2_id en `inspecciones` (referencia al
+    ingeniero elegido; las columnas de texto ing1_nombre, ing1_cedula,
+    etc. se conservan tal cual y se siguen llenando automáticamente).
+  - Columna `tiene_tanque_agua` en `inspecciones` (para el filtro nuevo).
 
-formulario/create.php
-  1. Paso 3: se agregó de vuelta el campo "Uso de la edificación" con
-     el catálogo de arriba (antes se había quitado; el backend
-     -save.php, view.php- nunca dejó de soportarlo, así que no hizo
-     falta tocar nada más).
-  2. Paso 6 (Servicios y elementos complementarios): "Cantidad de
-     ascensores" ahora solo aparece si se marca "Ascensores", y
-     "Estado del tanque de agua" solo aparece si se marca "Daños en
-     aguas".
+-------------------------------------------------------------------------
+QUÉ CAMBIÓ EN CADA ARCHIVO
+-------------------------------------------------------------------------
 
-No requiere ninguna migración SQL.
+1) FILTRO "TIENE TANQUE DE AGUA"
+   - formulario/create.php: en "Servicios y elementos complementarios"
+     (paso 6) se agregó el checkbox "Tiene tanque de agua", separado de
+     "Daños en aguas". El campo "Estado del tanque de agua" ahora
+     aparece cuando se marca ESTE checkbox (antes aparecía con "Daños
+     en aguas", lo cual no tenía mucho sentido para tanques sin daño).
+   - formulario/save.php: guarda tiene_tanque_agua como columna propia.
+   - formulario/index.php: nuevo filtro desplegable "Tanque de agua:
+     todos / Con tanque / Sin tanque" en la lista de inspecciones, y un
+     ícono de gota junto al nombre del edificio cuando sí tiene.
+
+2) MÓDULO DE INGENIEROS / INSPECTORES / ARQUITECTOS (nuevo)
+   - admin/ingenieros.php: pantalla de listado + formulario de alta/edición
+     (foto, cédula, nombre completo, teléfono, colegio de ingenieros
+     -opcional-, activo/inactivo). Con buscador por nombre/cédula.
+   - admin/guardar_ingeniero.php: guarda alta/edición + sube la foto.
+   - admin/eliminar_ingeniero.php: elimina un profesional (las
+     inspecciones que ya lo tenían asignado conservan su nombre/cédula/
+     teléfono tal como quedaron guardados; solo se pierde el enlace).
+   - admin/ingenieros_json.php: endpoint usado por el botón "actualizar
+     lista" del formulario (ver punto 3).
+   - includes/header.php: enlace "Ingenieros / Inspectores" en el menú
+     (solo visible para quien tenga permiso).
+   - includes/functions.php: guardarFotoIngeniero(), tablaIngenierosExiste(),
+     obtenerIngenierosActivos().
+
+   Permisos por defecto (ya vienen en la migración, ajustables luego
+   desde Roles y Permisos):
+     - Administrador / Superadministrador: acceso total.
+     - Inspector: puede ver, agregar y editar (no eliminar).
+     - Supervisor: sin acceso.
+
+3) EL FORMULARIO YA NO PIDE EL NOMBRE/CÉDULA A MANO
+   - formulario/create.php: el "Profesional responsable" (y el segundo
+     profesional opcional) ahora es una lista desplegable con los
+     ingenieros ACTIVOS del directorio (nombre — cédula). Al lado hay:
+       • Un botón ↻ para refrescar la lista sin recargar la página.
+       • Un botón "Agregar nuevo ingeniero" que abre el módulo de
+         ingenieros en una PESTAÑA NUEVA (no se pierde el progreso del
+         formulario). Después de agregarlo ahí, se vuelve a la pestaña
+         del formulario y se toca ↻ para que aparezca en la lista.
+     Al elegir un ingeniero, sus datos (teléfono, profesión, colegio)
+     se copian automáticamente por dentro del formulario -- el resto
+     del sistema (guardado, ficha, PDF, dashboard) sigue funcionando
+     exactamente igual, sin ningún cambio adicional.
+   - formulario/save.php: valida que se haya elegido un ingeniero
+     (ing1_id) además de las validaciones que ya existían.
+
+NOTA: las inspecciones ya guardadas ANTES de esta actualización no
+tienen ningún ingeniero "vinculado" (ing1_id vacío) aunque sí tengan
+su nombre/cédula en texto -- eso es normal y no se pierde nada; si las
+editas, vas a tener que elegir un ingeniero del directorio para esa
+inspección (agrégalo primero si no está registrado todavía).

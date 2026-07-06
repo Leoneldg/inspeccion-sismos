@@ -16,6 +16,7 @@ $activeModule = 'formulario';
 
 $q         = trim($_GET['q'] ?? '');
 $parroquia = trim($_GET['parroquia'] ?? '');
+$tanque    = trim($_GET['tanque'] ?? '');
 $pagina    = max(1, (int)($_GET['pagina'] ?? 1));
 $porPagina = 15;
 
@@ -31,6 +32,11 @@ if ($parroquia !== '' && $parroquia !== 'todas') {
     $where[] = 'parroquia = :parroquia';
     $params['parroquia'] = $parroquia;
 }
+if ($tanque === 'si') {
+    $where[] = 'tiene_tanque_agua = 1';
+} elseif ($tanque === 'no') {
+    $where[] = '(tiene_tanque_agua = 0 OR tiene_tanque_agua IS NULL)';
+}
 $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
 $pdo = db();
@@ -40,7 +46,7 @@ $total = (int)$stmtCount->fetch()['c'];
 $totalPaginas = max(1, (int)ceil($total / $porPagina));
 $offset = ($pagina - 1) * $porPagina;
 
-$sql = "SELECT id, codigo, nombre_edificio, parroquia, fecha_inspeccion, decision_final, ing1_nombre, familias
+$sql = "SELECT id, codigo, nombre_edificio, parroquia, fecha_inspeccion, decision_final, ing1_nombre, familias, tiene_tanque_agua
         FROM inspecciones $whereSql ORDER BY creado_en DESC LIMIT :lim OFFSET :off";
 $stmt = $pdo->prepare($sql);
 foreach ($params as $k => $v) { $stmt->bindValue(":$k", $v); }
@@ -71,6 +77,11 @@ include __DIR__ . '/../includes/header.php';
             <?php foreach ($parroquias as $p): ?>
                 <option value="<?= e($p) ?>" <?= $parroquia === $p ? 'selected' : '' ?>><?= e($p) ?></option>
             <?php endforeach; ?>
+        </select>
+        <select name="tanque" class="form-control" style="width:190px;">
+            <option value="">Tanque de agua: todos</option>
+            <option value="si" <?= $tanque === 'si' ? 'selected' : '' ?>>Con tanque de agua</option>
+            <option value="no" <?= $tanque === 'no' ? 'selected' : '' ?>>Sin tanque de agua</option>
         </select>
         <button class="btn btn-outline"><i class="bi bi-search"></i> Buscar</button>
     </form>
@@ -106,7 +117,7 @@ include __DIR__ . '/../includes/header.php';
             <?php foreach ($inspecciones as $r): ?>
                 <tr>
                     <td><span style="font-family:var(--font-mono);font-size:12.5px;color:var(--gris-500);"><?= e($r['codigo']) ?></span></td>
-                    <td><strong><?= e($r['nombre_edificio']) ?></strong></td>
+                    <td><strong><?= e($r['nombre_edificio']) ?></strong> <?php if (!empty($r['tiene_tanque_agua'])): ?><i class="bi bi-droplet-fill text-sm" style="color:var(--azul-500);" title="Tiene tanque de agua"></i><?php endif; ?></td>
                     <td><?= e($r['parroquia']) ?></td>
                     <td><?= e($r['fecha_inspeccion']) ?></td>
                     <td><?= e($r['ing1_nombre']) ?></td>

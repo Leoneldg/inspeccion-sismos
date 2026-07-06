@@ -3,7 +3,7 @@
  * Requiere que la página que incluye este archivo haya definido:
  *   $pageTitle    (string)
  *   $pageSubtitle (string, opcional)
- *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios' | 'roles' | 'import_export' | 'configuracion')
+ *   $activeModule (string: 'dashboard' | 'formulario' | 'usuarios' | 'roles' | 'import_export' | 'configuracion' | 'ingenieros')
  */
 $pageTitle    = $pageTitle ?? APP_NAME;
 $pageSubtitle = $pageSubtitle ?? '';
@@ -68,6 +68,11 @@ $flashes = obtenerFlashes();
         </a>
         <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule === 'roles' ? 'active' : '' ?>" title="Roles y Permisos">
             <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>
+        </a>
+        <?php endif; ?>
+        <?php if (puede('ingenieros', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item <?= $activeModule === 'ingenieros' ? 'active' : '' ?>" title="Ingenieros / Inspectores">
+            <i class="bi bi-person-vcard-fill"></i> <span>Ingenieros / Inspectores</span>
         </a>
         <?php endif; ?>
         <?php if (puede('configuracion', 'ver')): ?>

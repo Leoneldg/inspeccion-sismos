@@ -60,6 +60,53 @@ function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes
     <?php
 }
 
+/**
+ * Selector de un profesional responsable (ing1/ing2) a partir del
+ * directorio de ingenieros registrados (admin/ingenieros.php), en vez de
+ * campos de texto libre. Al elegir uno, JS copia sus datos a campos
+ * ocultos con los mismos nombres que antes (ing1_nombre, ing1_cedula,
+ * etc.) para que el resto del sistema (guardado, ficha, PDF, dashboard)
+ * siga funcionando exactamente igual sin cambios.
+ */
+function selectorIngeniero(string $prefix, ?array $row, bool $requerido, array $ingenieros): void {
+    $valorSeleccionado = val($row, $prefix . '_id');
+    ?>
+    <div class="field" style="grid-column:1/-1;">
+        <label <?= $requerido ? 'class="req"' : '' ?>>Profesional<?= $requerido ? '' : ' (segundo profesional)' ?></label>
+        <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+            <select <?= $requerido ? 'required' : '' ?> id="<?= $prefix ?>_id" name="<?= $prefix ?>_id" class="form-control ingeniero-select" data-prefix="<?= $prefix ?>" style="flex:1;min-width:220px;">
+                <option value="">Seleccione un ingeniero registrado…</option>
+                <?php foreach ($ingenieros as $ing): ?>
+                <option value="<?= (int)$ing['id'] ?>"
+                    data-nombre="<?= e($ing['nombre_completo']) ?>"
+                    data-cedula="<?= e($ing['cedula']) ?>"
+                    data-telefono="<?= e($ing['telefono'] ?? '') ?>"
+                    data-profesion="<?= e($ing['profesion'] ?? '') ?>"
+                    data-colegio="<?= e($ing['colegio_inscripcion'] ?? '') ?>"
+                    <?= $valorSeleccionado == $ing['id'] ? 'selected' : '' ?>>
+                    <?= e($ing['nombre_completo']) ?> — <?= e($ing['cedula']) ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn btn-outline btn-sm btn-refrescar-ingenieros" title="Actualizar lista de ingenieros"><i class="bi bi-arrow-clockwise"></i></button>
+            <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" target="_blank" class="btn btn-outline btn-sm">
+                <i class="bi bi-person-plus-fill"></i> Agregar nuevo ingeniero
+            </a>
+        </div>
+        <p class="help-text">Solo aparecen ingenieros activos del directorio. Si no está en la lista, agrégalo con el botón (se abre en una pestaña nueva, sin perder el progreso de este formulario) y luego toca <i class="bi bi-arrow-clockwise"></i> para actualizar.</p>
+    </div>
+    <div class="field"><label>Teléfono</label><input type="text" class="form-control" readonly id="<?= $prefix ?>_telefono_display" value="<?= e(val($row, $prefix . '_telefono')) ?>"></div>
+    <div class="field"><label>Profesión</label><input type="text" class="form-control" readonly id="<?= $prefix ?>_profesion_display" value="<?= e(val($row, $prefix . '_profesion')) ?>"></div>
+    <div class="field"><label>N° de inscripción</label><input type="text" class="form-control" readonly id="<?= $prefix ?>_inscripcion_display" value="<?= e(val($row, $prefix . '_inscripcion')) ?>"></div>
+
+    <input type="hidden" name="<?= $prefix ?>_nombre" id="<?= $prefix ?>_nombre_hidden" value="<?= e(val($row, $prefix . '_nombre')) ?>">
+    <input type="hidden" name="<?= $prefix ?>_cedula" id="<?= $prefix ?>_cedula_hidden" value="<?= e(val($row, $prefix . '_cedula')) ?>">
+    <input type="hidden" name="<?= $prefix ?>_telefono" id="<?= $prefix ?>_telefono_hidden" value="<?= e(val($row, $prefix . '_telefono')) ?>">
+    <input type="hidden" name="<?= $prefix ?>_profesion" id="<?= $prefix ?>_profesion_hidden" value="<?= e(val($row, $prefix . '_profesion')) ?>">
+    <input type="hidden" name="<?= $prefix ?>_inscripcion" id="<?= $prefix ?>_inscripcion_hidden" value="<?= e(val($row, $prefix . '_inscripcion')) ?>">
+    <?php
+}
+
 $pageTitle    = $editId ? 'Editar inspección' : 'Nueva inspección';
 $pageSubtitle = 'Instrumento para Inspección de Edificaciones Afectadas por Sismos';
 $activeModule = 'formulario';
@@ -70,6 +117,7 @@ $parroquias      = catalogoParroquias();
 sort($parroquias, SORT_LOCALE_STRING);
 $usos            = catalogoUsoEdificacion();
 $tiposEstruct    = catalogoTipoEstructural();
+$ingenierosActivos = obtenerIngenierosActivos();
 $nivelesDano     = catalogoNivelDano();
 $decisiones      = catalogoDecisionFinal();
 $elementosEstruct = catalogoElementosEstructurales();
@@ -107,11 +155,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane active" data-pane="1">
     <div class="section-title"><i class="bi bi-person-badge-fill"></i> Profesional responsable de la inspección</div>
     <div class="form-grid">
-        <div class="field"><label class="req">Nombre y apellido</label><input required name="ing1_nombre" class="form-control" value="<?= e(val($row,'ing1_nombre')) ?>"></div>
-        <div class="field"><label class="req">Cédula</label><input required name="ing1_cedula" class="form-control" value="<?= e(val($row,'ing1_cedula')) ?>"></div>
-        <div class="field"><label>Teléfono</label><input name="ing1_telefono" class="form-control" value="<?= e(val($row,'ing1_telefono')) ?>"></div>
-        <div class="field"><label>Profesión</label><input name="ing1_profesion" class="form-control" value="<?= e(val($row,'ing1_profesion')) ?>"></div>
-        <div class="field"><label>N° de inscripción en el colegio de ingenieros</label><input name="ing1_inscripcion" class="form-control" value="<?= e(val($row,'ing1_inscripcion')) ?>"></div>
+        <?php selectorIngeniero('ing1', $row, true, $ingenierosActivos); ?>
     </div>
     <div class="form-grid cols-2">
         <?php bloqueFotos('foto_inspector', 'Foto del inspector (tipo carnet)', $fotosExistentes, false, 'user'); ?>
@@ -123,11 +167,7 @@ include __DIR__ . '/../includes/header.php';
     <div id="bloque-segundo-profesional" style="<?= val($row,'ing2_nombre') || val($row,'ing2_cedula') ? '' : 'display:none;' ?>">
         <div class="section-title"><i class="bi bi-person-badge"></i> Segundo profesional</div>
         <div class="form-grid">
-            <div class="field"><label>Nombre y apellido</label><input name="ing2_nombre" class="form-control" value="<?= e(val($row,'ing2_nombre')) ?>"></div>
-            <div class="field"><label>Cédula</label><input name="ing2_cedula" class="form-control" value="<?= e(val($row,'ing2_cedula')) ?>"></div>
-            <div class="field"><label>Teléfono</label><input name="ing2_telefono" class="form-control" value="<?= e(val($row,'ing2_telefono')) ?>"></div>
-            <div class="field"><label>Profesión</label><input name="ing2_profesion" class="form-control" value="<?= e(val($row,'ing2_profesion')) ?>"></div>
-            <div class="field"><label>N° de inscripción en el colegio de ingenieros</label><input name="ing2_inscripcion" class="form-control" value="<?= e(val($row,'ing2_inscripcion')) ?>"></div>
+            <?php selectorIngeniero('ing2', $row, false, $ingenierosActivos); ?>
         </div>
     </div>
 </div>
@@ -169,7 +209,6 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>Sector</label><input name="sector" class="form-control" value="<?= e(val($row,'sector')) ?>"></div>
         <div class="field"><label>Avenida o calle</label><input name="avenida_calle" class="form-control" value="<?= e(val($row,'avenida_calle')) ?>"></div>
         <div class="field"><label>Nombre de la comunidad</label><input name="nombre_comunidad" class="form-control" value="<?= e(val($row,'nombre_comunidad')) ?>"></div>
-        <div class="field"><label>Huso</label><input name="huso" class="form-control" value="<?= e(val($row,'huso')) ?>"></div>
     </div>
 
     <label style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
@@ -426,13 +465,14 @@ include __DIR__ . '/../includes/header.php';
         <div class="check-row"><input type="checkbox" name="extra_fuga_gas" id="ex2" value="1" <?= !empty($extra['fuga_gas'])?'checked':'' ?>><label for="ex2">Fuga de gas</label></div>
         <div class="check-row"><input type="checkbox" name="extra_fallas_electricas" id="ex3" value="1" <?= !empty($extra['fallas_electricas'])?'checked':'' ?>><label for="ex3">Fallas eléctricas</label></div>
         <div class="check-row"><input type="checkbox" name="extra_danos_aguas" id="ex4" value="1" <?= !empty($extra['danos_aguas'])?'checked':'' ?>><label for="ex4">Daños en aguas</label></div>
+        <div class="check-row"><input type="checkbox" name="tiene_tanque_agua" id="ex5" value="1" <?= val($row,'tiene_tanque_agua')?'checked':'' ?>><label for="ex5">Tiene tanque de agua</label></div>
     </div>
     <div class="form-grid cols-2" style="margin-top:6px;">
         <div class="field" id="campo-cant-ascensores" style="<?= !empty($extra['ascensores']) ? '' : 'display:none;' ?>">
             <label>Cantidad de ascensores</label>
             <input type="number" min="0" name="extra_cant_ascensores" class="form-control" value="<?= e($extra['cant_ascensores'] ?? '') ?>">
         </div>
-        <div class="field" id="campo-estado-tanque" style="<?= !empty($extra['danos_aguas']) ? '' : 'display:none;' ?>">
+        <div class="field" id="campo-estado-tanque" style="<?= val($row,'tiene_tanque_agua') ? '' : 'display:none;' ?>">
             <label>Estado del tanque de agua</label>
             <input name="extra_estado_tanque" class="form-control" value="<?= e($extra['estado_tanque'] ?? '') ?>">
         </div>
@@ -545,8 +585,8 @@ include __DIR__ . '/../includes/header.php';
     actualizarCampoOtrosMateriales();
 
     // ---- "Cantidad de ascensores" y "Estado del tanque de agua": solo se
-    // muestran si se marca su checkbox correspondiente (Ascensores / Daños
-    // en aguas) en "Servicios y elementos complementarios". ----
+    // muestran si se marca su checkbox correspondiente (Ascensores / Tiene
+    // tanque de agua) en "Servicios y elementos complementarios". ----
     function vincularCampoCondicional(checkboxId, campoId) {
         const chk = document.getElementById(checkboxId);
         const campo = document.getElementById(campoId);
@@ -556,7 +596,72 @@ include __DIR__ . '/../includes/header.php';
         actualizar();
     }
     vincularCampoCondicional('ex1', 'campo-cant-ascensores');
-    vincularCampoCondicional('ex4', 'campo-estado-tanque');
+    vincularCampoCondicional('ex5', 'campo-estado-tanque');
+
+    // ---- Selector de ingeniero (directorio): al elegir uno, se copian sus
+    // datos a los campos ocultos que en verdad se envían (mismos nombres de
+    // siempre: ing1_nombre, ing1_cedula, etc.), y se muestran de forma
+    // informativa en los campos de solo lectura. Si el select queda vacío
+    // (edición de una inspección antigua sin ingeniero asignado todavía),
+    // NO se tocan los campos ocultos -- conservan el texto histórico que ya
+    // traían, para no perder datos de registros viejos. ----
+    document.querySelectorAll('.ingeniero-select').forEach(function (select) {
+        const prefix = select.dataset.prefix;
+        select.addEventListener('change', function () {
+            const opt = select.options[select.selectedIndex];
+            const datos = opt && opt.value ? opt.dataset : { nombre: '', cedula: '', telefono: '', profesion: '', colegio: '' };
+            document.getElementById(prefix + '_nombre_hidden').value = datos.nombre || '';
+            document.getElementById(prefix + '_cedula_hidden').value = datos.cedula || '';
+            document.getElementById(prefix + '_telefono_hidden').value = datos.telefono || '';
+            document.getElementById(prefix + '_profesion_hidden').value = datos.profesion || '';
+            document.getElementById(prefix + '_inscripcion_hidden').value = datos.colegio || '';
+            document.getElementById(prefix + '_telefono_display').value = datos.telefono || '';
+            document.getElementById(prefix + '_profesion_display').value = datos.profesion || '';
+            document.getElementById(prefix + '_inscripcion_display').value = datos.colegio || '';
+        });
+    });
+
+    function poblarSelectIngenieros(select, lista) {
+        const valorActual = select.value;
+        select.innerHTML = '';
+        const optDefault = document.createElement('option');
+        optDefault.value = '';
+        optDefault.textContent = 'Seleccione un ingeniero registrado…';
+        select.appendChild(optDefault);
+        lista.forEach(function (ing) {
+            const opt = document.createElement('option');
+            opt.value = ing.id;
+            opt.textContent = ing.nombre_completo + ' — ' + ing.cedula;
+            opt.dataset.nombre = ing.nombre_completo || '';
+            opt.dataset.cedula = ing.cedula || '';
+            opt.dataset.telefono = ing.telefono || '';
+            opt.dataset.profesion = ing.profesion || '';
+            opt.dataset.colegio = ing.colegio_inscripcion || '';
+            select.appendChild(opt);
+        });
+        if (lista.some(function (ing) { return String(ing.id) === valorActual; })) {
+            select.value = valorActual;
+        }
+    }
+
+    document.querySelectorAll('.btn-refrescar-ingenieros').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+            const select = btn.parentElement.querySelector('.ingeniero-select');
+            const iconoOriginal = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+            try {
+                const res = await fetch('<?= APP_URL_BASE ?>admin/ingenieros_json.php');
+                const data = await res.json();
+                poblarSelectIngenieros(select, data.ingenieros || []);
+            } catch (e) {
+                alert('No se pudo actualizar la lista de ingenieros. Verifique su conexión.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = iconoOriginal;
+            }
+        });
+    });
 
 
     // ---- Mapa selector de ubicación (tipo "Google Maps") ----

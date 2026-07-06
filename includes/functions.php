@@ -755,6 +755,79 @@ function tokenPdfPublico(int $id): string
     return substr(hash_hmac('sha256', (string)$id, APP_QR_SECRET), 0, 24);
 }
 
+/**
+ * Valida y guarda la foto de un ingeniero/inspector (directorio de
+ * profesionales). Reutiliza las mismas validaciones que las fotos de
+ * inspección (extensión, tamaño, que sea una imagen real), pero se
+ * guarda en su propia carpeta (uploads/ingenieros/) y no crea ninguna
+ * fila en inspeccion_fotos -- la ruta se guarda directo en
+ * ingenieros.foto. Devuelve la ruta relativa guardada, o null si no
+ * había archivo o algo falló.
+ */
+function guardarFotoIngeniero(int $ingenieroId, array $archivo): ?string
+{
+    if (empty($archivo['name']) || $archivo['error'] === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+    if ($archivo['error'] !== UPLOAD_ERR_OK) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: código de error de subida PHP = {$archivo['error']}");
+        return null;
+    }
+    if ($archivo['size'] > FOTO_MAX_BYTES) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: pesa {$archivo['size']} bytes, supera el máximo permitido");
+        return null;
+    }
+    $ext = strtolower(pathinfo($archivo['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, FOTO_EXT_PERMITIDAS, true)) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: extensión \"$ext\" no permitida");
+        return null;
+    }
+    if (@getimagesize($archivo['tmp_name']) === false) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: el archivo no es una imagen válida");
+        return null;
+    }
+
+    $dir = rtrim(UPLOAD_DIR, '/') . '/../ingenieros/';
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: no se pudo crear el directorio \"$dir\"");
+        return null;
+    }
+
+    $nombreArchivo = 'ing_' . $ingenieroId . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+    $destino = $dir . $nombreArchivo;
+    if (!move_uploaded_file($archivo['tmp_name'], $destino)) {
+        error_log("[foto-ingeniero] id=$ingenieroId -> FALLÓ: move_uploaded_file() devolvió false");
+        return null;
+    }
+
+    return 'uploads/ingenieros/' . $nombreArchivo;
+}
+
+/** ¿Existe ya la tabla ingenieros? (por si no se ha corrido la migración v6). */
+function tablaIngenierosExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        try {
+            db()->query('SELECT 1 FROM ingenieros LIMIT 1');
+            $existe = true;
+        } catch (Throwable $e) {
+            $existe = false;
+        }
+    }
+    return $existe;
+}
+
+/** Ingenieros/inspectores activos, para el selector del formulario. */
+function obtenerIngenierosActivos(): array
+{
+    try {
+        return db()->query('SELECT id, nombre_completo, cedula, telefono, profesion, colegio_inscripcion FROM ingenieros WHERE activo = 1 ORDER BY nombre_completo ASC')->fetchAll();
+    } catch (Throwable $e) {
+        return []; // tabla aún no existe (falta correr actualizacion_v6.sql)
+    }
+}
+
 function intPost(string $key, $default = 0): int
 {
     return isset($_POST[$key]) && $_POST[$key] !== '' ? (int)$_POST[$key] : $default;

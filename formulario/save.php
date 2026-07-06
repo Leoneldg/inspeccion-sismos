@@ -83,6 +83,9 @@ foreach (['ing1_nombre', 'ing1_cedula', 'nombre_edificio', 'fecha_inspeccion', '
         $errores[] = "El campo \"$req\" es obligatorio.";
     }
 }
+if (empty($_POST['ing1_id'])) {
+    $errores[] = 'Debe seleccionar un profesional responsable del directorio de ingenieros.';
+}
 if ($errores) {
     progresoActualizar($clientSubmissionId, 'validando', 'error', implode(' ', $errores));
     flash('error', implode(' ', $errores));
@@ -145,11 +148,13 @@ $accionesRecomendadas = [
 ];
 
 $campos = [
+    'ing1_id'                    => nullSiVacio($_POST['ing1_id'] ?? ''),
     'ing1_nombre'                => trim($_POST['ing1_nombre']),
     'ing1_cedula'                => trim($_POST['ing1_cedula']),
     'ing1_telefono'              => nullSiVacio(trim($_POST['ing1_telefono'] ?? '')),
     'ing1_profesion'             => nullSiVacio(trim($_POST['ing1_profesion'] ?? '')),
     'ing1_inscripcion'           => nullSiVacio(trim($_POST['ing1_inscripcion'] ?? '')),
+    'ing2_id'                    => nullSiVacio($_POST['ing2_id'] ?? ''),
     'ing2_nombre'                => nullSiVacio(trim($_POST['ing2_nombre'] ?? '')),
     'ing2_cedula'                => nullSiVacio(trim($_POST['ing2_cedula'] ?? '')),
     'ing2_telefono'              => nullSiVacio(trim($_POST['ing2_telefono'] ?? '')),
@@ -242,6 +247,7 @@ $campos = [
     'acciones_recomendadas'         => json_encode($accionesRecomendadas, JSON_UNESCAPED_UNICODE),
 
     'datos_adicionales'            => json_encode($datosAdicionales, JSON_UNESCAPED_UNICODE),
+    'tiene_tanque_agua'             => !empty($_POST['tiene_tanque_agua']) ? 1 : 0,
 ];
 
 try {
