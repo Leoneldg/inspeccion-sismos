@@ -68,6 +68,7 @@ $seccionesActivas = obtenerConfigFormulario();
 
 $parroquias      = catalogoParroquias();
 sort($parroquias, SORT_LOCALE_STRING);
+$usos            = catalogoUsoEdificacion();
 $tiposEstruct    = catalogoTipoEstructural();
 $nivelesDano     = catalogoNivelDano();
 $decisiones      = catalogoDecisionFinal();
@@ -168,6 +169,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label>Sector</label><input name="sector" class="form-control" value="<?= e(val($row,'sector')) ?>"></div>
         <div class="field"><label>Avenida o calle</label><input name="avenida_calle" class="form-control" value="<?= e(val($row,'avenida_calle')) ?>"></div>
         <div class="field"><label>Nombre de la comunidad</label><input name="nombre_comunidad" class="form-control" value="<?= e(val($row,'nombre_comunidad')) ?>"></div>
+        <div class="field"><label>Huso</label><input name="huso" class="form-control" value="<?= e(val($row,'huso')) ?>"></div>
     </div>
 
     <label style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
@@ -194,6 +196,13 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="3">
     <div class="section-title"><i class="bi bi-diagram-3-fill"></i> Características constructivas</div>
     <div class="form-grid cols-2">
+        <div class="field">
+            <label>Uso de la edificación</label>
+            <select name="uso_edificacion" class="form-control">
+                <option value="">Seleccione…</option>
+                <?php foreach ($usos as $u): ?><option <?= val($row,'uso_edificacion')===$u?'selected':'' ?>><?= e($u) ?></option><?php endforeach; ?>
+            </select>
+        </div>
         <div class="field">
             <label>Tipo estructural</label>
             <select name="tipo_estructural" class="form-control">
@@ -419,8 +428,14 @@ include __DIR__ . '/../includes/header.php';
         <div class="check-row"><input type="checkbox" name="extra_danos_aguas" id="ex4" value="1" <?= !empty($extra['danos_aguas'])?'checked':'' ?>><label for="ex4">Daños en aguas</label></div>
     </div>
     <div class="form-grid cols-2" style="margin-top:6px;">
-        <div class="field"><label>Cantidad de ascensores</label><input type="number" min="0" name="extra_cant_ascensores" class="form-control" value="<?= e($extra['cant_ascensores'] ?? '') ?>"></div>
-        <div class="field"><label>Estado del tanque de agua</label><input name="extra_estado_tanque" class="form-control" value="<?= e($extra['estado_tanque'] ?? '') ?>"></div>
+        <div class="field" id="campo-cant-ascensores" style="<?= !empty($extra['ascensores']) ? '' : 'display:none;' ?>">
+            <label>Cantidad de ascensores</label>
+            <input type="number" min="0" name="extra_cant_ascensores" class="form-control" value="<?= e($extra['cant_ascensores'] ?? '') ?>">
+        </div>
+        <div class="field" id="campo-estado-tanque" style="<?= !empty($extra['danos_aguas']) ? '' : 'display:none;' ?>">
+            <label>Estado del tanque de agua</label>
+            <input name="extra_estado_tanque" class="form-control" value="<?= e($extra['estado_tanque'] ?? '') ?>">
+        </div>
     </div>
 </div>
 
@@ -528,6 +543,20 @@ include __DIR__ . '/../includes/header.php';
     }
     chkMaterialOtros?.addEventListener('change', actualizarCampoOtrosMateriales);
     actualizarCampoOtrosMateriales();
+
+    // ---- "Cantidad de ascensores" y "Estado del tanque de agua": solo se
+    // muestran si se marca su checkbox correspondiente (Ascensores / Daños
+    // en aguas) en "Servicios y elementos complementarios". ----
+    function vincularCampoCondicional(checkboxId, campoId) {
+        const chk = document.getElementById(checkboxId);
+        const campo = document.getElementById(campoId);
+        if (!chk || !campo) return;
+        const actualizar = () => { campo.style.display = chk.checked ? '' : 'none'; };
+        chk.addEventListener('change', actualizar);
+        actualizar();
+    }
+    vincularCampoCondicional('ex1', 'campo-cant-ascensores');
+    vincularCampoCondicional('ex4', 'campo-estado-tanque');
 
 
     // ---- Mapa selector de ubicación (tipo "Google Maps") ----
