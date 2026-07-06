@@ -677,7 +677,48 @@ body.modo-tv .sidebar,
 body.modo-tv .topbar { display: none !important; }
 body.modo-tv .app-shell { grid-template-columns: 1fr; }
 body.modo-tv .main-col { grid-column: 1; grid-row: 1; }
-body.modo-tv .content { padding: 22px 30px; max-width: none; }
+body.modo-tv .content { padding: 0; max-width: none; }
+body.modo-tv { background: #0d1730; }
+
+/* El botón hamburguesa del encabezado propio del dashboard reabre el menú
+   lateral como panel flotante encima (el dashboard vive siempre sin
+   sidebar/topbar normales), sin importar el ancho de pantalla. */
+body.modo-tv .sidebar.open { display: flex !important; box-shadow: 0 0 40px rgba(0,0,0,.45); }
+body.modo-tv .sidebar-backdrop.show { display: block !important; }
+
+/* =====================================================================
+   Encabezado propio del dashboard (reemplaza al topbar normal, que se
+   oculta vía body.modo-tv). El dashboard vive siempre a pantalla
+   completa: sin sidebar, sin topbar, fondo navy de borde a borde.
+   ===================================================================== */
+.dashboard-tv-header {
+    background: #0d1730;
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.dashboard-tv-title { font-size: 19px; font-weight: 700; letter-spacing: .01em; color: #fff; }
+.btn-menu-tv {
+    background: rgba(255,255,255,.10);
+    border: none; color: #fff;
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 18px; flex-shrink: 0;
+}
+.btn-menu-tv:hover { background: rgba(255,255,255,.2); }
+.dashboard-tv-header #filtro-parroquia { min-width: 200px; }
+
+.dashboard-tv-body {
+    background: #0d1730;
+    padding: 14px 20px 22px;
+    min-height: calc(100vh - 66px);
+    min-height: calc(100dvh - 66px);
+}
 
 .btn-presentacion {
     position: fixed;
@@ -1152,6 +1193,45 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .foto-galeria img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .15s ease; }
 .foto-galeria a:hover img { transform: scale(1.06); }
 .foto-categoria-titulo { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--azul-700); margin: 16px 0 6px; }
+
+.modal-qr-box {
+    background: var(--azul-50);
+    border-radius: var(--radio);
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+    overflow: hidden;
+    animation: modalIn .18s ease;
+}
+.modal-qr-box .modal-head {
+    background: linear-gradient(135deg, var(--azul-900), var(--azul-700));
+    color: white;
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.modal-qr-box .modal-head h3 { color: white; font-size: 16px; }
+.modal-qr-box .modal-head .codigo { font-family: var(--font-mono); font-size: 12px; color: #cfd7f2; }
+.modal-qr-box .modal-close {
+    background: rgba(255,255,255,0.12);
+    border: none; color: white;
+    width: 30px; height: 30px; border-radius: 50%;
+    cursor: pointer; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.modal-qr-box .modal-close:hover { background: rgba(255,255,255,0.22); }
+.modal-qr-box .modal-body { padding: 24px 22px; }
+#qr-canvas-wrap {
+    display: inline-flex;
+    padding: 14px;
+    background: #fff;
+    border: 1px solid var(--gris-200);
+    border-radius: var(--radio-sm);
+}
+#qr-url-texto { word-break: break-all; margin-top: 12px; font-size: 11.5px; }
 
 /* Visor de foto en grande (lightbox), se muestra por encima del modal de ficha técnica */
 .lightbox-overlay {

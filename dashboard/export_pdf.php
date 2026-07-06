@@ -4,9 +4,17 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-requierePermiso('import_export', 'ver');
+$id    = (int)($_GET['id'] ?? 0);
+$token = (string)($_GET['token'] ?? '');
 
-$id = (int)($_GET['id'] ?? 0);
+// Acceso público vía el QR impreso en la ficha (sin sesión iniciada), solo
+// si el token coincide exactamente con el de ESTE id. Cualquier otro caso
+// (sin token, o token inválido) exige la sesión/permiso normal de la app.
+$accesoPorQr = $id > 0 && $token !== '' && hash_equals(tokenPdfPublico($id), $token);
+if (!$accesoPorQr) {
+    requierePermiso('import_export', 'ver');
+}
+
 if (!$id) {
     flash('error', 'ID de inspección requerido.');
     header('Location: ' . APP_URL_BASE . 'dashboard/import_export.php');
@@ -208,5 +216,5 @@ $dompdf = new Dompdf();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();
-$dompdf->stream('ficha_inspeccion_' . $r['codigo'] . '.pdf', ['Attachment' => true]);
+$dompdf->stream('ficha_inspeccion_' . $r['codigo'] . '.pdf', ['Attachment' => false]);
 exit;

@@ -11,7 +11,7 @@ define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
 define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_NAME', getenv('DB_NAME') ?: 'inspecciones_sismos');
 define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
 
 // ---------------------------------------------------------------------
 // Aplicación
@@ -23,8 +23,17 @@ define('APP_NAME', 'Inspección de Edificaciones Post-Sismo');
 // dominio); si no está definida, usa '/inspecciones-sismos/' por defecto.
 // IMPORTANTE: debe terminar en '/', y si se sirve desde la raíz del
 // dominio debe ser exactamente '/'.
-define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/');
+define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/inspecciones-sismos/');
 define('APP_TIMEZONE', 'America/Caracas');
+
+// Clave para firmar el enlace público del PDF que se codifica en el QR de
+// cada inspección (así se puede abrir el PDF sin iniciar sesión al
+// escanearlo en campo, pero solo con el token exacto de ese registro —
+// no cualquiera puede adivinar la URL de otra inspección).
+// IMPORTANTE: en producción, defina APP_QR_SECRET como variable de entorno
+// con un valor propio y secreto; si la cambia, los QR ya impresos dejan de
+// funcionar (habría que reimprimirlos).
+define('APP_QR_SECRET', getenv('APP_QR_SECRET') ?: 'cambia-esta-clave-en-produccion-inspecciones-sismos');
 
 // ---------------------------------------------------------------------
 // Versión de assets (cache-busting automático). Cambia solo cuando el
@@ -61,7 +70,15 @@ if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.gc_maxlifetime', (string)$vidaSesionSegundos);
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_strict_mode', 1);
-    if (!empty($_SERVER['HTTPS'])) {
+    // Detecta HTTPS también cuando el sitio corre detrás de un proxy inverso
+    // (Cloudflare, Nginx como proxy, balanceador de carga, etc.), donde
+    // $_SERVER['HTTPS'] a veces no llega seteado aunque el visitante sí esté
+    // en https -- si se fuerza cookie_secure sin que el navegador vea la
+    // conexión como segura, la sesión (y por lo tanto el login) no persiste.
+    $esHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+        || (($_SERVER['SERVER_PORT'] ?? '') == 443);
+    if ($esHttps) {
         ini_set('session.cookie_secure', 1);
     }
     session_name('inspsismo_sess');

@@ -20,6 +20,15 @@ function estiloDash(array $wcfg, string $id): string {
 function visibleDash(array $wcfg, string $id): bool {
     return $wcfg[$id]['visible'] ?? true;
 }
+/** Orden representativo de una fila que agrupa varios widgets (el menor de ellos),
+ *  para que compita en igualdad de condiciones con kpi_grid/kpis_custom, que sí
+ *  tienen su propio "order" individual. Sin esto, una fila sin "order" explícito
+ *  (valor por defecto 0) siempre se dibuja antes que cualquier widget con
+ *  order > 0, sin importar su posición real en el HTML. */
+function ordenFila(array $wcfg, array $ids): int {
+    $ordenes = array_map(fn($id) => (int)($wcfg[$id]['orden'] ?? 0), $ids);
+    return $ordenes ? min($ordenes) : 0;
+}
 
 $pageTitle    = 'Dashboard';
 $pageSubtitle = 'Panorama general de inspecciones estructurales post-sismo';
@@ -32,27 +41,35 @@ include __DIR__ . '/../includes/header.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
-<div class="flex items-center justify-between gap-12" style="flex-wrap:wrap;margin-bottom:18px;">
+<div class="dashboard-tv-header">
+    <div class="flex items-center gap-12">
+        <button type="button" class="btn-menu-tv" id="btn-menu-tv" aria-label="Abrir menú" title="Abrir menú">
+            <i class="bi bi-list"></i>
+        </button>
+        <i class="bi bi-building-fill" style="font-size:22px;"></i>
+        <span class="dashboard-tv-title"><?= e(mb_strtoupper($pageTitle === 'Dashboard' ? 'Inspección de Edificaciones Post-Sismo' : $pageTitle)) ?></span>
+    </div>
     <div class="flex items-center gap-12" style="flex-wrap:wrap;">
-        <span class="badge badge-gris"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
-        <span class="text-sm text-muted">Actualización automática cada 60s</span>
+        <span class="text-sm" style="color:#9fb0d6;"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
         <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:190px;">
-            <option value="">Todas las parroquias</option>
+            <option value="">Seleccione una parroquia</option>
         </select>
         <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
             <i class="bi bi-x-lg"></i> Quitar filtro
         </button>
+        <?php if (puede('formulario', 'crear')): ?>
+        <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-accent btn-sm">
+            <i class="bi bi-plus-lg"></i> Nueva inspección
+        </a>
+        <?php endif; ?>
     </div>
-    <?php if (puede('formulario', 'crear')): ?>
-    <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-accent btn-sm">
-        <i class="bi bi-plus-lg"></i> Nueva inspección
-    </a>
-    <?php endif; ?>
 </div>
+
+<div class="dashboard-tv-body">
 
 <div class="split-grid cols-10-14 align-start dashboard-chart-map" style="margin-bottom:16px;">
     <div class="dashboard-left-col">
-        <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;">
+        <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;order:<?= ordenFila($wcfg, ['kpi_inspecciones','kpi_personas']) ?>;">
             <?php if (visibleDash($wcfg, 'kpi_inspecciones')): ?>
             <div class="kpi-hero tv-hero" style="flex:1 1 200px;<?= estiloDash($wcfg, 'kpi_inspecciones') ?>">
                 <div class="icon"><i class="bi bi-clipboard2-data-fill"></i></div>
@@ -64,7 +81,7 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <?php if (visibleDash($wcfg, 'kpi_personas')): ?>
             <div class="kpi-hero tv-hero" style="flex:1 1 200px;<?= estiloDash($wcfg, 'kpi_personas') ?>">
-                <div class="icon"><i class="bi bi-person-hearts"></i></div>
+                <div class="icon"><i class="bi bi-people-fill"></i></div>
                 <div>
                     <div class="num" id="kpi-personas-totales">—</div>
                     <div class="lbl">Personas afectadas</div>
@@ -78,12 +95,25 @@ include __DIR__ . '/../includes/header.php';
         <div class="tv-kpi-grid">
             <div class="tv-kpi-card"><div class="icon"><i class="bi bi-people-fill"></i></div><div><div class="num" id="kpi-familias">—</div><div class="lbl">Familias</div></div></div>
             <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-fill"></i></div><div><div class="num" id="kpi-hombres">—</div><div class="lbl">Hombres</div></div></div>
-            <div class="tv-kpi-card"><div class="icon"><i class="bi bi-gender-female"></i></div><div><div class="num" id="kpi-mujeres">—</div><div class="lbl">Mujeres</div></div></div>
+            <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-standing-dress"></i></div><div><div class="num" id="kpi-mujeres">—</div><div class="lbl">Mujeres</div></div></div>
             <div class="tv-kpi-card"><div class="icon"><i class="bi bi-emoji-smile-fill"></i></div><div><div class="num" id="kpi-ninos">—</div><div class="lbl">Niños</div></div></div>
             <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-wheelchair"></i></div><div><div class="num" id="kpi-mreducida">—</div><div class="lbl">M. Reducida</div></div></div>
             <div class="tv-kpi-card"><div class="icon"><i class="bi bi-person-walking"></i></div><div><div class="num" id="kpi-terceraedad">—</div><div class="lbl">3ra. Edad</div></div></div>
-            <div class="tv-kpi-card"><div class="icon"><i class="bi bi-heart-pulse-fill"></i></div><div><div class="num" id="kpi-gestantes">—</div><div class="lbl">Gestantes</div></div></div>
-            <div class="tv-kpi-card"><div class="icon"><i class="bi bi-heart-fill"></i></div><div><div class="num" id="kpi-mascotas">—</div><div class="lbl">Mascotas</div></div></div>
+            <div class="tv-kpi-card"><div class="icon">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em" aria-hidden="true">
+                    <circle cx="8" cy="4" r="2.3"/>
+                    <path d="M3 8.6C3 6.6 5.2 6 8 6s5 .6 5 2.6S10.8 15 8 15 3 10.6 3 8.6Z"/>
+                </svg>
+            </div><div><div class="num" id="kpi-gestantes">—</div><div class="lbl">Gestantes</div></div></div>
+            <div class="tv-kpi-card"><div class="icon">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em" aria-hidden="true">
+                    <ellipse cx="8" cy="11.2" rx="4" ry="3.2"/>
+                    <ellipse cx="3.1" cy="6.6" rx="1.6" ry="2.1" transform="rotate(-20 3.1 6.6)"/>
+                    <ellipse cx="6.3" cy="3.5" rx="1.5" ry="2" transform="rotate(-8 6.3 3.5)"/>
+                    <ellipse cx="9.7" cy="3.5" rx="1.5" ry="2" transform="rotate(8 9.7 3.5)"/>
+                    <ellipse cx="12.9" cy="6.6" rx="1.6" ry="2.1" transform="rotate(20 12.9 6.6)"/>
+                </svg>
+            </div><div><div class="num" id="kpi-mascotas">—</div><div class="lbl">Mascotas</div></div></div>
         </div>
         </div>
         <?php endif; ?>
@@ -102,7 +132,7 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
 
         <?php if (visibleDash($wcfg, 'chart_decision') || visibleDash($wcfg, 'chart_parroquia')): ?>
-        <div class="split-grid cols-11">
+        <div class="split-grid cols-11" style="order:<?= ordenFila($wcfg, ['chart_decision','chart_parroquia']) ?>;">
             <?php if (visibleDash($wcfg, 'chart_decision')): ?>
             <div class="card" style="<?= estiloDash($wcfg, 'chart_decision') ?>">
                 <div class="card-header">
@@ -165,10 +195,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <?php endif; ?>
 </div>
-
-<button class="btn btn-primary btn-presentacion" id="btn-modo-tv" title="Modo presentación para TV">
-    <i class="bi bi-fullscreen"></i> Modo presentación
-</button>
+</div>
 
 <!-- Modal ficha técnica -->
 <div id="modal-ficha" class="modal-overlay" style="display:none;"></div>
@@ -499,7 +526,8 @@ async function cargarDashboard() {
 
     setTxt('kpi-inspecciones', formatNum(data.totales.inspecciones));
     const personasTotales = (Number(data.totales.hombres) || 0) + (Number(data.totales.mujeres) || 0) +
-        (Number(data.totales.ninos) || 0) + (Number(data.totales.gestantes) || 0);
+        (Number(data.totales.ninos) || 0) + (Number(data.totales.adultos_tercera_edad) || 0) +
+        (Number(data.totales.gestantes) || 0);
     setTxt('kpi-personas-totales', formatNum(personasTotales));
     setTxt('kpi-familias', formatNum(data.totales.familias));
     setTxt('kpi-hombres', formatNum(data.totales.hombres));
@@ -782,19 +810,16 @@ document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') cerrarLightbox();
 });
 
-// ---- Modo presentación (TV) ----
-document.getElementById('btn-modo-tv').addEventListener('click', function () {
-    document.body.classList.toggle('modo-tv');
-    const isTv = document.body.classList.contains('modo-tv');
-    this.innerHTML = isTv
-        ? '<i class="bi bi-fullscreen-exit"></i> Salir de presentación'
-        : '<i class="bi bi-fullscreen"></i> Modo presentación';
-    if (isTv && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-    } else if (!isTv && document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-    }
-    setTimeout(() => { if (map) map.invalidateSize(); }, 250);
+// ---- El dashboard vive siempre a pantalla completa (sin sidebar/topbar
+// normales). El botón hamburguesa del encabezado oscuro reabre el menú
+// lateral como panel deslizante encima, igual que en móvil. ----
+document.getElementById('btn-menu-tv')?.addEventListener('click', function () {
+    document.getElementById('sidebar')?.classList.add('open');
+    document.getElementById('sidebar-backdrop')?.classList.add('show');
+});
+document.getElementById('sidebar-backdrop')?.addEventListener('click', function () {
+    document.getElementById('sidebar')?.classList.remove('open');
+    this.classList.remove('show');
 });
 
 // Recalcula el tamaño del mapa cuando cambia el layout (sidebar, resize)

@@ -21,7 +21,7 @@ $flashes = obtenerFlashes();
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="<?= APP_URL_BASE ?>assets/css/style.css?v=<?= ASSET_VERSION ?>">
 </head>
-<body>
+<body<?= $activeModule === 'dashboard' ? ' class="modo-tv"' : '' ?>>
 <div class="offline-banner">
     <i class="bi bi-wifi-off"></i>
     Sin conexión: lo que guardes se sube automáticamente al recuperar señal.

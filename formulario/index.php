@@ -115,6 +115,10 @@ include __DIR__ . '/../includes/header.php';
                     <td>
                         <div class="flex gap-8">
                             <a href="<?= APP_URL_BASE ?>formulario/view.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm" title="Ver"><i class="bi bi-eye"></i></a>
+                            <button type="button" class="btn btn-outline btn-sm" title="Ver código QR"
+                                onclick="abrirModalQR('<?= e(urlAbsoluta('dashboard/export_pdf.php?id=' . (int)$r['id'] . '&token=' . tokenPdfPublico((int)$r['id']))) ?>', '<?= e($r['codigo']) ?>')">
+                                <i class="bi bi-qr-code"></i>
+                            </button>
                             <?php if (puede('formulario', 'editar')): ?>
                             <a href="<?= APP_URL_BASE ?>formulario/create.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm" title="Editar"><i class="bi bi-pencil"></i></a>
                             <?php endif; ?>

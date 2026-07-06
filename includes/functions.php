@@ -105,7 +105,7 @@ function catalogoMedidasPrevencion(): array
 
 function catalogoTipoEstructural(): array
 {
-    return ['Pórticos', 'Concreto Armado', 'Muros', 'Acero', 'Mampostería Estructural', 'Prefabricados', 'Mixto'];
+    return ['Pórticos', 'Muros', 'Dual (Pórticos y Muros)', 'Prefabricado', 'Mixto'];
 }
 
 function catalogoNivelDano(): array
@@ -705,6 +705,20 @@ function obtenerFotosInspeccion(int $inspeccionId): array
     foreach ($stmt->fetchAll() as $f) {
         $agrupadas[$f['categoria']][] = $f;
     }
+
+    // Las categorías se reordenan según la secuencia lógica del formulario
+    // (catalogoCategoriasFoto), no según el orden en que se subieron las
+    // fotos -- si no, el orden de las secciones en la ficha técnica queda
+    // dependiendo de cuál se subió primero, en vez de ser siempre igual.
+    $ordenCanonico = array_keys(catalogoCategoriasFoto());
+    uksort($agrupadas, function ($a, $b) use ($ordenCanonico) {
+        $posA = array_search($a, $ordenCanonico);
+        $posB = array_search($b, $ordenCanonico);
+        $posA = $posA === false ? PHP_INT_MAX : $posA;
+        $posB = $posB === false ? PHP_INT_MAX : $posB;
+        return $posA <=> $posB;
+    });
+
     return $agrupadas;
 }
 
@@ -715,6 +729,30 @@ function nullSiVacio($v)
         return null;
     }
     return $v;
+}
+
+/**
+ * URL absoluta (con esquema y host) para un path relativo a APP_URL_BASE.
+ * Se usa para el contenido de los códigos QR: un QR con una ruta relativa
+ * no serviría de nada al escanearlo desde el celular de un inspector.
+ */
+function urlAbsoluta(string $path): string
+{
+    $esquema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return $esquema . '://' . $host . APP_URL_BASE . ltrim($path, '/');
+}
+
+/**
+ * Token corto y determinístico para acceder al PDF de una inspección sin
+ * sesión iniciada (usado en el enlace codificado en el QR). Se deriva por
+ * HMAC del id + APP_QR_SECRET: nadie puede calcular el token de otro id sin
+ * conocer la clave del servidor, pero tampoco hace falta guardar nada en la
+ * base de datos.
+ */
+function tokenPdfPublico(int $id): string
+{
+    return substr(hash_hmac('sha256', (string)$id, APP_QR_SECRET), 0, 24);
 }
 
 function intPost(string $key, $default = 0): int
@@ -770,7 +808,6 @@ function guardarConfigValor(string $clave, $valor, ?int $usuarioId): void
 function catalogoSeccionesFormulario(): array
 {
     return [
-        'planilla_header'            => 'Datos de la planilla (N°, tipo y fecha del evento)',
         'anio_personas'              => 'Año de construcción y N° de personas (general)',
         'materiales_extendidos'      => 'Materiales extendidos (Concreto, Mampostería formal/informal)',
         'riesgo_externo'             => 'Riesgo Externo calculado (A/B/C)',

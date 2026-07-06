@@ -1,0 +1,44 @@
+ACTUALIZACIÓN — Inspección de Edificaciones Post-Sismo
+=======================================================
+
+IMPORTANTE: esta entrega reemplaza formulario/create.php COMPLETO. Como
+me contaste que borraste a mano el bloque de "Datos de la planilla" en tu
+archivo de producción (y eso rompió la sintaxis del PHP, causando el
+error de conexión en el navegador), simplemente sube este archivo
+completo y válido encima del tuyo -- eso debería arreglar el problema de
+producción de una vez.
+
+Archivos incluidos:
+
+formulario/create.php
+  1. Paso 1: se QUITÓ por completo la sección "Datos de la planilla"
+     (Planilla N°, Tipo de evento, Fecha del evento).
+  2. Paso 1: "Segundo profesional" ya no aparece siempre visible. Ahora
+     hay un botón "Agregar segundo profesional"; al hacer clic se revela
+     el bloque de campos (si la inspección ya tenía uno cargado, el
+     bloque aparece abierto directamente).
+  3. Paso 3: se quitó el campo "Uso de la edificación".
+  4. Paso 3: "Especifique otros materiales" ahora solo se muestra cuando
+     se marca la casilla "Otros".
+
+includes/functions.php
+  1. Se quitó 'planilla_header' del catálogo de secciones del formulario
+     (Configuración del Sistema) ya que esa sección ya no existe.
+  2. catalogoTipoEstructural() ya no mezcla materiales: ahora solo tiene
+     sistemas estructurales (Pórticos, Muros, Dual, Prefabricado, Mixto).
+  3. obtenerFotosInspeccion(): las fotos ahora se agrupan y muestran
+     SIEMPRE en el mismo orden lógico del formulario, no en el orden en
+     que se subieron. Afecta tanto la ficha web como la ficha del
+     dashboard.
+
+config/config.php
+  - Detección de HTTPS más robusta para la sesión (login detrás de
+    proxy/Cloudflare). Es una mejora preventiva; en tu caso el problema
+    real era el archivo roto, no esto.
+
+Si en Configuración del Sistema tenías guardado un valor para el toggle
+"Datos de la planilla", no pasa nada: simplemente ya no aparece en la
+lista (el dato viejo en panel_config se queda ahí sin usarse, no rompe
+nada).
+
+No requiere ninguna migración SQL.

@@ -68,7 +68,6 @@ $seccionesActivas = obtenerConfigFormulario();
 
 $parroquias      = catalogoParroquias();
 sort($parroquias, SORT_LOCALE_STRING);
-$usos            = catalogoUsoEdificacion();
 $tiposEstruct    = catalogoTipoEstructural();
 $nivelesDano     = catalogoNivelDano();
 $decisiones      = catalogoDecisionFinal();
@@ -105,8 +104,6 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- PASO 1 -->
 <div class="wizard-pane active" data-pane="1">
-    <?php if ($seccionesActivas['planilla_header']): ?>
-
     <div class="section-title"><i class="bi bi-person-badge-fill"></i> Profesional responsable de la inspección</div>
     <div class="form-grid">
         <div class="field"><label class="req">Nombre y apellido</label><input required name="ing1_nombre" class="form-control" value="<?= e(val($row,'ing1_nombre')) ?>"></div>
@@ -119,13 +116,18 @@ include __DIR__ . '/../includes/header.php';
         <?php bloqueFotos('foto_inspector', 'Foto del inspector (tipo carnet)', $fotosExistentes, false, 'user'); ?>
     </div>
 
-    <div class="section-title"><i class="bi bi-person-badge"></i> Segundo profesional (opcional)</div>
-    <div class="form-grid">
-        <div class="field"><label>Nombre y apellido</label><input name="ing2_nombre" class="form-control" value="<?= e(val($row,'ing2_nombre')) ?>"></div>
-        <div class="field"><label>Cédula</label><input name="ing2_cedula" class="form-control" value="<?= e(val($row,'ing2_cedula')) ?>"></div>
-        <div class="field"><label>Teléfono</label><input name="ing2_telefono" class="form-control" value="<?= e(val($row,'ing2_telefono')) ?>"></div>
-        <div class="field"><label>Profesión</label><input name="ing2_profesion" class="form-control" value="<?= e(val($row,'ing2_profesion')) ?>"></div>
-        <div class="field"><label>N° de inscripción en el colegio de ingenieros</label><input name="ing2_inscripcion" class="form-control" value="<?= e(val($row,'ing2_inscripcion')) ?>"></div>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-agregar-profesional" style="margin-top:6px;<?= val($row,'ing2_nombre') || val($row,'ing2_cedula') ? 'display:none;' : '' ?>">
+        <i class="bi bi-person-plus-fill"></i> Agregar segundo profesional
+    </button>
+    <div id="bloque-segundo-profesional" style="<?= val($row,'ing2_nombre') || val($row,'ing2_cedula') ? '' : 'display:none;' ?>">
+        <div class="section-title"><i class="bi bi-person-badge"></i> Segundo profesional</div>
+        <div class="form-grid">
+            <div class="field"><label>Nombre y apellido</label><input name="ing2_nombre" class="form-control" value="<?= e(val($row,'ing2_nombre')) ?>"></div>
+            <div class="field"><label>Cédula</label><input name="ing2_cedula" class="form-control" value="<?= e(val($row,'ing2_cedula')) ?>"></div>
+            <div class="field"><label>Teléfono</label><input name="ing2_telefono" class="form-control" value="<?= e(val($row,'ing2_telefono')) ?>"></div>
+            <div class="field"><label>Profesión</label><input name="ing2_profesion" class="form-control" value="<?= e(val($row,'ing2_profesion')) ?>"></div>
+            <div class="field"><label>N° de inscripción en el colegio de ingenieros</label><input name="ing2_inscripcion" class="form-control" value="<?= e(val($row,'ing2_inscripcion')) ?>"></div>
+        </div>
     </div>
 </div>
 
@@ -193,13 +195,6 @@ include __DIR__ . '/../includes/header.php';
     <div class="section-title"><i class="bi bi-diagram-3-fill"></i> Características constructivas</div>
     <div class="form-grid cols-2">
         <div class="field">
-            <label>Uso de la edificación</label>
-            <select name="uso_edificacion" class="form-control">
-                <option value="">Seleccione…</option>
-                <?php foreach ($usos as $u): ?><option <?= val($row,'uso_edificacion')===$u?'selected':'' ?>><?= e($u) ?></option><?php endforeach; ?>
-            </select>
-        </div>
-        <div class="field">
             <label>Tipo estructural</label>
             <select name="tipo_estructural" class="form-control">
                 <option value="">Seleccione…</option>
@@ -221,7 +216,10 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
         <div class="check-row"><input type="checkbox" name="material_otros" id="m4" value="1" <?= val($row,'material_otros')?'checked':'' ?>><label for="m4">Otros</label></div>
     </div>
-    <div class="field"><label>Especifique otros materiales</label><input name="material_otros_especifique" class="form-control" value="<?= e(val($row,'material_otros_especifique')) ?>"></div>
+    <div class="field" id="campo-otros-materiales" style="<?= val($row,'material_otros') ? '' : 'display:none;' ?>">
+        <label>Especifique otros materiales</label>
+        <input name="material_otros_especifique" class="form-control" value="<?= e(val($row,'material_otros_especifique')) ?>">
+    </div>
 </div>
 
 <!-- PASO 4 -->
@@ -515,6 +513,22 @@ include __DIR__ . '/../includes/header.php';
     const steps = document.querySelectorAll('.wizard-steps .step');
     let current = 1;
     const total = panes.length;
+
+    // ---- Botón "Agregar segundo profesional": revela el bloque bajo demanda ----
+    document.getElementById('btn-agregar-profesional')?.addEventListener('click', function () {
+        document.getElementById('bloque-segundo-profesional').style.display = '';
+        this.style.display = 'none';
+    });
+
+    // ---- "Especifique otros materiales": solo se muestra si "Otros" está marcado ----
+    const chkMaterialOtros = document.getElementById('m4');
+    const campoOtrosMateriales = document.getElementById('campo-otros-materiales');
+    function actualizarCampoOtrosMateriales() {
+        if (campoOtrosMateriales) campoOtrosMateriales.style.display = chkMaterialOtros?.checked ? '' : 'none';
+    }
+    chkMaterialOtros?.addEventListener('change', actualizarCampoOtrosMateriales);
+    actualizarCampoOtrosMateriales();
+
 
     // ---- Mapa selector de ubicación (tipo "Google Maps") ----
     let mapaUbicacion = null;

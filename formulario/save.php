@@ -40,6 +40,7 @@ if (!csrfValidar($_POST['csrf'] ?? null)) {
 }
 
 $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
+$esNuevo = $id === null;
 requierePermiso('formulario', $id ? 'editar' : 'crear');
 
 // Deduplicación de envíos (modo offline / reintentos de red): si este mismo
@@ -291,7 +292,7 @@ try {
     }
     progresoActualizar($clientSubmissionId, 'listo', 'listo');
 
-    $destino = APP_URL_BASE . 'formulario/view.php?id=' . $id;
+    $destino = APP_URL_BASE . 'formulario/view.php?id=' . $id . ($esNuevo ? '&nuevo=1' : '');
 
     // Si el servidor corre bajo PHP-FPM (lo normal en producción), podemos
     // enviarle la respuesta al navegador YA MISMO y seguir ejecutando en

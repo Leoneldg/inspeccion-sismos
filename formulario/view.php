@@ -59,6 +59,10 @@ function fila($label, $valor) {
         <?php if (puede('import_export', 'ver')): ?>
         <a href="<?= APP_URL_BASE ?>dashboard/export_pdf.php?id=<?= (int)$r['id'] ?>" class="btn btn-danger btn-sm" target="_blank"><i class="bi bi-file-earmark-pdf-fill"></i> Exportar PDF</a>
         <?php endif; ?>
+        <button type="button" class="btn btn-outline btn-sm"
+            onclick="abrirModalQR('<?= e(urlAbsoluta('dashboard/export_pdf.php?id=' . (int)$r['id'] . '&token=' . tokenPdfPublico((int)$r['id']))) ?>', '<?= e($r['codigo']) ?>')">
+            <i class="bi bi-qr-code"></i> Código QR
+        </button>
         <a href="<?= APP_URL_BASE ?>formulario/index.php" class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Volver</a>
     </div>
 </div>
@@ -224,5 +228,13 @@ function fila($label, $valor) {
     </div>
 </div>
 </div>
+
+<?php if (isset($_GET['nuevo'])): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    abrirModalQR('<?= e(urlAbsoluta('dashboard/export_pdf.php?id=' . (int)$r['id'] . '&token=' . tokenPdfPublico((int)$r['id']))) ?>', '<?= e($r['codigo']) ?>');
+});
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
