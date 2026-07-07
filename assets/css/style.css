@@ -488,26 +488,84 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 /* Wizard */
 .wizard-steps {
     display: flex;
-    gap: 4px;
-    margin-bottom: 22px;
+    align-items: flex-start;
+    gap: 0;
+    margin-bottom: 26px;
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding: 6px 4px 10px;
 }
 .wizard-steps .step {
+    position: relative;
     flex: 1;
-    min-width: 130px;
-    padding: 10px 12px;
-    border-radius: var(--radio-sm);
+    min-width: 92px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+    cursor: pointer;
+    padding: 0 4px;
+}
+/* Línea conectora detrás de los círculos, de un paso al siguiente */
+.wizard-steps .step:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    top: 15px;
+    right: 50%;
+    width: 100%;
+    height: 2px;
+    background: var(--gris-200);
+    z-index: 0;
+}
+.wizard-steps .step.done:not(:first-child)::before,
+.wizard-steps .step.active:not(:first-child)::before { background: var(--azul-500); }
+.step-num {
+    position: relative;
+    z-index: 1;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
     background: var(--gris-100);
     color: var(--gris-500);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
-    text-align: center;
-    border: 1px solid transparent;
-    cursor: pointer;
+    border: 2px solid var(--gris-100);
+    transition: background .15s, color .15s, border-color .15s, box-shadow .15s;
 }
-.wizard-steps .step.active { background: var(--azul-800); color: white; }
-.wizard-steps .step.done { background: var(--azul-100); color: var(--azul-800); border-color: var(--azul-500); }
+.step-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gris-500);
+    line-height: 1.25;
+    max-width: 110px;
+}
+.wizard-steps .step.active .step-num {
+    background: var(--azul-800);
+    color: #fff;
+    border-color: var(--azul-800);
+    box-shadow: 0 0 0 4px var(--azul-100);
+}
+.wizard-steps .step.active .step-label { color: var(--azul-800); }
+.wizard-steps .step.done .step-num {
+    background: var(--azul-500);
+    border-color: var(--azul-500);
+    color: transparent; /* oculta el número; el check se dibuja aparte */
+}
+.wizard-steps .step.done .step-num::after {
+    content: '';
+    position: absolute;
+    width: 7px; height: 12px;
+    border-right: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(45deg) translate(-1px, -1px);
+}
+.wizard-steps .step.done .step-label { color: var(--azul-700); }
+.wizard-steps .step.con-error .step-num {
+    background: var(--rojo);
+    color: #fff;
+    border-color: var(--rojo);
+}
+.wizard-steps .step.con-error .step-label { color: var(--rojo); }
 
 .wizard-pane { display: none; }
 .wizard-pane.active { display: block; animation: fadein .2s ease; }
@@ -1564,3 +1622,57 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .badge-highlight-inspector  { background: #fdf3dc; color: var(--amarillo); }
 .badge-highlight-datos      { background: #e8edfa; color: var(--azul-700); }
 .text-mono { font-family: var(--font-mono); font-size: 12.5px; }
+
+/* Aviso visible cuando falta marcar la ubicación en el mapa (paso 2 del
+   formulario) al intentar avanzar sin haberla colocado. */
+.mapa-hint-error {
+    background: #fce9e9 !important;
+    color: var(--rojo) !important;
+    font-weight: 600;
+    animation: mapaHintPulso 1.4s ease-in-out 2;
+}
+@keyframes mapaHintPulso {
+    0%, 100% { box-shadow: var(--sombra-sm); }
+    50% { box-shadow: 0 0 0 4px rgba(217,75,75,0.25); }
+}
+
+/* =====================================================================
+   Avisos flotantes (toast) del modo offline: confirman cuando una
+   inspección guardada localmente se sube de verdad, o avisan si algo
+   falló y necesita atención (antes esto era invisible para la persona).
+   ===================================================================== */
+#sismos-toast-cont {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    max-width: 420px;
+    padding: 0 14px;
+    pointer-events: none;
+}
+.sismos-toast {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--azul-950, #0b1330);
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: var(--radio-sm, 8px);
+    font-size: 13.5px;
+    line-height: 1.4;
+    box-shadow: 0 8px 24px rgba(0,0,0,.28);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity .25s ease, transform .25s ease;
+    pointer-events: auto;
+}
+.sismos-toast.mostrar { opacity: 1; transform: translateY(0); }
+.sismos-toast-success { background: #1c6b3d; }
+.sismos-toast-error    { background: #8a2323; }
+.sismos-toast-info      { background: #22366f; }
+.sismos-toast i { margin-right: 6px; }

@@ -86,6 +86,30 @@
         });
     }
 
+    /**
+     * Aviso flotante (toast) en pantalla, para que la persona SEPA que algo
+     * pasó -- antes, subir o fallar en segundo plano solo cambiaba un
+     * numerito en la esquina que nadie mira. Se apila si hay varios.
+     */
+    function mostrarToast(mensaje, tipo) {
+        let cont = document.getElementById('sismos-toast-cont');
+        if (!cont) {
+            cont = document.createElement('div');
+            cont.id = 'sismos-toast-cont';
+            document.body.appendChild(cont);
+        }
+        const el = document.createElement('div');
+        el.className = 'sismos-toast sismos-toast-' + (tipo || 'info');
+        el.innerHTML = mensaje;
+        cont.appendChild(el);
+        requestAnimationFrame(() => el.classList.add('mostrar'));
+        setTimeout(() => {
+            el.classList.remove('mostrar');
+            setTimeout(() => el.remove(), 400);
+        }, tipo === 'error' ? 9000 : 5500);
+    }
+    window.SismosToast = mostrarToast; // reutilizable desde otras páginas si hace falta
+
     const MAX_INTENTOS_SYNC = 8;
 
     function reconstruirFormData(campos) {
@@ -142,10 +166,20 @@
         sincronizando = true;
         try {
             const pendientes = await listarPendientes();
+            const porSubir = pendientes.filter((p) => (p.intentos || 0) < MAX_INTENTOS_SYNC);
+            if (porSubir.length > 0) {
+                mostrarToast(
+                    '<i class="bi bi-cloud-arrow-up"></i> Conexión detectada: subiendo '
+                    + porSubir.length + ' inspección' + (porSubir.length === 1 ? '' : 'es') + ' guardada'
+                    + (porSubir.length === 1 ? '' : 's') + ' en este dispositivo…',
+                    'info'
+                );
+            }
             for (const p of pendientes) {
                 if ((p.intentos || 0) >= MAX_INTENTOS_SYNC) {
                     continue; // agotó reintentos: queda visible en el badge de error, no se reintenta solo
                 }
+                const nombreEdif = (p.meta && p.meta.nombre_edificio) ? ('"' + p.meta.nombre_edificio + '"') : 'guardada';
                 try {
                     const fd = reconstruirFormData(p.campos);
                     const resp = await fetch(p.url, {
@@ -156,6 +190,7 @@
 
                     if (envioFueExitoso(resp)) {
                         await eliminarPendiente(p.id);
+                        mostrarToast('<i class="bi bi-check-circle-fill"></i> Se subió la inspección ' + nombreEdif + ' correctamente.', 'success');
                         continue;
                     }
 
@@ -170,6 +205,17 @@
                     p.intentos = (p.intentos || 0) + 1;
                     p.ultimoError = resp.url;
                     await actualizarPendiente(p);
+
+                    if (p.intentos >= MAX_INTENTOS_SYNC) {
+                        const sesionVencida = /\/login\.php(\?|$)/.test(resp.url);
+                        mostrarToast(
+                            '<i class="bi bi-exclamation-triangle-fill"></i> No se pudo subir la inspección ' + nombreEdif + '. '
+                            + (sesionVencida
+                                ? 'Tu sesión expiró: inicia sesión de nuevo y luego toca "Reintentar" arriba.'
+                                : 'Revisa los datos e inténtalo de nuevo con el botón "Reintentar" arriba.'),
+                            'error'
+                        );
+                    }
                 } catch (err) {
                     // Esto sí es una falla de red real (fetch no llegó a
                     // completarse): paramos aquí y reintentamos todo en el
@@ -213,6 +259,16 @@
         sincronizarPendientes();
     });
     window.addEventListener('offline', actualizarEstadoConexion);
+
+    // Respaldo: el evento 'online' del navegador no siempre dispara de
+    // forma confiable en celulares (sobre todo con señal intermitente,
+    // 2G/3G entrando y saliendo). Cada 45s, si el navegador dice que hay
+    // señal, se intenta sincronizar de nuevo -- sincronizarPendientes() ya
+    // se sale de inmediato si no hay nada pendiente, así que no hace daño
+    // dejarlo corriendo de fondo.
+    setInterval(function () {
+        if (navigator.onLine) sincronizarPendientes();
+    }, 45000);
 
     document.addEventListener('DOMContentLoaded', function () {
         actualizarEstadoConexion();

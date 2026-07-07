@@ -1,48 +1,46 @@
-NUEVO MÓDULO — Correcciones del Sistema
-==========================================
+FORMULARIO — Stepper rediseñado + bloqueo del paso 1 + buscador de ingenieros
+================================================================================
 
-QUÉ HACE
---------
-Nueva pantalla (menú lateral, ícono de portapapeles con pulso) que
-detecta automáticamente inspecciones con:
+1. DISEÑO DEL SELECTOR DE PASOS
+------------------------------------
+Antes eran cajas planas con el texto completo ("1. Profesionales", etc).
+Ahora es un stepper con círculos numerados conectados por una línea:
+  - Paso actual: círculo azul oscuro con resplandor.
+  - Paso completado: círculo azul con un check (✓), línea conectora
+    coloreada hasta ahí.
+  - Paso con un campo pendiente/inválido: círculo rojo (nuevo).
+  - Paso pendiente: círculo gris.
 
-  - Sin fotos (ninguna foto subida en absoluto)
-  - Sin inspector principal (o con datos genéricos tipo "Inspector no
-    identificado" / cédula "0" -- típico de importaciones viejas), o
-    sin segundo profesional
-  - Datos incompletos: sin coordenadas en el mapa, sin uso de
-    edificación, sin tipo estructural, o sin municipio
+2. PASO 1 — no se puede avanzar sin el profesional principal
+------------------------------------------------------------------
+El select de "Profesional" (ing1) ya tenía `required`, pero ahora hay
+además un aviso explícito: si tocas "Siguiente" (o si tocas directo el
+número "2" del stepper para saltarte el paso) sin haber elegido un
+ingeniero, sale una alerta clara, el foco salta al selector, y el
+círculo del paso 1 se pone rojo hasta que lo corrijas.
 
-Cada fila se resalta con un color (rojo = 3+ pendientes, amarillo = 1-2)
-y muestra etiquetas ("badges") indicando exactamente qué le falta. Un
-clic en cualquier parte de la fila (o el botón "Corregir") te lleva
-directo a formulario/create.php?id=X para editarla ahí mismo.
+Importante: antes, alguien podía saltarse la validación tocando
+directamente el número de un paso más adelante en vez del botón
+"Siguiente" -- ahora el clic directo en los números también valida
+(solo al avanzar; ir hacia atrás para revisar pasos ya completados
+sigue funcionando libremente, sin restricción).
 
-Arriba hay 4 tarjetas con contadores (Total, Sin fotos, Faltan
-inspectores, Datos incompletos) que también funcionan como filtro rápido
-al hacer clic. También se puede buscar por código/edificio/parroquia, y
-si tu usuario es "master" (ve todo el país), filtrar por estado.
-
-PERMISOS
---------
-- Administrador y Superadministrador: ven y pueden entrar a corregir.
-- Supervisor y Estadal: solo pueden ver el listado (para reportar), no
-  se les muestra el botón de corregir directamente si su rol no tiene
-  permiso de "formulario > editar" (eso ya lo controla el propio
-  formulario, no esta pantalla).
-- Un usuario "Estadal" (con estado asignado) solo ve las inspecciones
-  de SU estado, igual que en el resto del sistema.
+3. BUSCADOR EN EL SELECTOR DE INGENIEROS
+---------------------------------------------
+Arriba de cada selector de profesional (el principal y el segundo) hay
+ahora un campo de texto para buscar por nombre o cédula -- útil en
+cuanto el directorio de ingenieros crezca y el desplegable se vuelva
+largo de recorrer a mano. Filtra en vivo mientras se escribe, ignora
+acentos/mayúsculas, y sigue funcionando bien después de tocar el botón
+de "Actualizar lista de ingenieros" (el buscador se limpia y vuelve a
+filtrar sobre la lista recién traída, no se queda con datos viejos).
 
 CÓMO APLICAR
 ------------
-1. Corre la migración (segura, no borra nada):
-     mysql -u root -p inspecciones_sismos < database/actualizacion_correcciones.sql
-2. Copia los archivos de este paquete a su ruta correspondiente
-   (admin/correcciones.php es nuevo; los otros 3 son actualizaciones).
-3. Si usas git: git add -A && git commit -m "Modulo de correcciones del sistema" && git push
+Reemplaza estos 2 archivos:
+  formulario/create.php
+  assets/css/style.css
 
-Si algún rol no ve el nuevo enlace en el menú, revisa en
-Roles y Permisos que tenga marcado "Ver" sobre el módulo
-"Correcciones del Sistema" (se le da por defecto a Administrador,
-Superadministrador, Supervisor y Estadal; Inspector no lo tiene por
-defecto, pero lo puedes activar ahí mismo si lo necesitas).
+No requiere ninguna migración SQL. Verifiqué el JavaScript con el
+parser real de Node (`node --check`), no solo conteo de llaves, así
+que la sintaxis está confirmada correcta.

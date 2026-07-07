@@ -39,12 +39,18 @@ function val($row, $key, $default = '') {
 }
 
 /** Imprime el bloque de subida de fotos + miniaturas existentes para una categoría dada. */
-function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes, bool $multiple = true, string $capture = 'environment'): void {
+function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes, bool $multiple = true, string $capture = 'environment', string $ayuda = ''): void {
     $existentes = $fotosExistentes[$categoria] ?? [];
+    // Si ya hay al menos una foto guardada de esta categoría (editando una
+    // inspección existente), no se obliga a subir otra -- si no hay
+    // ninguna todavía (inspección nueva, o esta categoría quedó pendiente),
+    // sí se exige al menos una foto.
+    $obligatoria = empty($existentes);
     ?>
     <div class="foto-input-box">
-        <label><i class="bi bi-camera-fill"></i> <?= e($etiqueta) ?></label>
-        <input type="file" name="fotos[<?= e($categoria) ?>][]" accept="image/*" capture="<?= e($capture) ?>"<?= $multiple ? ' multiple' : '' ?>>
+        <label class="<?= $obligatoria ? 'req' : '' ?>"><i class="bi bi-camera-fill"></i> <?= e($etiqueta) ?></label>
+        <?php if ($ayuda): ?><p class="help-text" style="margin-top:-2px;"><?= e($ayuda) ?></p><?php endif; ?>
+        <input type="file" name="fotos[<?= e($categoria) ?>][]" accept="image/*"<?= $multiple ? ' multiple' : '' ?><?= $obligatoria ? ' required' : '' ?>>
         <?php if ($existentes): ?>
         <div class="foto-existente-grid">
             <?php foreach ($existentes as $f): ?>
@@ -56,6 +62,7 @@ function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes
             </div>
             <?php endforeach; ?>
         </div>
+        <p class="help-text">Ya hay <?= count($existentes) ?> foto(s) guardada(s) en esta categoría. Solo sube una nueva si quieres agregar o reemplazar alguna.</p>
         <?php endif; ?>
     </div>
     <?php
@@ -75,26 +82,30 @@ function selectorIngeniero(string $prefix, ?array $row, bool $requerido, array $
     <div class="field" style="grid-column:1/-1;">
         <label <?= $requerido ? 'class="req"' : '' ?>>Profesional<?= $requerido ? '' : ' (segundo profesional)' ?></label>
         <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
-            <select <?= $requerido ? 'required' : '' ?> id="<?= $prefix ?>_id" name="<?= $prefix ?>_id" class="form-control ingeniero-select" data-prefix="<?= $prefix ?>" style="flex:1;min-width:220px;">
-                <option value="">Seleccione un ingeniero registrado…</option>
-                <?php foreach ($ingenieros as $ing): ?>
-                <option value="<?= (int)$ing['id'] ?>"
-                    data-nombre="<?= e($ing['nombre_completo']) ?>"
-                    data-cedula="<?= e($ing['cedula']) ?>"
-                    data-telefono="<?= e($ing['telefono'] ?? '') ?>"
-                    data-profesion="<?= e($ing['profesion'] ?? '') ?>"
-                    data-colegio="<?= e($ing['colegio_inscripcion'] ?? '') ?>"
-                    <?= $valorSeleccionado == $ing['id'] ? 'selected' : '' ?>>
-                    <?= e($ing['nombre_completo']) ?> — <?= e($ing['cedula']) ?>
-                </option>
-                <?php endforeach; ?>
-            </select>
+            <div style="flex:1;min-width:220px;">
+                <input type="text" class="form-control ingeniero-buscar" data-prefix="<?= $prefix ?>"
+                    placeholder="Buscar por nombre o cédula…" autocomplete="off" style="margin-bottom:6px;">
+                <select <?= $requerido ? 'required' : '' ?> id="<?= $prefix ?>_id" name="<?= $prefix ?>_id" class="form-control ingeniero-select" data-prefix="<?= $prefix ?>">
+                    <option value="">Seleccione un ingeniero registrado…</option>
+                    <?php foreach ($ingenieros as $ing): ?>
+                    <option value="<?= (int)$ing['id'] ?>"
+                        data-nombre="<?= e($ing['nombre_completo']) ?>"
+                        data-cedula="<?= e($ing['cedula']) ?>"
+                        data-telefono="<?= e($ing['telefono'] ?? '') ?>"
+                        data-profesion="<?= e($ing['profesion'] ?? '') ?>"
+                        data-colegio="<?= e($ing['colegio_inscripcion'] ?? '') ?>"
+                        <?= $valorSeleccionado == $ing['id'] ? 'selected' : '' ?>>
+                        <?= e($ing['nombre_completo']) ?> — <?= e($ing['cedula']) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
             <button type="button" class="btn btn-outline btn-sm btn-refrescar-ingenieros" title="Actualizar lista de ingenieros"><i class="bi bi-arrow-clockwise"></i></button>
             <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" target="_blank" class="btn btn-outline btn-sm">
                 <i class="bi bi-person-plus-fill"></i> Agregar nuevo ingeniero
             </a>
         </div>
-        <p class="help-text">Solo aparecen ingenieros activos del directorio. Si no está en la lista, agrégalo con el botón (se abre en una pestaña nueva, sin perder el progreso de este formulario) y luego toca <i class="bi bi-arrow-clockwise"></i> para actualizar.</p>
+        <p class="help-text">Solo aparecen ingenieros activos del directorio. Escribe en el buscador para filtrar por nombre o cédula. Si no está en la lista, agrégalo con el botón (se abre en una pestaña nueva, sin perder el progreso de este formulario) y luego toca <i class="bi bi-arrow-clockwise"></i> para actualizar.</p>
     </div>
     <div class="field"><label>Teléfono</label><input type="text" class="form-control" readonly id="<?= $prefix ?>_telefono_display" value="<?= e(val($row, $prefix . '_telefono')) ?>"></div>
     <div class="field"><label>Profesión</label><input type="text" class="form-control" readonly id="<?= $prefix ?>_profesion_display" value="<?= e(val($row, $prefix . '_profesion')) ?>"></div>
@@ -139,14 +150,14 @@ include __DIR__ . '/../includes/header.php';
 <input type="hidden" name="client_submission_id" id="client_submission_id">
 
 <div class="wizard-steps">
-    <div class="step active" data-step="1">1. Profesionales</div>
-    <div class="step" data-step="2">2. Identificación y ubicación</div>
-    <div class="step" data-step="3">3. Características</div>
-    <div class="step" data-step="4">4. Riesgo y colapso</div>
-    <div class="step" data-step="5">5. Daños estructurales</div>
-    <div class="step" data-step="6">6. Daños no estructurales</div>
-    <div class="step" data-step="7">7. Personas afectadas</div>
-    <div class="step" data-step="8">8. Decisión y recomendaciones</div>
+    <div class="step active" data-step="1"><span class="step-num">1</span><span class="step-label">Profesionales</span></div>
+    <div class="step" data-step="2"><span class="step-num">2</span><span class="step-label">Identificación y ubicación</span></div>
+    <div class="step" data-step="3"><span class="step-num">3</span><span class="step-label">Características</span></div>
+    <div class="step" data-step="4"><span class="step-num">4</span><span class="step-label">Riesgo y colapso</span></div>
+    <div class="step" data-step="5"><span class="step-num">5</span><span class="step-label">Daños estructurales</span></div>
+    <div class="step" data-step="6"><span class="step-num">6</span><span class="step-label">Daños no estructurales</span></div>
+    <div class="step" data-step="7"><span class="step-num">7</span><span class="step-label">Personas afectadas</span></div>
+    <div class="step" data-step="8"><span class="step-num">8</span><span class="step-label">Decisión y recomendaciones</span></div>
 </div>
 
 <div class="card">
@@ -159,7 +170,7 @@ include __DIR__ . '/../includes/header.php';
         <?php selectorIngeniero('ing1', $row, true, $ingenierosActivos); ?>
     </div>
     <div class="form-grid cols-2">
-        <?php bloqueFotos('foto_inspector', 'Foto del inspector (tipo carnet)', $fotosExistentes, false, 'user'); ?>
+        <?php bloqueFotos('foto_inspector', 'Foto del inspector (tipo carnet)', $fotosExistentes, false, 'user', 'Tómate una foto de frente, tipo carnet, para identificar quién realizó esta inspección.'); ?>
     </div>
 
     <button type="button" class="btn btn-outline btn-sm" id="btn-agregar-profesional" style="margin-top:6px;<?= val($row,'ing2_nombre') || val($row,'ing2_cedula') ? 'display:none;' : '' ?>">
@@ -181,13 +192,13 @@ include __DIR__ . '/../includes/header.php';
         <div class="field"><label class="req">Fecha de inspección</label><input required type="date" name="fecha_inspeccion" class="form-control" value="<?= e(val($row,'fecha_inspeccion', date('Y-m-d'))) ?>"></div>
         <div class="field"><label>Hora de inicio</label><input type="time" name="hora_inicio" class="form-control" value="<?= e(val($row,'hora_inicio')) ?>"></div>
         <div class="field"><label>Hora de culminación</label><input type="time" name="hora_culminacion" class="form-control" value="<?= e(val($row,'hora_culminacion')) ?>"></div>
-        <div class="field"><label>Cantidad de apartamentos</label><input type="number" min="0" name="cantidad_apartamentos" class="form-control" value="<?= e(val($row,'cantidad_apartamentos', 0)) ?>"></div>
-        <div class="field"><label>N° de pisos</label><input type="number" min="0" name="num_pisos" class="form-control" value="<?= e(val($row,'num_pisos', 0)) ?>"></div>
-        <div class="field"><label>N° de semisótanos</label><input type="number" min="0" name="num_semisotanos" class="form-control" value="<?= e(val($row,'num_semisotanos', 0)) ?>"></div>
-        <div class="field"><label>N° de sótanos</label><input type="number" min="0" name="num_sotanos" class="form-control" value="<?= e(val($row,'num_sotanos', 0)) ?>"></div>
+        <div class="field"><label class="req">Cantidad de apartamentos</label><input type="number" min="0" name="cantidad_apartamentos" required placeholder="Ej: 12 (escriba 0 si es una vivienda unifamiliar)" class="form-control" value="<?= e(val($row,'cantidad_apartamentos', 0)) ?>"></div>
+        <div class="field"><label class="req">N° de pisos</label><input type="number" min="0" name="num_pisos" required placeholder="Ej: 5" class="form-control" value="<?= e(val($row,'num_pisos', 0)) ?>"></div>
+        <div class="field"><label class="req">N° de semisótanos</label><input type="number" min="0" name="num_semisotanos" required placeholder="Escriba 0 si no tiene" class="form-control" value="<?= e(val($row,'num_semisotanos', 0)) ?>"></div>
+        <div class="field"><label class="req">N° de sótanos</label><input type="number" min="0" name="num_sotanos" required placeholder="Escriba 0 si no tiene" class="form-control" value="<?= e(val($row,'num_sotanos', 0)) ?>"></div>
         <?php if ($seccionesActivas['anio_personas']): ?>
-        <div class="field"><label>Año de construcción</label><input type="number" min="0" max="2100" name="anio_construccion" class="form-control" value="<?= e(val($row,'anio_construccion')) ?>"></div>
-        <div class="field"><label>N° de personas (general)</label><input type="number" min="0" name="numero_personas" class="form-control" value="<?= e(val($row,'numero_personas')) ?>"></div>
+        <div class="field"><label class="req">Año de construcción</label><input type="number" min="0" max="2100" name="anio_construccion" required placeholder="Ej: 1985" class="form-control" value="<?= e(val($row,'anio_construccion')) ?>"></div>
+        <div class="field"><label class="req">N° de personas (general)</label><input type="number" min="0" name="numero_personas" required placeholder="Ej: 20" class="form-control" value="<?= e(val($row,'numero_personas')) ?>"></div>
         <?php endif; ?>
     </div>
 
@@ -209,7 +220,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="field"><label>Ciudad</label><input name="ciudad" class="form-control" value="<?= e(val($row,'ciudad')) ?>"></div>
+        <div class="field"><label class="req">Ciudad</label><input name="ciudad" required placeholder="Ej: Caracas" class="form-control" value="<?= e(val($row,'ciudad')) ?>"></div>
         <div class="field">
             <label class="req">Municipio</label>
             <select required name="municipio" id="ubic-municipio" class="form-control" data-actual="<?= e(val($row,'municipio')) ?>">
@@ -222,15 +233,15 @@ include __DIR__ . '/../includes/header.php';
                 <option value="">Seleccione…</option>
             </select>
         </div>
-        <div class="field"><label>Comuna o circuito</label><input name="comuna_circuito" class="form-control" value="<?= e(val($row,'comuna_circuito')) ?>"></div>
-        <div class="field"><label>Urbanización</label><input name="urbanizacion" class="form-control" value="<?= e(val($row,'urbanizacion')) ?>"></div>
-        <div class="field"><label>Sector</label><input name="sector" class="form-control" value="<?= e(val($row,'sector')) ?>"></div>
-        <div class="field"><label>Avenida o calle</label><input name="avenida_calle" class="form-control" value="<?= e(val($row,'avenida_calle')) ?>"></div>
-        <div class="field"><label>Nombre de la comunidad</label><input name="nombre_comunidad" class="form-control" value="<?= e(val($row,'nombre_comunidad')) ?>"></div>
+        <div class="field"><label class="req">Comuna o circuito</label><input name="comuna_circuito" required placeholder="Ej: Comuna Simón Rodríguez" class="form-control" value="<?= e(val($row,'comuna_circuito')) ?>"></div>
+        <div class="field"><label class="req">Urbanización</label><input name="urbanizacion" required placeholder="Ej: Urb. La Paz" class="form-control" value="<?= e(val($row,'urbanizacion')) ?>"></div>
+        <div class="field"><label class="req">Sector</label><input name="sector" required placeholder="Ej: Sector Los Jardines" class="form-control" value="<?= e(val($row,'sector')) ?>"></div>
+        <div class="field"><label class="req">Avenida o calle</label><input name="avenida_calle" required placeholder="Ej: Av. Bolívar con Calle 5" class="form-control" value="<?= e(val($row,'avenida_calle')) ?>"></div>
+        <div class="field"><label class="req">Nombre de la comunidad</label><input name="nombre_comunidad" required placeholder="Ej: Consejo Comunal Nueva Esperanza" class="form-control" value="<?= e(val($row,'nombre_comunidad')) ?>"></div>
     </div>
 
-    <label style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
-    <p class="help-text" style="margin-top:-2px;margin-bottom:8px;">Toque o haga clic sobre el mapa para colocar el marcador en la edificación. Puede arrastrarlo para ajustar la posición.</p>
+    <label class="req" style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
+    <p class="help-text" style="margin-top:-2px;margin-bottom:8px;">Toque o haga clic sobre el mapa para colocar el marcador en la edificación (obligatorio). Puede arrastrarlo para ajustar la posición.</p>
     <div class="mapa-selector" id="mapa-ubicacion">
         <div class="mapa-selector-hint"><i class="bi bi-cursor-fill"></i> Clic / toque para marcar la ubicación exacta</div>
     </div>
@@ -245,7 +256,7 @@ include __DIR__ . '/../includes/header.php';
 
     <div class="section-title"><i class="bi bi-camera-fill"></i> Registro fotográfico</div>
     <div class="form-grid cols-2">
-        <?php bloqueFotos('general', 'Vista general de la edificación / fachada', $fotosExistentes); ?>
+        <?php bloqueFotos('general', 'Vista general de la edificación / fachada', $fotosExistentes, true, 'environment', 'Foto de cuerpo completo de la fachada principal, desde una distancia que muestre todo el edificio.'); ?>
     </div>
 </div>
 
@@ -255,14 +266,14 @@ include __DIR__ . '/../includes/header.php';
     <div class="form-grid cols-2">
         <div class="field">
             <label>Uso de la edificación</label>
-            <select name="uso_edificacion" class="form-control">
+            <select required name="uso_edificacion" class="form-control">
                 <option value="">Seleccione…</option>
                 <?php foreach ($usos as $u): ?><option <?= val($row,'uso_edificacion')===$u?'selected':'' ?>><?= e($u) ?></option><?php endforeach; ?>
             </select>
         </div>
         <div class="field">
             <label>Tipo estructural</label>
-            <select name="tipo_estructural" class="form-control">
+            <select required name="tipo_estructural" class="form-control">
                 <option value="">Seleccione…</option>
                 <?php foreach ($tiposEstruct as $t): ?><option <?= val($row,'tipo_estructural')===$t?'selected':'' ?>><?= e($t) ?></option><?php endforeach; ?>
             </select>
@@ -284,7 +295,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="field" id="campo-otros-materiales" style="<?= val($row,'material_otros') ? '' : 'display:none;' ?>">
         <label>Especifique otros materiales</label>
-        <input name="material_otros_especifique" class="form-control" value="<?= e(val($row,'material_otros_especifique')) ?>">
+        <input name="material_otros_especifique" required placeholder="Describa el material (Ej: Bahareque, adobe)" class="form-control" value="<?= e(val($row,'material_otros_especifique')) ?>">
     </div>
 </div>
 
@@ -294,13 +305,13 @@ include __DIR__ . '/../includes/header.php';
     <div class="form-grid cols-2">
         <div class="field">
             <label>Colapso de la estructura</label>
-            <select name="colapso_estructura" class="form-control">
+            <select required name="colapso_estructura" class="form-control">
                 <?php foreach (['No','Parcial','Total'] as $o): ?><option <?= val($row,'colapso_estructura','No')===$o?'selected':'' ?>><?= $o ?></option><?php endforeach; ?>
             </select>
         </div>
         <div class="field">
             <label>Peligro por edificios aledaños</label>
-            <select name="riesgo_edificios_aledanos" class="form-control">
+            <select required name="riesgo_edificios_aledanos" class="form-control">
                 <?php foreach (['No','Moderado','Elevado','Si'] as $o): ?>
                 <option value="<?= e($o) ?>" <?= val($row,'riesgo_edificios_aledanos')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
                 <?php endforeach; ?>
@@ -308,7 +319,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="field">
             <label>Peligro geológico o geotécnico</label>
-            <select name="amenaza_geologica" class="form-control">
+            <select required name="amenaza_geologica" class="form-control">
                 <?php foreach (['No','Moderado','Elevado','Si'] as $o): ?>
                 <option value="<?= e($o) ?>" <?= val($row,'amenaza_geologica')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
                 <?php endforeach; ?>
@@ -316,7 +327,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="field">
             <label>Asentamiento del edificio</label>
-            <select name="asentamiento_edificio" class="form-control">
+            <select required name="asentamiento_edificio" class="form-control">
                 <?php foreach (['No','Hasta 20 cm','Mayor a 20 cm','Si'] as $o): ?>
                 <option value="<?= e($o) ?>" <?= val($row,'asentamiento_edificio')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
                 <?php endforeach; ?>
@@ -324,7 +335,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="field">
             <label>Inclinación del edificio</label>
-            <select name="inclinacion_edificio" class="form-control">
+            <select required name="inclinacion_edificio" class="form-control">
                 <?php foreach (['No','Hasta 2cm/60cm','Mayor que 2cm/60cm','Si'] as $o): ?>
                 <option value="<?= e($o) ?>" <?= val($row,'inclinacion_edificio')===$o?'selected':'' ?>><?= $o==='Si'?'Sí (legado)':$o ?></option>
                 <?php endforeach; ?>
@@ -332,7 +343,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="field">
             <label>¿Se requiere inspección interna?</label>
-            <select name="requiere_inspeccion_interna" class="form-control">
+            <select required name="requiere_inspeccion_interna" class="form-control">
                 <option value="No" <?= val($row,'requiere_inspeccion_interna','No')==='No'?'selected':'' ?>>No</option>
                 <option value="Si" <?= val($row,'requiere_inspeccion_interna')==='Si'?'selected':'' ?>>Sí</option>
             </select>
@@ -340,7 +351,7 @@ include __DIR__ . '/../includes/header.php';
         <?php if ($seccionesActivas['riesgo_externo']): ?>
         <div class="field">
             <label>Riesgo Externo (A/B/C)</label>
-            <select name="riesgo_externo" class="form-control">
+            <select required name="riesgo_externo" class="form-control">
                 <option value="">Seleccione…</option>
                 <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
                 <option value="<?= e($k) ?>" <?= val($row,'riesgo_externo')===$k?'selected':'' ?>><?= e($k) ?></option>
@@ -357,27 +368,27 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($seccionesActivas['piso_critico']): ?>
     <div class="section-title"><i class="bi bi-building-fill-exclamation"></i> Piso crítico y elementos con daño severo/completo</div>
     <div class="form-grid cols-2">
-        <div class="field"><label>Pisos inspeccionados</label><input name="pisos_inspeccionados" class="form-control" value="<?= e(val($row,'pisos_inspeccionados')) ?>" placeholder="Ej: PB, 1, 2, 3"></div>
+        <div class="field"><label class="req">Pisos inspeccionados</label><input name="pisos_inspeccionados" required placeholder="Ej: PB, 1, 2, 3" class="form-control" value="<?= e(val($row,'pisos_inspeccionados')) ?>" placeholder="Ej: PB, 1, 2, 3"></div>
         <div class="field">
             <label>Acceso a miembros estructurales principales</label>
-            <select name="acceso_miembros_estructurales" class="form-control">
+            <select required name="acceso_miembros_estructurales" class="form-control">
                 <option value="">Seleccione…</option>
                 <?php foreach (catalogoAccesoMiembros() as $o): ?>
                 <option value="<?= e($o) ?>" <?= val($row,'acceso_miembros_estructurales')===$o?'selected':'' ?>><?= e($o) ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="field"><label>Piso crítico</label><input name="piso_critico" class="form-control" value="<?= e(val($row,'piso_critico')) ?>"></div>
+        <div class="field"><label class="req">Piso crítico</label><input name="piso_critico" required placeholder="Ej: Piso 3" class="form-control" value="<?= e(val($row,'piso_critico')) ?>"></div>
     </div>
     <label style="margin-top:10px;">N° de elementos con daño Severo/Completo (N), por tipo de elemento en el piso crítico</label>
     <div class="form-grid cols-4">
         <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
-        <div class="field"><label><?= e($label) ?></label><input type="number" min="0" name="elementos_piso_critico[severo][<?= $key ?>]" class="form-control" value="<?= e($pisoCriticoData['severo'][$key] ?? '') ?>"></div>
+        <div class="field"><label class="req"><?= e($label) ?></label><input type="number" min="0" name="elementos_piso_critico[severo][<?= $key ?>]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['severo'][$key] ?? '') ?>"></div>
         <?php endforeach; ?>
     </div>
     <div class="field" style="margin-top:8px;">
         <label>Riesgo Estructural por daño Severo/Completo</label>
-        <select name="riesgo_estructural_severo" class="form-control">
+        <select required name="riesgo_estructural_severo" class="form-control">
             <option value="">Seleccione…</option>
             <?php foreach (catalogoRiesgoSevero() as $k => $v): ?>
             <option value="<?= e($k) ?>" <?= val($row,'riesgo_estructural_severo')===$k?'selected':'' ?>><?= e($v) ?></option>
@@ -395,14 +406,14 @@ include __DIR__ . '/../includes/header.php';
     <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
     <div class="form-grid cols-4" style="margin-bottom:6px;">
         <div class="field"><label><?= e($label) ?></label></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][sin_dano]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['sin_dano'] ?? '') ?>"></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][moderado]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['moderado'] ?? '') ?>"></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][examinados]" class="form-control" value="<?= e($pisoCriticoData['moderado'][$key]['examinados'] ?? '') ?>"></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][sin_dano]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['sin_dano'] ?? '') ?>"></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][moderado]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['moderado'] ?? '') ?>"></div>
+        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][examinados]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['examinados'] ?? '') ?>"></div>
     </div>
     <?php endforeach; ?>
     <div class="field" style="margin-top:8px;">
         <label>Riesgo Estructural por Daño Moderado</label>
-        <select name="riesgo_estructural_moderado" class="form-control">
+        <select required name="riesgo_estructural_moderado" class="form-control">
             <option value="">Seleccione…</option>
             <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
             <option value="<?= e($k) ?>" <?= val($row,'riesgo_estructural_moderado')===$k?'selected':'' ?>><?= e($k) ?> <?= $k==='A. Bajo'?'(< 10%)':($k==='B. Medio'?'(10-30%)':'(> 30%)') ?></option>
@@ -423,7 +434,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
             <div style="margin-top:8px;">
-                <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes); ?>
+                <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes, true, 'environment', 'Fotografíe el daño de cerca (que se vea la grieta/deformación) y también con contexto (que se vea dónde está ubicado dentro del edificio).'); ?>
             </div>
         </div>
         <?php endforeach; ?>
@@ -433,14 +444,14 @@ include __DIR__ . '/../includes/header.php';
     <div class="form-grid">
         <div class="field">
             <label>Requiere de intervención</label>
-            <select name="requiere_intervencion" class="form-control">
+            <select required name="requiere_intervencion" class="form-control">
                 <option value="No" <?= val($row,'requiere_intervencion','No')==='No'?'selected':'' ?>>No</option>
                 <option value="Si" <?= val($row,'requiere_intervencion')==='Si'?'selected':'' ?>>Sí</option>
             </select>
         </div>
-        <div class="field"><label>% Daño III (Moderado)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_iii" class="form-control" value="<?= e(val($row,'pct_dano_iii', 0)) ?>"></div>
-        <div class="field"><label>% Daño IV (Severo)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_iv" class="form-control" value="<?= e(val($row,'pct_dano_iv', 0)) ?>"></div>
-        <div class="field"><label>% Daño V (Completo)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_v" class="form-control" value="<?= e(val($row,'pct_dano_v', 0)) ?>"></div>
+        <div class="field"><label class="req">% Daño III (Moderado)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_iii" class="form-control" required placeholder="Ej: 10 (% del área con daño moderado)" value="<?= e(val($row,'pct_dano_iii', 0)) ?>"></div>
+        <div class="field"><label class="req">% Daño IV (Severo)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_iv" class="form-control" required placeholder="Ej: 5 (% del área con daño severo)" value="<?= e(val($row,'pct_dano_iv', 0)) ?>"></div>
+        <div class="field"><label class="req">% Daño V (Completo)</label><input type="number" step="0.01" min="0" max="100" name="pct_dano_v" class="form-control" required placeholder="Ej: 0 (% del área con daño completo)" value="<?= e(val($row,'pct_dano_v', 0)) ?>"></div>
         <div class="field"><label>m² de losas afectadas</label><input type="number" step="0.01" min="0" name="m2_losas" class="form-control" value="<?= e(val($row,'m2_losas')) ?>"></div>
         <div class="field"><label>Muros a reconstruir</label><input type="number" min="0" name="muros_reconstruir" class="form-control" value="<?= e(val($row,'muros_reconstruir')) ?>"></div>
     </div>
@@ -460,7 +471,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
             <div style="margin-top:8px;">
-                <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes); ?>
+                <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes, true, 'environment', 'Fotografíe el daño de cerca y también con contexto, mostrando su ubicación dentro de la edificación.'); ?>
             </div>
         </div>
         <?php endforeach; ?>
@@ -468,7 +479,7 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($seccionesActivas['riesgo_componentes']): ?>
     <div class="field" style="max-width:420px;">
         <label>Riesgo de Componentes (no estructurales)</label>
-        <select name="riesgo_componentes" class="form-control">
+        <select required name="riesgo_componentes" class="form-control">
             <option value="">Seleccione…</option>
             <?php foreach (catalogoNivelRiesgo() as $k => $meta): ?>
             <option value="<?= e($k) ?>" <?= val($row,'riesgo_componentes')===$k?'selected':'' ?>><?= e($k) ?></option>
@@ -488,11 +499,11 @@ include __DIR__ . '/../includes/header.php';
     <div class="form-grid cols-2" style="margin-top:6px;">
         <div class="field" id="campo-cant-ascensores" style="<?= !empty($extra['ascensores']) ? '' : 'display:none;' ?>">
             <label>Cantidad de ascensores</label>
-            <input type="number" min="0" name="extra_cant_ascensores" class="form-control" value="<?= e($extra['cant_ascensores'] ?? '') ?>">
+            <input type="number" min="0" name="extra_cant_ascensores" required placeholder="Ej: 2" class="form-control" value="<?= e($extra['cant_ascensores'] ?? '') ?>">
         </div>
         <div class="field" id="campo-estado-tanque" style="<?= val($row,'tiene_tanque_agua') ? '' : 'display:none;' ?>">
             <label>Estado del tanque de agua</label>
-            <input name="extra_estado_tanque" class="form-control" value="<?= e($extra['estado_tanque'] ?? '') ?>">
+            <input name="extra_estado_tanque" required placeholder="Ej: Buen estado, Filtraciones, Grietas visibles" class="form-control" value="<?= e($extra['estado_tanque'] ?? '') ?>">
         </div>
     </div>
 </div>
@@ -501,22 +512,22 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="7">
     <div class="section-title"><i class="bi bi-people-fill"></i> Personas y animales afectados</div>
     <div class="form-grid cols-4">
-        <div class="field"><label>Familias</label><input type="number" min="0" name="familias" class="form-control" value="<?= e(val($row,'familias', 0)) ?>"></div>
-        <div class="field"><label>Hombres</label><input type="number" min="0" name="hombres" class="form-control" value="<?= e(val($row,'hombres', 0)) ?>"></div>
-        <div class="field"><label>Mujeres</label><input type="number" min="0" name="mujeres" class="form-control" value="<?= e(val($row,'mujeres', 0)) ?>"></div>
-        <div class="field"><label>Niños</label><input type="number" min="0" name="ninos" class="form-control" value="<?= e(val($row,'ninos', 0)) ?>"></div>
-        <div class="field"><label>Adultos de 3ra edad</label><input type="number" min="0" name="adultos_tercera_edad" class="form-control" value="<?= e(val($row,'adultos_tercera_edad', 0)) ?>"></div>
-        <div class="field"><label>Gestantes</label><input type="number" min="0" name="gestantes" class="form-control" value="<?= e(val($row,'gestantes', 0)) ?>"></div>
-        <div class="field"><label>Movilidad reducida</label><input type="number" min="0" name="movilidad_reducida" class="form-control" value="<?= e(val($row,'movilidad_reducida', 0)) ?>"></div>
-        <div class="field"><label>Mascotas</label><input type="number" min="0" name="mascotas" class="form-control" value="<?= e(val($row,'mascotas', 0)) ?>"></div>
+        <div class="field"><label class="req">Familias</label><input type="number" min="0" name="familias" required placeholder="Ej: 3 (escriba 0 si no hay familias residiendo)" class="form-control" value="<?= e(val($row,'familias', 0)) ?>"></div>
+        <div class="field"><label class="req">Hombres</label><input type="number" min="0" name="hombres" required placeholder="Ej: 4 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'hombres', 0)) ?>"></div>
+        <div class="field"><label class="req">Mujeres</label><input type="number" min="0" name="mujeres" required placeholder="Ej: 5 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'mujeres', 0)) ?>"></div>
+        <div class="field"><label class="req">Niños</label><input type="number" min="0" name="ninos" required placeholder="Ej: 2 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'ninos', 0)) ?>"></div>
+        <div class="field"><label class="req">Adultos de 3ra edad</label><input type="number" min="0" name="adultos_tercera_edad" required placeholder="Ej: 1 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'adultos_tercera_edad', 0)) ?>"></div>
+        <div class="field"><label class="req">Gestantes</label><input type="number" min="0" name="gestantes" required placeholder="Ej: 0 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'gestantes', 0)) ?>"></div>
+        <div class="field"><label class="req">Movilidad reducida</label><input type="number" min="0" name="movilidad_reducida" required placeholder="Ej: 0 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'movilidad_reducida', 0)) ?>"></div>
+        <div class="field"><label class="req">Mascotas</label><input type="number" min="0" name="mascotas" required placeholder="Ej: 0 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'mascotas', 0)) ?>"></div>
     </div>
 
     <div class="section-title"><i class="bi bi-hammer"></i> Recursos requeridos para intervención</div>
     <div class="form-grid cols-4">
-        <div class="field"><label>Tiempo de acción (días)</label><input type="number" min="0" name="extra_tiempo_accion" class="form-control" value="<?= e($extra['tiempo_accion'] ?? '') ?>"></div>
-        <div class="field"><label>Mano de obra requerida</label><input name="extra_mano_obra" class="form-control" value="<?= e($extra['mano_obra'] ?? '') ?>"></div>
-        <div class="field"><label>Herramientas requeridas</label><input name="extra_herramientas" class="form-control" value="<?= e($extra['herramientas'] ?? '') ?>"></div>
-        <div class="field"><label>Maquinaria requerida</label><input name="extra_maquinarias" class="form-control" value="<?= e($extra['maquinarias'] ?? '') ?>"></div>
+        <div class="field"><label class="req">Tiempo de acción (días)</label><input type="number" min="0" name="extra_tiempo_accion" required placeholder="Ej: 3 (días estimados)" class="form-control" value="<?= e($extra['tiempo_accion'] ?? '') ?>"></div>
+        <div class="field"><label class="req">Mano de obra requerida</label><input name="extra_mano_obra" required placeholder="Ej: Albañil, Electricista, Plomero" class="form-control" value="<?= e($extra['mano_obra'] ?? '') ?>"></div>
+        <div class="field"><label class="req">Herramientas requeridas</label><input name="extra_herramientas" required placeholder="Ej: Puntales, mazos, carretillas" class="form-control" value="<?= e($extra['herramientas'] ?? '') ?>"></div>
+        <div class="field"><label class="req">Maquinaria requerida</label><input name="extra_maquinarias" required placeholder="Ej: Retroexcavadora, grúa, o "No se requiere"" class="form-control" value="<?= e($extra['maquinarias'] ?? '') ?>"></div>
     </div>
 </div>
 
@@ -532,15 +543,15 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="field"><label>Etiqueta de inspección previa (si aplica)</label><input name="inspeccion_previa_etiqueta" class="form-control" value="<?= e(val($row,'inspeccion_previa_etiqueta')) ?>"></div>
-        <div class="field"><label>Inspección especializada</label><input name="inspeccion_especializada" class="form-control" value="<?= e(val($row,'inspeccion_especializada')) ?>"></div>
-        <div class="field"><label>Intervención de</label><input name="intervencion_de" class="form-control" value="<?= e(val($row,'intervencion_de')) ?>"></div>
+        <div class="field"><label class="req">Etiqueta de inspección previa (si aplica)</label><input name="inspeccion_previa_etiqueta" required placeholder="Ej: Verde, Amarilla, Roja, o "Ninguna"" class="form-control" value="<?= e(val($row,'inspeccion_previa_etiqueta')) ?>"></div>
+        <div class="field"><label class="req">Inspección especializada</label><input name="inspeccion_especializada" required placeholder="Ej: Estructural, Geotecnia, Eléctrica, o "No aplica"" class="form-control" value="<?= e(val($row,'inspeccion_especializada')) ?>"></div>
+        <div class="field"><label class="req">Intervención de</label><input name="intervencion_de" required placeholder="Ej: Protección Civil, Bomberos, o "No aplica"" class="form-control" value="<?= e(val($row,'intervencion_de')) ?>"></div>
     </div>
     <div class="form-grid cols-2">
-        <div class="field"><label>Medidas de seguridad</label><textarea name="medidas_seguridad" class="form-control"><?= e(val($row,'medidas_seguridad')) ?></textarea></div>
-        <div class="field"><label>Lugares del edificio para aplicar medidas</label><textarea name="lugares_medidas" class="form-control"><?= e(val($row,'lugares_medidas')) ?></textarea></div>
-        <div class="field"><label>Observaciones</label><textarea name="observaciones" class="form-control"><?= e(val($row,'observaciones')) ?></textarea></div>
-        <div class="field"><label>Recomendaciones</label><textarea name="recomendaciones" class="form-control"><?= e(val($row,'recomendaciones')) ?></textarea></div>
+        <div class="field"><label class="req">Medidas de seguridad</label><textarea name="medidas_seguridad" class="form-control" required placeholder="Ej: Restringir el paso peatonal, desconectar el gas y la electricidad, apuntalar elementos en riesgo…"><?= e(val($row,'medidas_seguridad')) ?></textarea></div>
+        <div class="field"><label class="req">Lugares del edificio para aplicar medidas</label><textarea name="lugares_medidas" class="form-control" required placeholder="Ej: Fachada frontal, escalera del piso 2, balcón del apartamento 4B…"><?= e(val($row,'lugares_medidas')) ?></textarea></div>
+        <div class="field"><label class="req">Observaciones</label><textarea name="observaciones" class="form-control" required placeholder="Cualquier detalle adicional relevante que no se haya capturado en los campos anteriores"><?= e(val($row,'observaciones')) ?></textarea></div>
+        <div class="field"><label class="req">Recomendaciones</label><textarea name="recomendaciones" class="form-control" required placeholder="Ej: Realizar evaluación estructural detallada antes de reingresar, desalojar de inmediato…"><?= e(val($row,'recomendaciones')) ?></textarea></div>
     </div>
 
     <?php if ($seccionesActivas['acciones_recomendadas']): ?>
@@ -557,12 +568,12 @@ include __DIR__ . '/../includes/header.php';
         <div class="check-row"><input type="checkbox" name="medidas_prevencion[<?= $key ?>]" id="mprev_<?= $key ?>" value="1" <?= $chk?'checked':'' ?>><label for="mprev_<?= $key ?>"><?= e($label) ?></label></div>
         <?php endforeach; ?>
     </div>
-    <div class="field" style="margin-top:8px;"><label>Otra medida de prevención</label><input name="medida_prevencion_otra" class="form-control" value="<?= e($accionesData['medidas_prevencion']['otra_texto'] ?? '') ?>"></div>
+    <div class="field" style="margin-top:8px;"><label class="req">Otra medida de prevención</label><input name="medida_prevencion_otra" required placeholder="Describa la medida adicional, o escriba "Ninguna"" class="form-control" value="<?= e($accionesData['medidas_prevencion']['otra_texto'] ?? '') ?>"></div>
     <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-camera-fill"></i> Registro fotográfico</div>
     <div class="form-grid cols-2">
-        <?php bloqueFotos('decision', 'Foto de la etiqueta / cartel de decisión colocado', $fotosExistentes); ?>
+        <?php bloqueFotos('decision', 'Foto de la etiqueta / cartel de decisión colocado', $fotosExistentes, true, 'environment', 'Foto de la calcomanía o cartel de color (verde, amarillo o rojo) ya colocado en la entrada de la edificación.'); ?>
     </div>
 </div>
 
@@ -641,19 +652,30 @@ include __DIR__ . '/../includes/header.php';
     const chkMaterialOtros = document.getElementById('m4');
     const campoOtrosMateriales = document.getElementById('campo-otros-materiales');
     function actualizarCampoOtrosMateriales() {
-        if (campoOtrosMateriales) campoOtrosMateriales.style.display = chkMaterialOtros?.checked ? '' : 'none';
+        if (!campoOtrosMateriales) return;
+        const visible = !!chkMaterialOtros?.checked;
+        campoOtrosMateriales.style.display = visible ? '' : 'none';
+        const input = campoOtrosMateriales.querySelector('input, select, textarea');
+        if (input) input.required = visible; // oculto y "required" a la vez bloquearía el envío sin que se vea por qué
     }
     chkMaterialOtros?.addEventListener('change', actualizarCampoOtrosMateriales);
     actualizarCampoOtrosMateriales();
 
     // ---- "Cantidad de ascensores" y "Estado del tanque de agua": solo se
-    // muestran si se marca su checkbox correspondiente (Ascensores / Tiene
-    // tanque de agua) en "Servicios y elementos complementarios". ----
+    // muestran (y son obligatorios) si se marca su checkbox correspondiente
+    // (Ascensores / Tiene tanque de agua) en "Servicios y elementos
+    // complementarios". Un campo oculto con "required" bloquearía el envío
+    // del formulario sin que el usuario viera por qué, así que el
+    // "required" se activa/desactiva junto con la visibilidad. ----
     function vincularCampoCondicional(checkboxId, campoId) {
         const chk = document.getElementById(checkboxId);
         const campo = document.getElementById(campoId);
         if (!chk || !campo) return;
-        const actualizar = () => { campo.style.display = chk.checked ? '' : 'none'; };
+        const input = campo.querySelector('input, select, textarea');
+        const actualizar = () => {
+            campo.style.display = chk.checked ? '' : 'none';
+            if (input) input.required = chk.checked;
+        };
         chk.addEventListener('change', actualizar);
         actualizar();
     }
@@ -683,14 +705,55 @@ include __DIR__ . '/../includes/header.php';
         });
     });
 
-    function poblarSelectIngenieros(select, lista) {
+    // ---- Buscador de ingenieros: filtra las opciones del select mientras
+    // se escribe (por nombre o cédula). No se puede ocultar <option> con
+    // CSS de forma confiable en todos los navegadores, así que se
+    // reconstruye el select con solo las opciones que coinciden. El listado
+    // completo (sin filtrar) se guarda aparte por prefijo, y también se
+    // actualiza cuando se usa el botón de refrescar -- si no, buscar
+    // después de refrescar seguiría filtrando la lista vieja. ----
+    const opcionesIngenieroCompletas = {};
+    document.querySelectorAll('.ingeniero-select').forEach(function (select) {
+        opcionesIngenieroCompletas[select.dataset.prefix] = Array.from(select.options).filter(o => o.value !== '');
+    });
+
+    function normalizarTexto(s) {
+        return (s || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function filtrarSelectIngeniero(prefix, q) {
+        const select = document.getElementById(prefix + '_id');
+        const todas = opcionesIngenieroCompletas[prefix] || [];
+        if (!select) return;
+        q = normalizarTexto((q || '').trim());
         const valorActual = select.value;
         select.innerHTML = '';
         const optDefault = document.createElement('option');
         optDefault.value = '';
-        optDefault.textContent = 'Seleccione un ingeniero registrado…';
+        optDefault.textContent = todas.length ? 'Seleccione un ingeniero registrado…' : 'No hay ingenieros registrados';
         select.appendChild(optDefault);
-        lista.forEach(function (ing) {
+
+        const coinciden = !q ? todas : todas.filter(o =>
+            normalizarTexto(o.dataset.nombre || '').includes(q) || normalizarTexto(o.dataset.cedula || '').includes(q)
+        );
+        coinciden.forEach(o => select.appendChild(o.cloneNode(true)));
+
+        // Si lo que había seleccionado sigue en los resultados filtrados, se
+        // mantiene marcado; si no, la selección real no se pierde (los
+        // campos ocultos ya tienen sus datos), solo deja de verse resaltada
+        // en el desplegable hasta que se borre el texto de búsqueda.
+        if (coinciden.some(o => o.value === valorActual)) {
+            select.value = valorActual;
+        }
+    }
+
+    document.querySelectorAll('.ingeniero-buscar').forEach(function (input) {
+        input.addEventListener('input', function () {
+            filtrarSelectIngeniero(input.dataset.prefix, input.value);
+        });
+    });
+    function poblarSelectIngenieros(select, lista) {
+        opcionesIngenieroCompletas[select.dataset.prefix] = lista.map(function (ing) {
             const opt = document.createElement('option');
             opt.value = ing.id;
             opt.textContent = ing.nombre_completo + ' — ' + ing.cedula;
@@ -699,8 +762,15 @@ include __DIR__ . '/../includes/header.php';
             opt.dataset.telefono = ing.telefono || '';
             opt.dataset.profesion = ing.profesion || '';
             opt.dataset.colegio = ing.colegio_inscripcion || '';
-            select.appendChild(opt);
+            return opt;
         });
+        // Limpia el buscador asociado (si tenía texto, ya no aplicaría a la
+        // lista recién actualizada) y vuelve a pintar el select completo.
+        const buscador = document.querySelector('.ingeniero-buscar[data-prefix="' + select.dataset.prefix + '"]');
+        if (buscador) buscador.value = '';
+        filtrarSelectIngeniero(select.dataset.prefix, '');
+
+        const valorActual = select.value;
         if (lista.some(function (ing) { return String(ing.id) === valorActual; })) {
             select.value = valorActual;
         }
@@ -737,6 +807,7 @@ include __DIR__ . '/../includes/header.php';
         inputLat.value = lat.toFixed(7);
         inputLng.value = lng.toFixed(7);
         readout.textContent = lat.toFixed(7) + ', ' + lng.toFixed(7);
+        document.querySelector('#mapa-ubicacion .mapa-selector-hint')?.classList.remove('mapa-hint-error');
     }
 
     function initMapaUbicacion() {
@@ -814,15 +885,67 @@ include __DIR__ . '/../includes/header.php';
         }
     }
 
-    document.getElementById('btn-siguiente').addEventListener('click', () => {
+    /**
+     * Valida el paso actual antes de dejarlo avanzar (usado tanto por el
+     * botón "Siguiente" como por el clic directo sobre un número de paso
+     * más adelante -- si no, alguien podía saltarse la validación tocando
+     * el "2" del stepper en vez del botón).
+     */
+    function validarPasoActual() {
         const pane = document.querySelector('.wizard-pane.active');
+        const stepActual = document.querySelector('.wizard-steps .step[data-step="' + current + '"]');
         const invalid = pane.querySelector(':invalid');
-        if (invalid) { invalid.reportValidity(); return; }
+        if (invalid) {
+            invalid.reportValidity();
+            stepActual?.classList.add('con-error');
+            return false;
+        }
+
+        // Paso 1: no se puede avanzar sin el profesional principal. El
+        // select ya tiene "required" (la validación nativa de arriba ya lo
+        // cubre), pero se agrega este chequeo explícito -- un aviso claro
+        // en vez de solo el globito discreto del navegador, para que a
+        // nadie se le pase por alto.
+        if (current === 1) {
+            const ing1 = document.getElementById('ing1_id');
+            if (!ing1 || !ing1.value) {
+                alert('Debes seleccionar el profesional responsable de la inspección antes de continuar.');
+                ing1?.focus();
+                stepActual?.classList.add('con-error');
+                return false;
+            }
+        }
+
+        // La ubicación en el mapa se guarda en campos ocultos (latitud/
+        // longitud): un input oculto "required" no le muestra nada visible
+        // al usuario si falla, así que se valida aparte con un aviso claro.
+        if (current === 2 && (!inputLat.value || !inputLng.value)) {
+            const hint = document.querySelector('#mapa-ubicacion .mapa-selector-hint');
+            if (hint) {
+                hint.classList.add('mapa-hint-error');
+                hint.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            alert('Falta marcar la ubicación de la edificación en el mapa.\nToca o haz clic sobre el mapa para colocar el marcador antes de continuar.');
+            stepActual?.classList.add('con-error');
+            return false;
+        }
+
+        stepActual?.classList.remove('con-error');
+        return true;
+    }
+
+    document.getElementById('btn-siguiente').addEventListener('click', () => {
+        if (!validarPasoActual()) return;
         if (current < total) { current++; render(); }
     });
     document.getElementById('btn-anterior').addEventListener('click', () => { if (current > 1) { current--; render(); } });
 
-    steps.forEach(s => s.addEventListener('click', () => { current = +s.dataset.step; render(); }));
+    steps.forEach(s => s.addEventListener('click', () => {
+        const destino = +s.dataset.step;
+        if (destino > current && !validarPasoActual()) return; // avanzando: debe validar; retrocediendo, no hace falta
+        current = destino;
+        render();
+    }));
 
     render();
 
