@@ -1,77 +1,48 @@
-====================================================================
- Sistema de Inspección de Edificaciones Post-Sismo
- INSTALACIÓN Y CAMBIOS (versión NACIONAL + Seguimiento y Control)
-====================================================================
+NUEVO MÓDULO — Correcciones del Sistema
+==========================================
 
---------------------------------------------------------------------
-INSTALACIÓN (limpia y definitiva — ya NO hay migraciones sueltas)
---------------------------------------------------------------------
-Solo hay DOS archivos SQL. Cárguelos en este orden:
+QUÉ HACE
+--------
+Nueva pantalla (menú lateral, ícono de portapapeles con pulso) que
+detecta automáticamente inspecciones con:
 
-    mysql -u root -p < database/schema.sql
-    mysql -u root -p < database/datos_iniciales.sql
+  - Sin fotos (ninguna foto subida en absoluto)
+  - Sin inspector principal (o con datos genéricos tipo "Inspector no
+    identificado" / cédula "0" -- típico de importaciones viejas), o
+    sin segundo profesional
+  - Datos incompletos: sin coordenadas en el mapa, sin uso de
+    edificación, sin tipo estructural, o sin municipio
 
-  - schema.sql          -> estructura COMPLETA y final del sistema
-                           (incluye alcance nacional + modulo Seguimiento).
-  - datos_iniciales.sql -> roles, modulos, permisos, los 3 usuarios por
-                           defecto y las 510 inspecciones ya migradas.
+Cada fila se resalta con un color (rojo = 3+ pendientes, amarillo = 1-2)
+y muestra etiquetas ("badges") indicando exactamente qué le falta. Un
+clic en cualquier parte de la fila (o el botón "Corregir") te lleva
+directo a formulario/create.php?id=X para editarla ahí mismo.
 
-Luego, permisos de escritura para las fotos:
+Arriba hay 4 tarjetas con contadores (Total, Sin fotos, Faltan
+inspectores, Datos incompletos) que también funcionan como filtro rápido
+al hacer clic. También se puede buscar por código/edificio/parroquia, y
+si tu usuario es "master" (ve todo el país), filtrar por estado.
 
-    mkdir -p uploads/inspecciones uploads/seguimiento
-    chmod -R 775 uploads
+PERMISOS
+--------
+- Administrador y Superadministrador: ven y pueden entrar a corregir.
+- Supervisor y Estadal: solo pueden ver el listado (para reportar), no
+  se les muestra el botón de corregir directamente si su rol no tiene
+  permiso de "formulario > editar" (eso ya lo controla el propio
+  formulario, no esta pantalla).
+- Un usuario "Estadal" (con estado asignado) solo ve las inspecciones
+  de SU estado, igual que en el resto del sistema.
 
-Usuarios por defecto (CAMBIE las contrasenas antes de produccion):
-    admin      / Admin#2026        (Administrador - acceso NACIONAL)
-    inspector  / Inspector#2026
-    supervisor / Supervisor#2026
+CÓMO APLICAR
+------------
+1. Corre la migración (segura, no borra nada):
+     mysql -u root -p inspecciones_sismos < database/actualizacion_correcciones.sql
+2. Copia los archivos de este paquete a su ruta correspondiente
+   (admin/correcciones.php es nuevo; los otros 3 son actualizaciones).
+3. Si usas git: git add -A && git commit -m "Modulo de correcciones del sistema" && git push
 
---------------------------------------------------------------------
-IMPORTANTE - si venia de una version anterior
---------------------------------------------------------------------
-Esta entrega REEMPLAZA por completo el antiguo schema.sql y todas las
-migraciones actualizacion_v2..v7 (ya no existen). datos_iniciales.sql ya
-trae las 510 inspecciones existentes migradas al esquema nacional.
-
-====================================================================
- QUE INCLUYE ESTA VERSION
-====================================================================
-
-1) ALCANCE NACIONAL
-   - Usuarios master (es_master=1): ven todo el pais.
-   - Usuarios estadales (estado_asignado): ven solo su estado. El backend
-     lo fuerza siempre (no se puede saltar por URL).
-   - Se asigna desde Usuarios (admin/usuarios.php).
-   - Dashboard con dos vistas: NACIONAL (una burbuja con el total por
-     estado) y, al entrar a un estado, sus MUNICIPIOS (o PARROQUIAS en
-     Distrito Capital y La Guaira), cada uno con su total. Al elegir una
-     parroquia se aplica el filtro detallado de siempre. Migas de
-     navegacion Pais > Estado > Municipio.
-   - Formulario con seleccion en cascada Estado > Municipio > Parroquia.
-   - Datos geograficos en assets/geo/ (estados + municipios + parroquias
-     por estado, carga perezosa para uso en campo).
-
-2) MODULO DE SEGUIMIENTO Y CONTROL (menu lateral)
-   - Listado de todas las edificaciones inspeccionadas con su estado de
-     obra, ente asignado, avance y tiempo.
-   - Ficha por edificio: ente ejecutor, responsable, tiempo de accion
-     (dias de reconstruccion, con fecha fin calculada), recursos
-     (pre-cargados desde la inspeccion + manuales), registro fotografico
-     por fase (Inicio/Avance/Culminada; una foto "Culminada" marca la
-     obra terminada al 100%), y bitacora automatica.
-   - Directorio de entes ejecutores (seguimiento/entes.php).
-
-====================================================================
- CORRECCIONES DE ESTA ENTREGA
-====================================================================
- - Formulario mostraba lista vacia y no guardaba: causado por columnas
-   faltantes (migraciones no aplicadas) y por el generador de codigo, que
-   usaba COUNT(*)+1 y chocaba con codigos existentes cuando habia huecos
-   en la numeracion. Ahora el schema esta completo y el codigo se calcula
-   con MAX(correlativo)+1, con reintento anti-duplicado.
- - El modulo de Seguimiento no aparecia: la cache de permisos en sesion
-   ahora se refresca automaticamente para cualquier usuario cuando hay
-   modulos nuevos, sin necesidad de re-login.
- - Mapa del dashboard: en vista nacional muestra el total por estado en
-   punteros claros; al seleccionar un estado despliega sus parroquias
-   (DC / La Guaira) o municipios (resto), cada uno con su total.
+Si algún rol no ve el nuevo enlace en el menú, revisa en
+Roles y Permisos que tenga marcado "Ver" sobre el módulo
+"Correcciones del Sistema" (se le da por defecto a Administrador,
+Superadministrador, Supervisor y Estadal; Inspector no lo tiene por
+defecto, pero lo puedes activar ahí mismo si lo necesitas).

@@ -1537,3 +1537,30 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
     pointer-events: none;
     box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
+
+/* =====================================================================
+   Módulo "Correcciones del Sistema" — filas y badges resaltados para
+   inspecciones con datos, fotos o inspectores pendientes por completar.
+   ===================================================================== */
+.card-mini-link { text-decoration: none; color: inherit; display: block; }
+.card-mini-link .card { transition: border-color .15s, box-shadow .15s; cursor: pointer; }
+.card-mini-link:hover .card { box-shadow: var(--sombra); }
+
+.fila-alerta { cursor: pointer; transition: background .12s; border-left: 4px solid transparent; }
+.fila-alerta:hover { background: var(--gris-50, #f7f8fa); }
+.fila-alerta-alta { border-left-color: var(--rojo); background: rgba(217,75,75,0.05); }
+.fila-alerta-alta:hover { background: rgba(217,75,75,0.10); }
+.fila-alerta-media { border-left-color: var(--amarillo); background: rgba(224,164,25,0.05); }
+.fila-alerta-media:hover { background: rgba(224,164,25,0.10); }
+
+.badge-highlight-fotos,
+.badge-highlight-inspector,
+.badge-highlight-datos {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 20px;
+    white-space: nowrap;
+}
+.badge-highlight-fotos      { background: #fce9e9; color: var(--rojo); }
+.badge-highlight-inspector  { background: #fdf3dc; color: var(--amarillo); }
+.badge-highlight-datos      { background: #e8edfa; color: var(--azul-700); }
+.text-mono { font-family: var(--font-mono); font-size: 12.5px; }

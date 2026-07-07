@@ -80,6 +80,11 @@ $flashes = obtenerFlashes();
             <i class="bi bi-person-vcard-fill"></i> <span>Ingenieros / Inspectores</span>
         </a>
         <?php endif; ?>
+        <?php if (puede('correcciones', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>admin/correcciones.php" class="nav-item <?= $activeModule === 'correcciones' ? 'active' : '' ?>" title="Correcciones del Sistema">
+            <i class="bi bi-clipboard2-pulse-fill"></i> <span>Correcciones del Sistema</span>
+        </a>
+        <?php endif; ?>
         <?php if (puede('configuracion', 'ver')): ?>
         <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="nav-item <?= $activeModule === 'configuracion' ? 'active' : '' ?>" title="Configuración del Sistema">
             <i class="bi bi-sliders"></i> <span>Configuración del Sistema</span>
