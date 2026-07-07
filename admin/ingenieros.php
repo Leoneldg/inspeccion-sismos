@@ -17,7 +17,7 @@ if (!tablaIngenierosExiste()) {
     ?>
     <div class="alert alert-error">
         <i class="bi bi-exclamation-triangle-fill"></i>
-        <div>Falta correr la migración <code>database/actualizacion_v6.sql</code> para habilitar este módulo.</div>
+        <div>Este módulo requiere el esquema actualizado. Cargue <code>database/schema.sql</code>.</div>
     </div>
     <?php
     include __DIR__ . '/../includes/footer.php';

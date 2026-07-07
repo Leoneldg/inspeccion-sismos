@@ -1,0 +1,123 @@
+ACTUALIZACIÓN v7 — Alcance NACIONAL + Módulo de Seguimiento y Control
+=====================================================================
+
+PASO OBLIGATORIO ANTES QUE NADA
+-------------------------------
+    mysql -u root -p inspecciones_sismos < database/actualizacion_v7.sql
+
+Esta migración es IDEMPOTENTE (se puede correr varias veces sin duplicar
+nada) y ADITIVA: no borra ninguna columna, tabla ni dato existente.
+
+Qué agrega la migración:
+  - usuarios.es_master (1 = acceso nacional) y usuarios.estado_asignado.
+    * El usuario 'admin' y todo rol 'Administrador' quedan como master.
+    * Las inspecciones históricas sin estado pasan a 'Distrito Capital'.
+  - Rol base "Estadal" (reutilizable; el territorio se controla por usuario).
+  - Módulo "seguimiento" + permisos por rol.
+  - Tablas: entes, seguimiento_obras, seguimiento_recursos,
+    seguimiento_fotos, seguimiento_bitacora.
+
+Recuerde crear/permitir escritura en la carpeta de fotos de obra:
+    mkdir -p uploads/seguimiento && chmod -R 775 uploads
+
+
+=====================================================================
+1) ALCANCE NACIONAL (todo el país, no solo Caracas)
+=====================================================================
+
+CONCEPTO CLAVE — "el municipio hace de parroquia":
+  En Distrito Capital el mapa sigue dibujando PARROQUIAS (municipio
+  Libertador), igual que antes. En el resto del país la unidad geográfica
+  base es el MUNICIPIO, que cumple el mismo papel que la parroquia en
+  Caracas. Al entrar a un municipio se puede bajar aún más a sus
+  parroquias. Todo esto lo resuelve includes/territorial.php
+  (unidadBaseDelEstado()).
+
+DOS NIVELES DE USUARIO:
+  - Master  (es_master=1): ve TODOS los estados. En el dashboard tiene un
+    selector de estado y migas de navegación País › Estado › Municipio.
+  - Estadal (es_master=0 + estado_asignado): solo ve/gestiona su estado.
+    El backend lo fuerza SIEMPRE (no basta con ocultar el selector): si un
+    estadal pide otro estado por URL, se ignora.
+
+Se asignan desde Usuarios (admin/usuarios.php): casilla "Usuario master"
+o, si no, un "Estado asignado".
+
+DASHBOARD (dos vistas en una):
+  - Vista nacional: el mapa muestra los 24 estados; el gráfico y KPIs
+    agregan por estado. Al hacer clic en un estado (o elegirlo en el
+    selector) se entra a ese estado.
+  - Vista de estado: muestra municipios (o parroquias en DC). Clic en un
+    municipio baja a sus parroquias. Las migas permiten volver.
+  Los datos geográficos se cargan de forma PEREZOSA por archivo
+  (assets/geo/parroquias/<estado>.geojson y municipios/<estado>.geojson),
+  nunca todos a la vez — pensado para uso en campo desde el celular.
+
+FORMULARIO:
+  El paso 2 (Ubicación) ahora usa 3 desplegables en cascada
+  Estado → Municipio → Parroquia. Un usuario estadal tiene su estado fijo.
+  save.php valida en servidor que un estadal no registre fuera de su estado.
+
+DATOS GEOGRÁFICOS (assets/geo/):
+  - estados_venezuela.geojson         (25 polígonos de estado)
+  - municipios/<estado>.geojson       (338 municipios, 1 archivo por estado)
+  - parroquias/<estado>.geojson       (1134 parroquias, 1 archivo por estado)
+  - El antiguo parroquias_libertador.geojson se conserva (compatibilidad).
+  Fuente: HDX/OCHA (parroquias, con pcodes) reconciliado con GADM.
+
+
+=====================================================================
+2) MÓDULO DE SEGUIMIENTO Y CONTROL  (seguimiento/)
+=====================================================================
+
+Ruta: menú lateral → "Seguimiento y Control".
+
+LISTADO (seguimiento/index.php):
+  Todas las edificaciones inspeccionadas + su estado de seguimiento, con
+  KPIs (en ejecución, culminadas, sin seguimiento, avance promedio),
+  filtros (estado, estado de obra, ente, "solo asignadas a mí") y acceso
+  a la ficha de cada edificio. Respeta el alcance por estado.
+
+FICHA DE SEGUIMIENTO (seguimiento/ficha.php):
+  - Plan de acción: ente asignado, responsable de carga, fecha de inicio,
+    TIEMPO DE ACCIÓN (días de reconstrucción), fecha fin estimada
+    (se calcula sola = inicio + días), fecha fin real, estado de obra,
+    prioridad, avance % y presupuesto.
+  - Recursos para la recuperación: se PRE-CARGAN desde la inspección
+    (m² de losas, muros a reconstruir) y se pueden agregar manualmente.
+  - Registro fotográfico en línea de tiempo por fase Inicio / Avance /
+    Culminada. Al subir una foto de fase "Culminada" la obra se marca
+    automáticamente como Culminada al 100% con su fecha de fin real.
+    Optimizado para tomar la foto desde el celular (capture="environment").
+  - Bitácora: historial automático de eventos de la obra.
+
+ENTES EJECUTORES (seguimiento/entes.php):
+  Directorio de gobernaciones, alcaldías, ministerios, empresas, etc. que
+  se asignan a cada edificio. Pueden ser de un estado o nacionales.
+
+QUIÉN CARGA:
+  El usuario con permiso de crear/editar en el módulo (típicamente el
+  responsable asignado o un inspector). Con el filtro "solo asignadas a
+  mí" cada responsable ve rápidamente sus obras.
+
+
+=====================================================================
+ARCHIVOS TOCADOS (para el merge)
+=====================================================================
+MODIFICADOS (10):
+  admin/usuarios.php, admin/guardar_usuario.php, includes/auth.php,
+  includes/header.php, formulario/create.php, formulario/save.php,
+  formulario/index.php, dashboard/index.php, dashboard/api_kpis.php,
+  assets/css/style.css
+
+NUEVOS:
+  database/actualizacion_v7.sql
+  includes/territorial.php, includes/territorial_data.php, includes/seguimiento.php
+  dashboard/nacional.js
+  seguimiento/*.php (index, ficha, entes, guardar_obra, guardar_recurso,
+                     subir_foto, guardar_ente)
+  assets/geo/estados_venezuela.geojson
+  assets/geo/municipios/*.geojson, assets/geo/parroquias/*.geojson
+
+Todos los cambios en archivos existentes son aditivos y acotados, para
+minimizar conflictos de merge.

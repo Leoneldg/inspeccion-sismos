@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('formulario', 'ver');
 
@@ -16,12 +17,20 @@ $activeModule = 'formulario';
 
 $q         = trim($_GET['q'] ?? '');
 $parroquia = trim($_GET['parroquia'] ?? '');
+$estadoFiltroList = trim($_GET['estado'] ?? '');
 $tanque    = trim($_GET['tanque'] ?? '');
 $pagina    = max(1, (int)($_GET['pagina'] ?? 1));
 $porPagina = 15;
 
 $where  = [];
 $params = [];
+// Alcance nacional: el estadal queda restringido a su estado; el master
+// puede filtrar por el estado que quiera desde el desplegable.
+aplicarScopeEstado($where, $params);
+if (usuarioEsMaster() && $estadoFiltroList !== '' && $estadoFiltroList !== 'todos') {
+    $where[] = 'estado = :estado_f';
+    $params['estado_f'] = $estadoFiltroList;
+}
 if ($q !== '') {
     $where[] = '(nombre_edificio LIKE :q1 OR codigo LIKE :q2 OR ing1_nombre LIKE :q3)';
     $params['q1'] = "%$q%";
@@ -46,7 +55,7 @@ $total = (int)$stmtCount->fetch()['c'];
 $totalPaginas = max(1, (int)ceil($total / $porPagina));
 $offset = ($pagina - 1) * $porPagina;
 
-$sql = "SELECT id, codigo, nombre_edificio, parroquia, fecha_inspeccion, decision_final, ing1_nombre, familias, tiene_tanque_agua
+$sql = "SELECT id, codigo, nombre_edificio, estado, municipio, parroquia, fecha_inspeccion, decision_final, ing1_nombre, familias, tiene_tanque_agua
         FROM inspecciones $whereSql ORDER BY creado_en DESC LIMIT :lim OFFSET :off";
 $stmt = $pdo->prepare($sql);
 foreach ($params as $k => $v) { $stmt->bindValue(":$k", $v); }
@@ -72,6 +81,14 @@ include __DIR__ . '/../includes/header.php';
 <div class="flex justify-between items-center gap-12" style="flex-wrap:wrap;margin-bottom:16px;">
     <form method="get" class="flex gap-8" style="flex-wrap:wrap;">
         <input type="text" name="q" class="form-control" style="width:260px;" placeholder="Buscar por edificio, código o inspector…" value="<?= e($q) ?>">
+        <?php if (usuarioEsMaster()): ?>
+        <select name="estado" class="form-control" style="width:190px;">
+            <option value="todos">Todos los estados</option>
+            <?php foreach (catalogoEstados() as $estOpt): ?>
+                <option value="<?= e($estOpt) ?>" <?= $estadoFiltroList === $estOpt ? 'selected' : '' ?>><?= e($estOpt) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
         <select name="parroquia" class="form-control" style="width:200px;">
             <option value="todas">Todas las parroquias</option>
             <?php foreach ($parroquias as $p): ?>
@@ -105,6 +122,7 @@ include __DIR__ . '/../includes/header.php';
                 <tr>
                     <th>Código</th>
                     <th>Edificación</th>
+                    <?php if (usuarioEsMaster()): ?><th>Estado</th><?php endif; ?>
                     <th>Parroquia</th>
                     <th>Fecha</th>
                     <th>Inspector</th>
@@ -118,7 +136,8 @@ include __DIR__ . '/../includes/header.php';
                 <tr>
                     <td><span style="font-family:var(--font-mono);font-size:12.5px;color:var(--gris-500);"><?= e($r['codigo']) ?></span></td>
                     <td><strong><?= e($r['nombre_edificio']) ?></strong> <?php if (!empty($r['tiene_tanque_agua'])): ?><i class="bi bi-droplet-fill text-sm" style="color:var(--azul-500);" title="Tiene tanque de agua"></i><?php endif; ?></td>
-                    <td><?= e($r['parroquia']) ?></td>
+                    <?php if (usuarioEsMaster()): ?><td><span class="badge badge-gris"><?= e($r['estado'] ?? '—') ?></span></td><?php endif; ?>
+                    <td><?= e($r['parroquia']) ?><?php if (!empty($r['municipio']) && ($r['estado'] ?? '') !== 'Distrito Capital'): ?><br><span class="text-sm text-muted"><?= e($r['municipio']) ?></span><?php endif; ?></td>
                     <td><?= e($r['fecha_inspeccion']) ?></td>
                     <td><?= e($r['ing1_nombre']) ?></td>
                     <td><?= (int)$r['familias'] ?></td>
@@ -154,7 +173,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="flex wrap-on-small gap-8" style="margin-top:16px;justify-content:center;">
     <?php for ($p = 1; $p <= $totalPaginas; $p++): ?>
         <a class="btn btn-sm <?= $p === $pagina ? 'btn-primary' : 'btn-outline' ?>"
-           href="?pagina=<?= $p ?>&q=<?= urlencode($q) ?>&parroquia=<?= urlencode($parroquia) ?>"><?= $p ?></a>
+           href="?pagina=<?= $p ?>&q=<?= urlencode($q) ?>&parroquia=<?= urlencode($parroquia) ?>&estado=<?= urlencode($estadoFiltroList) ?>"><?= $p ?></a>
     <?php endfor; ?>
 </div>
 <?php endif; ?>

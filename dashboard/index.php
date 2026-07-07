@@ -51,8 +51,29 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="flex items-center gap-12" style="flex-wrap:wrap;">
         <span class="text-sm" style="color:#9fb0d6;"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
+        <?php
+            // Tiene "vista nacional" quien es master O quien (siendo no-master)
+            // no tiene un estado asignado. Sólo un estadal con estado fijo NO
+            // ve el selector de estado.
+            require_once __DIR__ . '/../includes/territorial.php';
+            $esMasterDash = usuarioEsMaster() || estadoDelUsuario() === null;
+        ?>
+        <!-- Migas de navegación territorial (nacional → estado → municipio) -->
+        <span id="breadcrumb-territorio" class="breadcrumb-territorio" style="display:none;"></span>
+        <?php if ($esMasterDash): ?>
+        <!-- Selector de estado: solo para usuarios master (acceso nacional) -->
+        <select id="filtro-estado" class="form-control" style="width:auto;min-width:170px;">
+            <option value="">🇻🇪 Todo el país</option>
+            <?php
+                require_once __DIR__ . '/../includes/territorial.php';
+                foreach (catalogoEstados() as $__e) {
+                    echo '<option value="' . e($__e) . '">' . e($__e) . '</option>';
+                }
+            ?>
+        </select>
+        <?php endif; ?>
         <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:190px;">
-            <option value="">Seleccione una parroquia</option>
+            <option value="">Seleccione una unidad</option>
         </select>
         <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
             <i class="bi bi-x-lg"></i> Quitar filtro
@@ -207,6 +228,8 @@ include __DIR__ . '/../includes/header.php';
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script>window.APP_URL_BASE = '<?= APP_URL_BASE ?>';</script>
+<script src="<?= APP_URL_BASE ?>dashboard/nacional.js?v=<?= ASSET_VERSION ?>"></script>
 <script>
 const API_URL   = '<?= APP_URL_BASE ?>dashboard/api_kpis.php';
 const FICHA_URL = '<?= APP_URL_BASE ?>dashboard/api_ficha.php';
@@ -234,31 +257,27 @@ function normalizarTexto(s) {
         .replace(/^(la|el|los|las)\s+/, ''); // ignora artículos iniciales (ej. "La Candelaria" vs "Candelaria")
 }
 
+// Carga los límites geográficos del NIVEL actual (país → estado → municipio)
+// delegando en el controlador nacional. Ya no es un archivo fijo de Caracas.
 async function obtenerLimitesParroquias() {
-    if (geojsonLimitesParroquias !== undefined) return geojsonLimitesParroquias;
-    try {
-        const res = await fetch('<?= APP_URL_BASE ?>assets/geo/parroquias_libertador.geojson', { cache: 'no-store' });
-        if (!res.ok) { geojsonLimitesParroquias = null; return null; }
-        const gj = await res.json();
-        geojsonLimitesParroquias = (gj && Array.isArray(gj.features) && gj.features.length) ? gj : null;
-    } catch (e) {
-        geojsonLimitesParroquias = null;
-    }
-    return geojsonLimitesParroquias;
+    return await window.DashboardNacional.limitesActuales();
 }
 
-const CLAVES_NOMBRE_PARROQUIA = ['parroquia', 'PARROQUIA', 'nombre', 'NOMBRE', 'name', 'NAME', 'NAME_3', 'ADM3_ES', 'shapeName', 'adm3_name', 'adm3_ref_n'];
+// La "unidad base" del nivel actual la dicta la API (estado/municipio/parroquia).
+function unidadBaseActual() {
+    return (ultimoDatosDashboard && ultimoDatosDashboard.unidad_base) || 'parroquia';
+}
 function nombreParroquiaDeFeature(feature) {
-    const props = feature.properties || {};
-    for (const clave of CLAVES_NOMBRE_PARROQUIA) {
-        if (props[clave]) return props[clave];
-    }
-    return null;
+    return window.DashboardNacional.nombreUnidad(feature, unidadBaseActual());
 }
 
 function initMap() {
     if (!document.getElementById('map-inspecciones')) return; // widget "mapa" oculto por configuración
-    map = L.map('map-inspecciones', { zoomControl: true }).setView([10.4880, -66.9200], 12);
+    // Vista inicial: país completo para master, o Caracas si el usuario es estadal DC.
+    const vistaPais = <?= $esMasterDash ? 'true' : 'false' ?>;
+    const centroInicial = vistaPais ? [8.0, -66.0] : [10.4880, -66.9200];
+    const zoomInicial = vistaPais ? 6 : 12;
+    map = L.map('map-inspecciones', { zoomControl: true }).setView(centroInicial, zoomInicial);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics',
         maxZoom: 19,
@@ -389,14 +408,23 @@ document.getElementById('btn-orden-parroquia')?.addEventListener('click', functi
 
 function poblarFiltroParroquia(lista) {
     const select = document.getElementById('filtro-parroquia');
-    if (select.dataset.poblado) return; // solo la primera vez (la lista de parroquias no cambia)
-    const nombres = [...lista].map(p => p.parroquia).sort((a, b) => a.localeCompare(b, 'es'));
+    // Se re-puebla en cada nivel (la lista de unidades cambia: estados →
+    // municipios → parroquias). Preserva la selección actual si sigue existiendo.
+    const prev = select.value;
+    const nombres = [...(lista || [])].map(p => p.parroquia).sort((a, b) => (a || '').localeCompare(b || '', 'es'));
+    // Etiqueta del placeholder según nivel
+    const nivel = (ultimoDatosDashboard && ultimoDatosDashboard.nivel) || 'parroquia';
+    const etiqueta = nivel === 'nacional' ? 'Seleccione un estado'
+                   : nivel === 'municipio' ? 'Seleccione un municipio'
+                   : 'Seleccione una parroquia';
+    select.innerHTML = '<option value="">' + etiqueta + '</option>';
     for (const nombre of nombres) {
         const opt = document.createElement('option');
         opt.value = nombre;
         opt.textContent = nombre;
         select.appendChild(opt);
     }
+    if (nombres.includes(prev)) select.value = prev;
     select.dataset.poblado = '1';
 }
 
@@ -489,6 +517,65 @@ function seleccionarParroquia(nombre) {
     cargarDashboard();
 }
 
+// Clic sobre una sección del mapa. El comportamiento depende del NIVEL:
+//   - Vista nacional: entra al estado.
+//   - Dentro de un estado (no DC, nivel municipio): entra al municipio
+//     (drill-down a sus parroquias).
+//   - Nivel parroquia (DC o dentro de un municipio): filtra por esa parroquia
+//     (toggle, como siempre).
+function clicSeccion(nombre) {
+    if (!nombre) return;
+    const nivel = (ultimoDatosDashboard && ultimoDatosDashboard.nivel) || 'parroquia';
+    const N = window.DashboardNacional;
+    if (nivel === 'nacional') {
+        N.entrarEstado(nombre);
+        parroquiaSeleccionada = '';
+        cargarDashboard();
+    } else if (nivel === 'municipio') {
+        N.entrarMunicipio(nombre);
+        parroquiaSeleccionada = '';
+        cargarDashboard();
+    } else { // parroquia
+        seleccionarParroquia(nombre === parroquiaSeleccionada ? '' : nombre);
+    }
+}
+
+// Dibuja las migas de navegación territorial (país › estado › municipio).
+function renderBreadcrumb(data) {
+    const cont = document.getElementById('breadcrumb-territorio');
+    if (!cont) return;
+    const N = window.DashboardNacional;
+    const partes = [];
+    const esMaster = data.es_master;
+    if (esMaster) {
+        partes.push('<a href="#" data-nav="pais"><i class="bi bi-globe-americas"></i> País</a>');
+    }
+    if (data.estado_filtro) {
+        // El nombre del estado: si es master, permite volver al nivel estado
+        if (data.municipio_filtro) {
+            partes.push('<a href="#" data-nav="estado">' + data.estado_filtro + '</a>');
+            partes.push('<span>' + data.municipio_filtro + '</span>');
+        } else {
+            partes.push('<span>' + data.estado_filtro + '</span>');
+        }
+    }
+    if (partes.length <= (esMaster ? 1 : 0)) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+    cont.style.display = 'inline-flex';
+    cont.innerHTML = partes.join('<i class="bi bi-chevron-right sep"></i>');
+    cont.querySelectorAll('a[data-nav]').forEach(a => {
+        a.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            const nav = this.dataset.nav;
+            if (nav === 'pais') N.volverNacional();
+            else if (nav === 'estado') N.volverEstado();
+            parroquiaSeleccionada = '';
+            const selEstado = document.getElementById('filtro-estado');
+            if (selEstado && nav === 'pais') selEstado.value = '';
+            cargarDashboard();
+        });
+    });
+}
+
 // Filtro por decisión final (semáforo): clic en una barra de "Estado de
 // acceso a la edificación" o en la leyenda de colores. Actualiza KPIs,
 // mapa y lista de edificios para mostrar solo esa decisión. Un segundo
@@ -501,6 +588,19 @@ function seleccionarDecision(nombre) {
 document.getElementById('filtro-parroquia').addEventListener('change', function () {
     seleccionarParroquia(this.value);
 });
+// Selector de estado (solo master): entra al estado elegido o vuelve al país.
+(function () {
+    const selEstado = document.getElementById('filtro-estado');
+    if (!selEstado) return;
+    selEstado.addEventListener('change', function () {
+        const N = window.DashboardNacional;
+        if (this.value) N.entrarEstado(this.value); else N.volverNacional();
+        parroquiaSeleccionada = '';
+        const fp = document.getElementById('filtro-parroquia');
+        if (fp) { fp.value = ''; fp.dataset.poblado = ''; }
+        cargarDashboard();
+    });
+})();
 document.getElementById('btn-quitar-filtro').addEventListener('click', function () {
     parroquiaSeleccionada = '';
     decisionSeleccionada = '';
@@ -509,6 +609,7 @@ document.getElementById('btn-quitar-filtro').addEventListener('click', function 
 
 async function cargarDashboard() {
     const params = new URLSearchParams();
+    window.DashboardNacional.paramsTerritorio(params); // estado / municipio
     if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
     if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
     const qs = params.toString();
@@ -516,6 +617,9 @@ async function cargarDashboard() {
     const res = await fetch(url);
     const data = await res.json();
 
+    window.DashboardNacional.sincronizar(data);
+    renderBreadcrumb(data);
+    // La lista del <select> de unidades cambia según el nivel: re-poblar.
     poblarFiltroParroquia(data.por_parroquia);
     poblarFiltroDecisionParroquia(data.decision);
     actualizarIndicadoresFiltro();
@@ -615,12 +719,19 @@ async function cargarDashboard() {
 
     renderChartParroquia(data);
 
-    // ---- Mapa: secciones por parroquia (límites reales si están disponibles, si no, círculos aproximados) ----
+    // ---- Mapa: secciones geográficas del NIVEL actual ----
+    // Nivel nacional  -> una "burbuja de total" por estado.
+    // Nivel estado    -> una por municipio (o parroquia en DC/La Guaira).
+    // Nivel parroquia -> una por parroquia.
+    // Cada sección muestra su TOTAL de inspecciones en un puntero. Al hacer
+    // clic se entra (drill-down) o se filtra, según el nivel.
     if (map) {
     seccionesLayer.clearLayers();
+    const nivelActual = data.nivel || 'parroquia';
+    const esNivelNacional = nivelActual === 'nacional';
     const limites = await obtenerLimitesParroquias();
 
-    // Lookup por nombre normalizado -> { total, color }
+    // Lookup por nombre normalizado -> { total, color, lat, lng }
     const lookupParroquia = {};
     data.secciones_geo.forEach(s => { lookupParroquia[normalizarTexto(s.parroquia)] = s; });
 
@@ -629,72 +740,86 @@ async function cargarDashboard() {
 
     let boundsSeleccion = null; // se usa para hacer zoom si hay filtro activo
 
+    // 1) Polígonos de límites (contexto visual). No llevan la etiqueta de
+    //    total encima para no competir con las burbujas; solo dan la forma.
+    const centroidesPoligono = {}; // nombre normalizado -> [lat,lng] (centro del polígono)
     if (limites) {
         L.geoJSON(limites, {
             style: function (feature) {
                 const nombre = nombreParroquiaDeFeature(feature);
-                const info = nombre ? lookupParroquia[normalizarTexto(nombre)] : null;
                 const seleccionada = esParroquiaSeleccionada(nombre);
                 return {
-                    color: seleccionada ? '#6b7280' : '#9ca3af',
-                    weight: seleccionada ? 4 : 2,
-                    fillColor: '#d1d5db',
-                    fillOpacity: parroquiaSeleccionada ? (seleccionada ? 0.32 : 0.08) : 0.12,
+                    color: seleccionada ? '#1f4bd8' : '#9ca3af',
+                    weight: seleccionada ? 4 : 1.5,
+                    fillColor: seleccionada ? '#3b6bf5' : '#cbd5e1',
+                    fillOpacity: seleccionada ? 0.28 : 0.10,
                 };
             },
             onEachFeature: function (feature, layer) {
-                const nombre = nombreParroquiaDeFeature(feature) || 'Parroquia';
-                const info = lookupParroquia[normalizarTexto(nombre)];
-                layer.bindTooltip(info ? formatNum(info.total) : '0', { permanent: true, direction: 'center', className: 'parroquia-label' });
-                layer.on('click', () => seleccionarParroquia(esParroquiaSeleccionada(nombre) ? '' : nombre));
-                layer.on('mouseover', () => layer.setStyle({ weight: 4 }));
-                layer.on('mouseout', () => { if (!esParroquiaSeleccionada(nombre)) layer.setStyle({ weight: 2 }); });
+                const nombre = nombreParroquiaDeFeature(feature) || '';
+                try { centroidesPoligono[normalizarTexto(nombre)] = layer.getBounds().getCenter(); } catch (e) {}
+                layer.on('click', () => clicSeccion(nombre));
+                layer.on('mouseover', () => layer.setStyle({ weight: 3, fillOpacity: 0.22 }));
+                layer.on('mouseout', () => { if (!esParroquiaSeleccionada(nombre)) layer.setStyle({ weight: 1.5, fillOpacity: 0.10 }); });
                 if (esParroquiaSeleccionada(nombre)) boundsSeleccion = layer.getBounds();
             }
         }).addTo(seccionesLayer);
-    } else {
-        const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
-        data.secciones_geo.forEach(s => {
-            const seleccionada = esParroquiaSeleccionada(s.parroquia);
-            const radius = 220 + (s.total / maxTotal) * 900; // metros
-            const circulo = L.circle([s.lat, s.lng], {
-                radius,
-                color: seleccionada ? '#6b7280' : '#9ca3af',
-                weight: seleccionada ? 3 : 1.5,
-                fillColor: '#d1d5db',
-                fillOpacity: parroquiaSeleccionada ? (seleccionada ? 0.32 : 0.05) : 0.16,
-            }).addTo(seccionesLayer);
-            circulo.on('click', () => seleccionarParroquia(seleccionada ? '' : s.parroquia));
-            L.marker([s.lat, s.lng], {
-                icon: L.divIcon({ className: 'parroquia-label', html: `<div>${formatNum(s.total)}</div>`, iconSize: null }),
-                interactive: false,
-            }).addTo(seccionesLayer);
-            if (seleccionada) boundsSeleccion = circulo.getBounds();
-        });
     }
-    document.getElementById('nota-limites').textContent = limites
-        ? 'Límites reales de parroquia cargados desde assets/geo/parroquias_libertador.geojson'
-        : 'Mostrando secciones aproximadas (círculos). Vea assets/geo/LEEME.md para usar límites reales.';
 
-    // Zoom/encuadre hacia la parroquia filtrada. Solo animamos cuando la
-    // selección CAMBIÓ (no en cada refresh automático de 60s, para no
-    // estar moviendo la cámara sola cada rato).
-    if (ultimaParroquiaEnMapa !== parroquiaSeleccionada) {
+    // 2) Burbujas de TOTAL por sección (el "puntero indicador de total").
+    //    Se ubican en el centroide del polígono si existe, si no en el
+    //    promedio de coordenadas de las inspecciones de esa sección.
+    const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
+    data.secciones_geo.forEach(s => {
+        const clave = normalizarTexto(s.parroquia);
+        let pos = centroidesPoligono[clave];
+        if (!pos && s.lat != null && s.lng != null) pos = [s.lat, s.lng];
+        if (!pos) return; // sin ubicación conocida
+        const seleccionada = esParroquiaSeleccionada(s.parroquia);
+        // Tamaño de la burbuja proporcional al total (escala suave).
+        const size = 30 + Math.round((s.total / maxTotal) * 26);
+        const color = s.color || '#2d4488';
+        const burbuja = L.marker(pos, {
+            icon: L.divIcon({
+                className: 'seccion-total-marker' + (seleccionada ? ' activa' : ''),
+                html: '<div class="seccion-burbuja" style="width:' + size + 'px;height:' + size + 'px;'
+                    + 'background:' + color + ';border-color:' + (seleccionada ? '#1f4bd8' : '#fff') + ';">'
+                    + '<span>' + formatNum(s.total) + '</span></div>'
+                    + '<div class="seccion-nombre">' + s.parroquia + '</div>',
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
+            }),
+        });
+        burbuja.on('click', () => clicSeccion(s.parroquia));
+        burbuja.addTo(seccionesLayer);
+    });
+
+    document.getElementById('nota-limites').textContent = esNivelNacional
+        ? 'Vista nacional: total de inspecciones por estado. Haga clic en un estado para ver su detalle.'
+        : (limites ? ('Detalle por ' + (data.unidad_base || 'unidad') + '. Haga clic para filtrar.') : 'Secciones aproximadas.');
+
+    // Zoom/encuadre por nivel.
+    const claveEncuadre = (data.estado_filtro || 'PAIS') + '|' + (data.municipio_filtro || '') + '|' + parroquiaSeleccionada;
+    if (ultimaParroquiaEnMapa !== claveEncuadre) {
         if (parroquiaSeleccionada && boundsSeleccion) {
             map.flyToBounds(boundsSeleccion, { padding: [40, 40], maxZoom: 16, duration: 0.7 });
-        } else if (!parroquiaSeleccionada) {
-            map.flyTo([10.4880, -66.9200], 12, { duration: 0.7 });
+        } else if (limites && limites.features && limites.features.length) {
+            try {
+                const capa = L.geoJSON(limites);
+                map.flyToBounds(capa.getBounds(), { padding: [30, 30], maxZoom: data.estado_filtro ? 13 : 7, duration: 0.7 });
+            } catch (e) { /* geometría inválida */ }
+        } else if (!data.estado_filtro) {
+            map.flyTo([8.0, -66.0], 6, { duration: 0.7 });
         }
-        ultimaParroquiaEnMapa = parroquiaSeleccionada;
+        ultimaParroquiaEnMapa = claveEncuadre;
     }
 
-    // ---- Mapa: marcadores individuales (agrupados en clusters). Se usa
-    // la coordenada real (latitud/longitud) capturada en el formulario de
-    // inspección para cada edificación — geolocalización exacta, sin
-    // aproximar ni distribuir dentro de la parroquia. Los que no tengan
-    // coordenada guardada simplemente no se dibujan en el mapa. ----
+    // ---- Marcadores individuales de cada inspección (clusters).
+    //    En la vista NACIONAL no se dibujan (serían miles de puntos sin
+    //    contexto); aparecen al entrar a un estado. ----
     clusterLayer.clearLayers();
-    (data.puntos || []).forEach(p => {
+    if (!esNivelNacional) {
+        (data.puntos || []).forEach(p => {
             const lat = p.lat, lng = p.lng;
             if (lat == null || lng == null) return;
             const marcador = L.circleMarker([lat, lng], {
@@ -711,6 +836,7 @@ async function cargarDashboard() {
             marcador.on('click', () => abrirFicha(p.id));
             clusterLayer.addLayer(marcador);
         });
+    }
     const descFiltro = descripcionFiltroActivo();
     document.getElementById('contador-mapa').textContent = descFiltro
         ? `${formatNum(data.totales.inspecciones)} inspecciones en ${descFiltro}`

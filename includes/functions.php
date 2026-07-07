@@ -24,11 +24,30 @@ function obtenerFlashes(): array
 function generarCodigoInspeccion(): string
 {
     $anio = date('Y');
-    $stmt = db()->query(
-        "SELECT COUNT(*) AS total FROM inspecciones WHERE codigo LIKE 'INS-$anio-%'"
+    // Se usa el MÁXIMO número correlativo existente + 1, NO COUNT(*), porque
+    // si hay huecos en la secuencia (registros borrados o importados con
+    // saltos) COUNT(*)+1 puede chocar con un código ya usado y romper el
+    // guardado por "Duplicate entry". Con reintento defensivo por si dos
+    // envíos casi simultáneos calcularan el mismo número.
+    $stmt = db()->prepare(
+        "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(codigo, '-', -1) AS UNSIGNED)), 0) AS max_num
+         FROM inspecciones WHERE codigo LIKE :patron"
     );
-    $total = (int)$stmt->fetch()['total'] + 1;
-    return sprintf('INS-%s-%06d', $anio, $total);
+    $stmt->execute(['patron' => "INS-$anio-%"]);
+    $siguiente = (int)$stmt->fetch()['max_num'] + 1;
+
+    // Blindaje adicional: si por lo que sea el código ya existiera, avanzar.
+    for ($i = 0; $i < 50; $i++) {
+        $codigo = sprintf('INS-%s-%06d', $anio, $siguiente);
+        $chk = db()->prepare('SELECT 1 FROM inspecciones WHERE codigo = :c LIMIT 1');
+        $chk->execute(['c' => $codigo]);
+        if (!$chk->fetch()) {
+            return $codigo;
+        }
+        $siguiente++;
+    }
+    // Último recurso: sufijo con marca de tiempo para no bloquear el guardado.
+    return sprintf('INS-%s-%06d', $anio, $siguiente);
 }
 
 /** Lista fija de las 22 parroquias del Municipio Libertador (Caracas) + otras del área metropolitana. */

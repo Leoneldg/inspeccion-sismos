@@ -11,7 +11,7 @@ define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
 define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_NAME', getenv('DB_NAME') ?: 'inspecciones_sismos');
 define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
 
 // ---------------------------------------------------------------------
 // Aplicación
@@ -23,7 +23,7 @@ define('APP_NAME', 'Inspección de Edificaciones Post-Sismo');
 // dominio); si no está definida, usa '/inspecciones-sismos/' por defecto.
 // IMPORTANTE: debe terminar en '/', y si se sirve desde la raíz del
 // dominio debe ser exactamente '/'.
-define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/');
+define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/inspeccion-sismos/');
 define('APP_TIMEZONE', 'America/Caracas');
 
 // Clave para firmar el enlace público del PDF que se codifica en el QR de
@@ -53,6 +53,10 @@ define('ASSET_VERSION', (string)max(
 // ---------------------------------------------------------------------
 define('UPLOAD_DIR', __DIR__ . '/../uploads/inspecciones/');
 define('UPLOAD_URL', APP_URL_BASE . 'uploads/inspecciones/');
+
+// Registro fotográfico del módulo de Seguimiento y Control (obras).
+define('SEG_UPLOAD_DIR', __DIR__ . '/../uploads/seguimiento/');
+define('SEG_UPLOAD_URL', APP_URL_BASE . 'uploads/seguimiento/');
 
 date_default_timezone_set(APP_TIMEZONE);
 

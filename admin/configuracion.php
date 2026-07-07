@@ -17,7 +17,7 @@ if (!tablaPanelConfigExiste()) {
     ?>
     <div class="alert alert-error">
         <i class="bi bi-exclamation-triangle-fill"></i>
-        <div>Falta correr la migración <code>database/actualizacion_v5.sql</code> para habilitar esta pantalla.</div>
+        <div>Esta pantalla requiere el esquema actualizado. Cargue <code>database/schema.sql</code>.</div>
     </div>
     <?php
     include __DIR__ . '/../includes/footer.php';

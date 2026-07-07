@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 $editId = isset($_GET['id']) ? (int)$_GET['id'] : null;
 $row = null;
@@ -192,16 +193,33 @@ include __DIR__ . '/../includes/header.php';
 
     <div class="section-title"><i class="bi bi-geo-alt-fill"></i> Ubicación</div>
     <div class="form-grid">
-        <div class="field"><label>Estado</label><input name="estado" class="form-control" value="<?= e(val($row,'estado','Distrito Capital')) ?>"></div>
-        <div class="field"><label>Ciudad</label><input name="ciudad" class="form-control" value="<?= e(val($row,'ciudad','Caracas')) ?>"></div>
-        <div class="field"><label>Municipio</label><input name="municipio" class="form-control" value="<?= e(val($row,'municipio','Libertador')) ?>"></div>
+        <?php
+            // Alcance nacional: si el usuario es estadal, su estado viene fijado
+            // y no puede cambiarlo. El master elige cualquier estado.
+            $estadoActualForm = val($row, 'estado', usuarioEsMaster() ? 'Distrito Capital' : (estadoDelUsuario() ?? 'Distrito Capital'));
+            $estadoBloqueado  = !usuarioEsMaster();
+        ?>
+        <div class="field">
+            <label class="req">Estado</label>
+            <select required name="estado" id="ubic-estado" class="form-control" <?= $estadoBloqueado ? 'data-bloqueado="1"' : '' ?>>
+                <option value="">Seleccione…</option>
+                <?php foreach (catalogoEstados() as $estOpt): ?>
+                    <?php if ($estadoBloqueado && $estOpt !== $estadoActualForm) continue; ?>
+                    <option value="<?= e($estOpt) ?>" <?= $estadoActualForm === $estOpt ? 'selected' : '' ?>><?= e($estOpt) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="field"><label>Ciudad</label><input name="ciudad" class="form-control" value="<?= e(val($row,'ciudad')) ?>"></div>
+        <div class="field">
+            <label class="req">Municipio</label>
+            <select required name="municipio" id="ubic-municipio" class="form-control" data-actual="<?= e(val($row,'municipio')) ?>">
+                <option value="">Seleccione…</option>
+            </select>
+        </div>
         <div class="field">
             <label class="req">Parroquia</label>
-            <select required name="parroquia" class="form-control">
+            <select required name="parroquia" id="ubic-parroquia" class="form-control" data-actual="<?= e(val($row,'parroquia')) ?>">
                 <option value="">Seleccione…</option>
-                <?php foreach ($parroquias as $p): ?>
-                    <option value="<?= e($p) ?>" <?= val($row,'parroquia') === $p ? 'selected' : '' ?>><?= e($p) ?></option>
-                <?php endforeach; ?>
             </select>
         </div>
         <div class="field"><label>Comuna o circuito</label><input name="comuna_circuito" class="form-control" value="<?= e(val($row,'comuna_circuito')) ?>"></div>
@@ -561,6 +579,11 @@ include __DIR__ . '/../includes/header.php';
 </div>
 </form>
 
+<!-- Jerarquía territorial (estado → municipio → parroquia) para los
+     selectores en cascada de la ubicación. Se emite embebido para no
+     requerir una petición extra ni depender de conexión (uso en campo). -->
+<script id="territorio-data" type="application/json"><?= json_encode(territorio(), JSON_UNESCAPED_UNICODE) ?></script>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function () {
@@ -575,7 +598,46 @@ include __DIR__ . '/../includes/header.php';
         this.style.display = 'none';
     });
 
-    // ---- "Especifique otros materiales": solo se muestra si "Otros" está marcado ----
+    // ---- Cascada de ubicación: Estado → Municipio → Parroquia ----
+    (function () {
+        const TERR = JSON.parse(document.getElementById('territorio-data').textContent || '{}');
+        const selEstado = document.getElementById('ubic-estado');
+        const selMuni   = document.getElementById('ubic-municipio');
+        const selParr   = document.getElementById('ubic-parroquia');
+        if (!selEstado || !selMuni || !selParr) return;
+
+        function llenar(sel, valores, actual) {
+            const placeholder = sel.options[0] ? sel.options[0].outerHTML : '<option value="">Seleccione…</option>';
+            sel.innerHTML = placeholder;
+            valores.forEach(v => {
+                const o = document.createElement('option');
+                o.value = v; o.textContent = v;
+                if (v === actual) o.selected = true;
+                sel.appendChild(o);
+            });
+        }
+        function municipios(estado) { return TERR[estado] ? Object.keys(TERR[estado]) : []; }
+        function parroquias(estado, muni) { return (TERR[estado] && TERR[estado][muni]) ? TERR[estado][muni] : []; }
+
+        function refrescarMunicipios(preservar) {
+            const est = selEstado.value;
+            const actual = preservar ? (selMuni.dataset.actual || selMuni.value) : '';
+            llenar(selMuni, municipios(est), actual);
+            refrescarParroquias(preservar);
+        }
+        function refrescarParroquias(preservar) {
+            const est = selEstado.value, mun = selMuni.value;
+            const actual = preservar ? (selParr.dataset.actual || selParr.value) : '';
+            llenar(selParr, parroquias(est, mun), actual);
+        }
+
+        selEstado.addEventListener('change', () => { selMuni.dataset.actual=''; selParr.dataset.actual=''; refrescarMunicipios(false); });
+        selMuni.addEventListener('change', () => { selParr.dataset.actual=''; refrescarParroquias(false); });
+
+        // Carga inicial (respeta valores existentes al editar).
+        if (selEstado.value) refrescarMunicipios(true);
+    })();
+
     const chkMaterialOtros = document.getElementById('m4');
     const campoOtrosMateriales = document.getElementById('campo-otros-materiales');
     function actualizarCampoOtrosMateriales() {

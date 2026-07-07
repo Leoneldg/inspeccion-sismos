@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('usuarios', 'ver');
 
@@ -67,6 +68,27 @@ include __DIR__ . '/../includes/header.php';
                 <label for="activo">Usuario activo</label>
             </div>
 
+            <!-- Alcance territorial (nacional) -->
+            <div class="field" style="margin:6px 0 14px;padding-top:12px;border-top:1px solid var(--border,#e5e7eb);">
+                <label style="font-weight:600;"><i class="bi bi-geo-alt-fill"></i> Alcance territorial</label>
+                <div class="check-row" style="margin:8px 0;">
+                    <input type="checkbox" name="es_master" id="es_master" value="1"
+                           <?= ($editUser['es_master'] ?? 0) ? 'checked' : '' ?>
+                           onchange="document.getElementById('campo-estado-asignado').style.display=this.checked?'none':'';">
+                    <label for="es_master">Usuario <strong>master</strong> (acceso nacional, todos los estados)</label>
+                </div>
+                <div id="campo-estado-asignado" style="<?= ($editUser['es_master'] ?? 0) ? 'display:none;' : '' ?>">
+                    <label>Estado asignado</label>
+                    <select name="estado_asignado" class="form-control">
+                        <option value="">— Seleccione un estado —</option>
+                        <?php foreach (catalogoEstados() as $est): ?>
+                            <option value="<?= e($est) ?>" <?= ($editUser['estado_asignado'] ?? '') === $est ? 'selected' : '' ?>><?= e($est) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="text-sm text-muted" style="margin-top:4px;">El usuario solo verá inspecciones y seguimiento de este estado.</div>
+                </div>
+            </div>
+
             <div class="flex gap-8">
                 <button class="btn btn-primary w-full" style="justify-content:center;"><i class="bi bi-save-fill"></i> <?= $editUser ? 'Actualizar' : 'Crear usuario' ?></button>
                 <?php if ($editUser): ?><a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="btn btn-outline">Cancelar</a><?php endif; ?>
@@ -82,13 +104,16 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-header"><h2><i class="bi bi-people-fill"></i> Usuarios registrados (<?= count($usuarios) ?>)</h2></div>
     <div class="table-wrap">
         <table class="data-table">
-            <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Alcance</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($usuarios as $u): ?>
                 <tr>
                     <td><strong><?= e($u['nombre_completo']) ?></strong><br><span class="text-sm text-muted"><?= e($u['email']) ?></span></td>
                     <td><?= e($u['usuario']) ?></td>
                     <td><span class="badge badge-gris"><?= e($u['rol_nombre']) ?></span></td>
+                    <td><?= !empty($u['es_master'])
+                            ? '<span class="badge badge-verde"><i class="bi bi-globe-americas"></i> Nacional</span>'
+                            : ('<span class="badge badge-gris"><i class="bi bi-geo-alt"></i> ' . e($u['estado_asignado'] ?? 'Sin estado') . '</span>') ?></td>
                     <td><?= $u['activo'] ? '<span class="badge badge-verde">Activo</span>' : '<span class="badge badge-rojo">Inactivo</span>' ?></td>
                     <td class="text-sm text-muted"><?= e($u['ultimo_acceso'] ?? 'Nunca') ?></td>
                     <td>

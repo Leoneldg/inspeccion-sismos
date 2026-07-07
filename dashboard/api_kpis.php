@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -45,6 +46,30 @@ try {
     $parroquiaFiltro = trim((string)($_GET['parroquia'] ?? ''));
     $tieneFiltro = $parroquiaFiltro !== '';
 
+    // ---- Alcance NACIONAL ----
+    // Estado seleccionado desde el frontend (vista drill-down). Un usuario
+    // estadal SIEMPRE queda forzado a su estado, ignorando lo que pida el GET.
+    $estadoFiltro = trim((string)($_GET['estado'] ?? ''));
+    if (!usuarioEsMaster()) {
+        // Un usuario estadal queda forzado a su estado. Si NO tiene estado
+        // asignado (cuenta previa al alcance nacional), se comporta como
+        // master a efectos de visualización: puede navegar el país.
+        $suyo = estadoDelUsuario();
+        if ($suyo !== null) {
+            $estadoFiltro = $suyo;
+        }
+    }
+    $tieneEstado = $estadoFiltro !== '' && $estadoFiltro !== '__NINGUNO__';
+
+    // Municipio seleccionado (drill-down dentro de un estado). Sólo aplica si
+    // hay un estado activo.
+    $municipioFiltro = trim((string)($_GET['municipio'] ?? ''));
+    $tieneMunicipio = $tieneEstado && $municipioFiltro !== '';
+
+    // Unidad geográfica base del estado activo: 'parroquia' en Distrito
+    // Capital, 'municipio' en el resto. Define cómo se agrupa el mapa.
+    $unidadBase = $tieneEstado ? unidadBaseDelEstado($estadoFiltro) : 'estado';
+
     // Filtro de decisión final: llega como la etiqueta corta ("Acceso
     // Permitido", etc.) porque es lo que ya maneja el frontend; aquí se
     // traduce a la clave real de la columna decision_final.
@@ -58,9 +83,20 @@ try {
     // Condición combinable (parroquia Y/O decisión) reutilizada en varias consultas.
     $condiciones = [];
     $paramsFiltro = [];
+    if ($tieneEstado)    { $condiciones[] = 'estado = :estado'; $paramsFiltro['estado'] = $estadoFiltro; }
+    if ($tieneMunicipio) { $condiciones[] = 'municipio = :municipio'; $paramsFiltro['municipio'] = $municipioFiltro; }
     if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
     if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
     $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
+
+    // Conjunto de condiciones "de territorio" (estado/municipio) SIN el filtro
+    // de parroquia ni decisión — se usa como base en consultas que arman su
+    // propio WHERE (decisión, secciones geo, rankings), para que respeten el
+    // alcance nacional aunque no respeten los demás filtros.
+    $condTerritorio = [];
+    $paramsTerritorio = [];
+    if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
+    if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("
@@ -83,9 +119,13 @@ try {
     // ---- Distribución por decisión final (semáforo). Respeta el filtro de
     // parroquia, pero NUNCA el de decisión (es la fuente del propio filtro:
     // siempre deben verse las 3 barras para poder elegir/comparar). ----
+    // Respeta territorio (estado/municipio) y parroquia, pero nunca la decisión.
+    $condDecision = $condTerritorio;
+    $paramsDecision = $paramsTerritorio;
+    if ($tieneFiltro) { $condDecision[] = 'parroquia = :p'; $paramsDecision['p'] = $parroquiaFiltro; }
     $stmt = $pdo->prepare('SELECT decision_final, COUNT(*) AS total FROM inspecciones ' .
-        ($tieneFiltro ? 'WHERE parroquia = :p ' : '') . 'GROUP BY decision_final');
-    $stmt->execute($tieneFiltro ? ['p' => $parroquiaFiltro] : []);
+        ($condDecision ? ('WHERE ' . implode(' AND ', $condDecision) . ' ') : '') . 'GROUP BY decision_final');
+    $stmt->execute($paramsDecision);
     $decisionRows = $stmt->fetchAll();
     $decision = [];
     foreach ($catalogo as $clave => $meta) {
@@ -156,35 +196,59 @@ try {
     // ---- Secciones geográficas por parroquia: centroide, total y decisión
     // predominante. Respeta el filtro de decisión (si hay uno activo, el
     // total y el color mostrado son solo de esa decisión). ----
+    // La columna por la que se agrupan las "secciones" del mapa depende del
+    // nivel de navegación:
+    //   - Sin estado (vista NACIONAL)      -> agrupa por 'estado'
+    //   - Estado = Distrito Capital        -> agrupa por 'parroquia' (histórico)
+    //   - Estado sin municipio             -> agrupa por 'municipio'
+    //   - Estado + municipio               -> agrupa por 'parroquia'
+    if (!$tieneEstado) {
+        $colGeo = 'estado';
+    } elseif ($tieneMunicipio || $unidadBase === 'parroquia') {
+        $colGeo = 'parroquia';
+    } else {
+        $colGeo = 'municipio';
+    }
+
     $porParroquia = [];
-    $condGeo = $tieneDecisionFiltro ? 'AND decision_final = :d' : '';
+    $condGeoArr = $condTerritorio;
+    $paramsGeo  = $paramsTerritorio;
+    if ($tieneDecisionFiltro) { $condGeoArr[] = 'decision_final = :d'; $paramsGeo['d'] = $decisionFiltroClave; }
+    $condGeoArr[] = 'latitud IS NOT NULL AND longitud IS NOT NULL';
+    $whereGeo = 'WHERE ' . implode(' AND ', $condGeoArr);
+
     $stmt = $pdo->prepare("
-        SELECT parroquia,
+        SELECT `$colGeo` AS unidad,
                COUNT(*) AS total,
                AVG(latitud) AS lat,
                AVG(longitud) AS lng
         FROM inspecciones
-        WHERE latitud IS NOT NULL AND longitud IS NOT NULL $condGeo
-        GROUP BY parroquia
+        $whereGeo
+        GROUP BY `$colGeo`
     ");
-    $stmt->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
+    $stmt->execute($paramsGeo);
     $parroquiasGeo = $stmt->fetchAll();
 
+    // Decisión dominante por unidad (respetando el territorio activo).
+    $domTerr = $condTerritorio;
+    $domParams0 = $paramsTerritorio;
+    $domWhere = ($domTerr ? implode(' AND ', $domTerr) . ' AND ' : '') . "`$colGeo` = :u";
     $stmtDom = $pdo->prepare("
-        SELECT decision_final, COUNT(*) AS n FROM inspecciones WHERE parroquia = :p GROUP BY decision_final ORDER BY n DESC LIMIT 1
+        SELECT decision_final, COUNT(*) AS n FROM inspecciones WHERE $domWhere GROUP BY decision_final ORDER BY n DESC LIMIT 1
     ");
     foreach ($parroquiasGeo as $pg) {
         if ($tieneDecisionFiltro) {
-            // Con filtro de decisión activo, el color de la sección es
-            // directamente el de esa decisión (no hace falta calcular la dominante).
             $metaDom = $catalogo[$decisionFiltroClave] ?? ['color' => '#767c94'];
         } else {
-            $stmtDom->execute(['p' => $pg['parroquia']]);
+            $stmtDom->execute(array_merge($domParams0, ['u' => $pg['unidad']]));
             $dom = $stmtDom->fetch();
             $metaDom = $dom ? ($catalogo[$dom['decision_final']] ?? ['color' => '#767c94']) : ['color' => '#767c94'];
         }
         $porParroquia[] = [
-            'parroquia' => $pg['parroquia'],
+            // Se conserva la clave 'parroquia' por compatibilidad con el
+            // frontend existente; 'unidad' es el nombre real (estado/municipio/parroquia).
+            'parroquia' => $pg['unidad'],
+            'unidad'    => $pg['unidad'],
             'total'     => (int)$pg['total'],
             'lat'       => (float)$pg['lat'],
             'lng'       => (float)$pg['lng'],
@@ -192,13 +256,33 @@ try {
         ];
     }
 
+    // ---- Agregación NACIONAL por estado (para la vista de todo el país y
+    // el filtro de estado del usuario master). No respeta el filtro de estado
+    // (siempre lista todos), pero sí el de decisión si está activo. ----
+    $porEstado = [];
+    $sqlEstado = 'SELECT estado, COUNT(*) AS total FROM inspecciones' .
+        ($tieneDecisionFiltro ? ' WHERE decision_final = :d' : '') .
+        " GROUP BY estado ORDER BY total DESC";
+    $stmtE = $pdo->prepare($sqlEstado);
+    $stmtE->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
+    foreach ($stmtE->fetchAll() as $row) {
+        if ($row['estado'] === null || $row['estado'] === '') continue;
+        $porEstado[] = ['estado' => $row['estado'], 'total' => (int)$row['total']];
+    }
+
     // ---- Conteo por parroquia (para el gráfico de barras horizontal, incluye sin coordenadas).
     // Respeta el filtro de decisión, para que el ranking normal también se pueda ver
     // "filtrado" cuando se elige una decisión desde la gráfica de semáforo. ----
-    $sqlConteoParroquia = 'SELECT parroquia, COUNT(*) AS total FROM inspecciones' .
-        ($tieneDecisionFiltro ? ' WHERE decision_final = :d' : '') . ' GROUP BY parroquia ORDER BY total DESC';
+    // El gráfico de barras usa la misma unidad base que el mapa: estado en la
+    // vista nacional, municipio dentro de un estado, parroquia en DC o al
+    // entrar a un municipio.
+    $condConteo = $condTerritorio;
+    $paramsConteo = $paramsTerritorio;
+    if ($tieneDecisionFiltro) { $condConteo[] = 'decision_final = :d'; $paramsConteo['d'] = $decisionFiltroClave; }
+    $whereConteo = $condConteo ? ('WHERE ' . implode(' AND ', $condConteo)) : '';
+    $sqlConteoParroquia = "SELECT `$colGeo` AS parroquia, COUNT(*) AS total FROM inspecciones $whereConteo GROUP BY `$colGeo` ORDER BY total DESC";
     $stmt = $pdo->prepare($sqlConteoParroquia);
-    $stmt->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
+    $stmt->execute($paramsConteo);
     $conteoParroquia = $stmt->fetchAll();
 
     // ---- Conteo por parroquia + decisión final (para el ranking filtrable
@@ -256,9 +340,16 @@ try {
         'por_parroquia'   => $conteoParroquia,
         'por_parroquia_decision' => $conteoParroquiaDecision,
         'secciones_geo'   => $porParroquia,
+        'por_estado'      => $porEstado,
         'kpis_custom'     => $kpisCustom,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
         'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
+        // Contexto de navegación nacional para el frontend
+        'nivel'           => (!$tieneEstado ? 'nacional' : ($tieneMunicipio || $unidadBase === 'parroquia' ? 'parroquia' : 'municipio')),
+        'estado_filtro'   => $tieneEstado ? $estadoFiltro : null,
+        'municipio_filtro'=> $tieneMunicipio ? $municipioFiltro : null,
+        'unidad_base'     => $colGeo,
+        'es_master'       => usuarioEsMaster() || estadoDelUsuario() === null,
         'actualizado'     => date('H:i:s'),
     ], JSON_UNESCAPED_UNICODE);
 

@@ -78,9 +78,20 @@ if ($clientSubmissionId) {
 
 // Validaciones mínimas de campos requeridos
 $errores = [];
-foreach (['ing1_nombre', 'ing1_cedula', 'nombre_edificio', 'fecha_inspeccion', 'parroquia', 'decision_final'] as $req) {
+foreach (['ing1_nombre', 'ing1_cedula', 'nombre_edificio', 'fecha_inspeccion', 'estado', 'municipio', 'parroquia', 'decision_final'] as $req) {
     if (trim($_POST[$req] ?? '') === '') {
         $errores[] = "El campo \"$req\" es obligatorio.";
+    }
+}
+// Alcance nacional: un usuario estadal solo puede registrar inspecciones en
+// su propio estado. Se valida en servidor (no basta con ocultar el selector).
+require_once __DIR__ . '/../includes/territorial.php';
+if (!usuarioEsMaster()) {
+    $estadoPost = trim($_POST['estado'] ?? '');
+    $estadoUsuario = estadoDelUsuario();
+    if ($estadoUsuario === null || $estadoPost !== $estadoUsuario) {
+        $errores[] = 'No tiene permiso para registrar inspecciones fuera de su estado asignado' .
+                     ($estadoUsuario ? " ($estadoUsuario)." : '.');
     }
 }
 if (empty($_POST['ing1_id'])) {

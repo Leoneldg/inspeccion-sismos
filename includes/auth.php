@@ -32,26 +32,24 @@ function permisosUsuario(): array
     if (!isLoggedIn()) {
         return [];
     }
-    // Si hay caché, comprobar si el rol es Administrador y si existen módulos nuevos
+    // Caché de permisos en sesión. Se invalida automáticamente para CUALQUIER
+    // usuario cuando aparecen módulos nuevos que no están en la caché (p. ej.
+    // tras instalar el módulo de Seguimiento), sin necesidad de re-login.
     if (isset($_SESSION['permisos'])) {
         $cached = $_SESSION['permisos'];
-        // si el usuario es Administrador, forzar refresco si hay módulos nuevos
-        if (!empty($_SESSION['rol_nombre']) && $_SESSION['rol_nombre'] === 'Administrador') {
-            $placeholders = implode(', ', array_fill(0, count($cached), '?'));
-            $keys = array_keys($cached);
-            if (count($keys) > 0) {
-                $stmt = db()->prepare("SELECT COUNT(*) AS cnt FROM modulos WHERE clave NOT IN ($placeholders)");
-                $stmt->execute($keys);
-                $row = $stmt->fetch();
-                if ($row && (int)$row['cnt'] > 0) {
-                    unset($_SESSION['permisos']); // invalida caché para recargar
-                } else {
-                    return $cached;
-                }
-            } else {
-                // cached vacío (raro), invalida
-                unset($_SESSION['permisos']);
-            }
+        $keys = array_keys($cached);
+        $hayModulosNuevos = false;
+        if (count($keys) > 0) {
+            $placeholders = implode(', ', array_fill(0, count($keys), '?'));
+            $stmt = db()->prepare("SELECT COUNT(*) AS cnt FROM modulos WHERE clave NOT IN ($placeholders)");
+            $stmt->execute($keys);
+            $row = $stmt->fetch();
+            $hayModulosNuevos = $row && (int)$row['cnt'] > 0;
+        } else {
+            $hayModulosNuevos = true; // caché vacía: recargar
+        }
+        if ($hayModulosNuevos) {
+            unset($_SESSION['permisos']); // recargar desde BD abajo
         } else {
             return $cached;
         }
@@ -113,7 +111,8 @@ function intentarLogin(string $usuario, string $password): array
 {
     $stmt = db()->prepare(
         'SELECT u.id, u.nombre_completo, u.usuario, u.password_hash, u.activo,
-                u.rol_id, r.nombre AS rol_nombre
+                u.rol_id, r.nombre AS rol_nombre,
+                u.es_master, u.estado_asignado
          FROM usuarios u
          JOIN roles r ON r.id = u.rol_id
          WHERE u.usuario = :usuario1 OR u.email = :usuario2
@@ -145,6 +144,9 @@ function intentarLogin(string $usuario, string $password): array
     $_SESSION['usuario']    = $user['usuario'];
     $_SESSION['rol_id']     = $user['rol_id'];
     $_SESSION['rol_nombre'] = $user['rol_nombre'];
+    // Alcance nacional: master (ve todo el país) vs. estadal (un solo estado)
+    $_SESSION['es_master']       = (int)($user['es_master'] ?? 0);
+    $_SESSION['estado_asignado'] = $user['estado_asignado'] ?? null;
     unset($_SESSION['permisos']); // forzar recarga de permisos
 
     db()->prepare('UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = :id')

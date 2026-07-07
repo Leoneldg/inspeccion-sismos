@@ -1320,3 +1320,220 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
     display: flex; align-items: center; justify-content: center;
 }
 .foto-existente .del-check input { width: 13px; height: 13px; margin: 0; accent-color: white; }
+
+/* =====================================================================
+   Alcance NACIONAL — migas de navegación territorial del dashboard
+   ===================================================================== */
+.breadcrumb-territorio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #9fb0d6;
+    background: rgba(255,255,255,.05);
+    padding: 5px 12px;
+    border-radius: 8px;
+}
+.breadcrumb-territorio a {
+    color: #cfe0ff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.breadcrumb-territorio a:hover { color: #fff; text-decoration: underline; }
+.breadcrumb-territorio span { color: #fff; font-weight: 600; }
+.breadcrumb-territorio .sep { font-size: 10px; opacity: .5; }
+
+/* =====================================================================
+   Módulo de Seguimiento y Control
+   ===================================================================== */
+
+/* KPIs */
+.seg-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.seg-kpi {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #fff;
+    border: 1px solid var(--gris-200, #e5e7eb);
+    border-radius: 14px;
+    padding: 14px 16px;
+}
+.seg-kpi-wide { grid-column: span 2; min-width: 260px; }
+.seg-kpi-ico {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+}
+.seg-kpi-num { font-size: 24px; font-weight: 700; line-height: 1; font-family: var(--font-mono, monospace); }
+.seg-kpi-lbl { font-size: 12.5px; color: var(--gris-500, #6b7280); margin-top: 2px; }
+
+/* Barras de progreso */
+.seg-progress {
+    position: relative;
+    background: #eef0f5;
+    border-radius: 999px;
+    height: 22px;
+    overflow: hidden;
+}
+.seg-progress-sm { height: 18px; }
+.seg-progress-lg { height: 30px; }
+.seg-progress-bar {
+    height: 100%;
+    background: #2d4488;
+    border-radius: 999px;
+    transition: width .4s ease;
+    min-width: 2px;
+}
+.seg-progress-txt {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #1f2937;
+    mix-blend-mode: normal;
+}
+.seg-progress-lg .seg-progress-txt { font-size: 14px; }
+
+/* Tabla del listado */
+.seg-table td { vertical-align: middle; }
+
+/* Cabecera de ficha */
+.seg-ficha-head { padding: 18px 20px; }
+.seg-ficha-head-main {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 16px; flex-wrap: wrap;
+}
+.seg-ficha-code { font-family: var(--font-mono, monospace); font-size: 12.5px; color: var(--gris-500, #6b7280); }
+.seg-ficha-title { font-size: 22px; margin: 2px 0 4px; }
+.seg-ficha-loc { font-size: 13.5px; color: var(--gris-500, #6b7280); }
+.seg-ficha-head-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.seg-ficha-progress { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+.seg-ficha-progress .seg-progress { flex: 1; min-width: 200px; }
+
+.seg-tiempo-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    white-space: nowrap;
+}
+.seg-tiempo-a_tiempo { background: #e5f7ee; color: #2E7D32; }
+.seg-tiempo-proximo  { background: #fff4e0; color: #C9A227; }
+.seg-tiempo-vencido  { background: #fdeaea; color: #A61C1C; }
+
+/* Layout de la ficha en 2 columnas */
+.seg-ficha-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+.seg-ficha-col { display: flex; flex-direction: column; gap: 16px; }
+
+/* Datos en modo solo lectura */
+.seg-datos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.seg-datos dt { font-size: 12px; color: var(--gris-500, #6b7280); }
+.seg-datos dd { margin: 0; font-weight: 600; }
+
+/* Recursos */
+.seg-add-recurso { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.seg-recursos-table td, .seg-recursos-table th { padding: 7px 10px; }
+
+/* Formulario de foto */
+.seg-foto-form { border: 1px dashed var(--gris-300, #cbd2dd); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+.seg-foto-form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.seg-foto-form-row:last-child { margin-bottom: 0; }
+.seg-foto-drop {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #eaf0ff; color: #2d4488; font-weight: 600;
+    padding: 9px 16px; border-radius: 10px; cursor: pointer; font-size: 14px;
+}
+.seg-foto-drop:hover { background: #dbe6ff; }
+
+/* Timeline de fotos por fase */
+.seg-timeline { display: flex; flex-direction: column; gap: 18px; }
+.seg-timeline-label {
+    font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 7px;
+    margin-bottom: 8px;
+}
+.seg-timeline-count {
+    background: #eef0f5; color: #4b5563; font-size: 12px; font-weight: 700;
+    border-radius: 999px; padding: 1px 9px; margin-left: 2px;
+}
+.seg-timeline-empty { font-size: 13px; color: var(--gris-400, #9ca3af); padding: 4px 0 8px; }
+
+.seg-foto-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+}
+.seg-foto-card {
+    position: relative; margin: 0;
+    border: 1px solid var(--gris-200, #e5e7eb); border-radius: 10px; overflow: hidden;
+    background: #fff;
+}
+.seg-foto-card img { width: 100%; height: 110px; object-fit: cover; display: block; }
+.seg-foto-card figcaption { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.seg-foto-fecha { font-size: 11.5px; color: var(--gris-500, #6b7280); font-family: var(--font-mono, monospace); }
+.seg-foto-pct { font-size: 11px; font-weight: 700; color: #2d4488; }
+.seg-foto-desc { font-size: 12px; color: #374151; }
+.seg-foto-del { position: absolute; top: 5px; right: 5px; }
+.seg-foto-del button {
+    background: rgba(166,28,28,.9); color: #fff; border: none; border-radius: 6px;
+    width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+}
+
+/* Bitácora */
+.seg-bitacora { list-style: none; margin: 0; padding: 0; position: relative; }
+.seg-bitacora li { display: flex; gap: 10px; padding-bottom: 14px; position: relative; }
+.seg-bitacora li:not(:last-child)::before {
+    content: ''; position: absolute; left: 5px; top: 14px; bottom: 0; width: 2px; background: #e5e7eb;
+}
+.seg-bitacora-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: #2d4488;
+    flex-shrink: 0; margin-top: 3px; z-index: 1;
+}
+.seg-bitacora-body strong { font-size: 13.5px; }
+
+/* Responsive: en móvil la ficha pasa a una sola columna */
+@media (max-width: 900px) {
+    .seg-ficha-grid { grid-template-columns: 1fr; }
+    .seg-kpi-wide { grid-column: span 1; }
+}
+@media (max-width: 560px) {
+    .seg-ficha-head-main { flex-direction: column; }
+    .seg-foto-form-row { flex-direction: column; align-items: stretch; }
+    .seg-foto-form-row .form-control { width: 100%; max-width: none; }
+    .seg-foto-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}
+
+/* =====================================================================
+   Mapa nacional — burbujas de total por sección (estado/municipio/parroquia)
+   ===================================================================== */
+.seccion-total-marker { background: transparent !important; border: none !important; }
+.seccion-burbuja {
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    color: #fff; font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    box-shadow: 0 2px 8px rgba(0,0,0,.35);
+    line-height: 1;
+    cursor: pointer;
+    transition: transform .15s ease;
+}
+.seccion-burbuja span { font-size: 12px; padding: 2px; }
+.seccion-total-marker:hover .seccion-burbuja { transform: scale(1.12); }
+.seccion-total-marker.activa .seccion-burbuja { box-shadow: 0 0 0 3px rgba(31,75,216,.5), 0 2px 8px rgba(0,0,0,.4); }
+.seccion-nombre {
+    position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    margin-top: 3px; white-space: nowrap;
+    font-size: 11px; font-weight: 600; color: #1f2937;
+    background: rgba(255,255,255,.92); padding: 1px 6px; border-radius: 5px;
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}

@@ -61,6 +61,11 @@ $flashes = obtenerFlashes();
             <i class="bi bi-upload"></i> <span>Importar / Exportar</span>
         </a>
         <?php endif; ?>
+        <?php if (puede('seguimiento', 'ver')): ?>
+        <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule === 'seguimiento' ? 'active' : '' ?>" title="Seguimiento y Control">
+            <i class="bi bi-clipboard-data-fill"></i> <span>Seguimiento y Control</span>
+        </a>
+        <?php endif; ?>
         <?php if (puede('usuarios', 'ver')): ?>
         <div class="nav-label">Administración</div>
         <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule === 'usuarios' ? 'active' : '' ?>" title="Usuarios">

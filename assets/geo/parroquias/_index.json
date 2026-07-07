@@ -1,0 +1,122 @@
+{
+ "Distrito Capital": {
+  "archivo": "parroquias/distrito_capital.geojson",
+  "parroquias": 22,
+  "slug": "distrito_capital"
+ },
+ "Amazonas": {
+  "archivo": "parroquias/amazonas.geojson",
+  "parroquias": 22,
+  "slug": "amazonas"
+ },
+ "Anzoátegui": {
+  "archivo": "parroquias/anzoategui.geojson",
+  "parroquias": 56,
+  "slug": "anzoategui"
+ },
+ "Apure": {
+  "archivo": "parroquias/apure.geojson",
+  "parroquias": 26,
+  "slug": "apure"
+ },
+ "Aragua": {
+  "archivo": "parroquias/aragua.geojson",
+  "parroquias": 50,
+  "slug": "aragua"
+ },
+ "Barinas": {
+  "archivo": "parroquias/barinas.geojson",
+  "parroquias": 54,
+  "slug": "barinas"
+ },
+ "Bolívar": {
+  "archivo": "parroquias/bolivar.geojson",
+  "parroquias": 47,
+  "slug": "bolivar"
+ },
+ "Monagas": {
+  "archivo": "parroquias/monagas.geojson",
+  "parroquias": 44,
+  "slug": "monagas"
+ },
+ "Sucre": {
+  "archivo": "parroquias/sucre.geojson",
+  "parroquias": 57,
+  "slug": "sucre"
+ },
+ "Táchira": {
+  "archivo": "parroquias/tachira.geojson",
+  "parroquias": 66,
+  "slug": "tachira"
+ },
+ "Delta Amacuro": {
+  "archivo": "parroquias/delta_amacuro.geojson",
+  "parroquias": 21,
+  "slug": "delta_amacuro"
+ },
+ "Falcón": {
+  "archivo": "parroquias/falcon.geojson",
+  "parroquias": 83,
+  "slug": "falcon"
+ },
+ "Zulia": {
+  "archivo": "parroquias/zulia.geojson",
+  "parroquias": 109,
+  "slug": "zulia"
+ },
+ "Carabobo": {
+  "archivo": "parroquias/carabobo.geojson",
+  "parroquias": 38,
+  "slug": "carabobo"
+ },
+ "Cojedes": {
+  "archivo": "parroquias/cojedes.geojson",
+  "parroquias": 15,
+  "slug": "cojedes"
+ },
+ "Guárico": {
+  "archivo": "parroquias/guarico.geojson",
+  "parroquias": 39,
+  "slug": "guarico"
+ },
+ "Lara": {
+  "archivo": "parroquias/lara.geojson",
+  "parroquias": 57,
+  "slug": "lara"
+ },
+ "Mérida": {
+  "archivo": "parroquias/merida.geojson",
+  "parroquias": 85,
+  "slug": "merida"
+ },
+ "Miranda": {
+  "archivo": "parroquias/miranda.geojson",
+  "parroquias": 55,
+  "slug": "miranda"
+ },
+ "Nueva Esparta": {
+  "archivo": "parroquias/nueva_esparta.geojson",
+  "parroquias": 22,
+  "slug": "nueva_esparta"
+ },
+ "Portuguesa": {
+  "archivo": "parroquias/portuguesa.geojson",
+  "parroquias": 41,
+  "slug": "portuguesa"
+ },
+ "Trujillo": {
+  "archivo": "parroquias/trujillo.geojson",
+  "parroquias": 93,
+  "slug": "trujillo"
+ },
+ "Yaracuy": {
+  "archivo": "parroquias/yaracuy.geojson",
+  "parroquias": 21,
+  "slug": "yaracuy"
+ },
+ "La Guaira": {
+  "archivo": "parroquias/la_guaira.geojson",
+  "parroquias": 11,
+  "slug": "la_guaira"
+ }
+}

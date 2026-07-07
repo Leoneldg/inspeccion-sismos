@@ -21,6 +21,15 @@ $email   = trim($_POST['email'] ?? '');
 $rolId   = (int)($_POST['rol_id'] ?? 0);
 $activo  = !empty($_POST['activo']) ? 1 : 0;
 $password = (string)($_POST['password'] ?? '');
+// Alcance territorial nacional
+$esMaster = !empty($_POST['es_master']) ? 1 : 0;
+$estadoAsignado = trim($_POST['estado_asignado'] ?? '');
+// Un master no se limita a un estado; un no-master debe tener estado
+if ($esMaster) {
+    $estadoAsignado = null;
+} elseif ($estadoAsignado === '') {
+    $estadoAsignado = null;
+}
 
 if ($nombre === '' || $usuario === '' || $email === '' || !$rolId || (!$id && $password === '')) {
     flash('error', 'Complete todos los campos obligatorios.');
@@ -51,8 +60,8 @@ try {
     }
 
     if ($id) {
-        $sql = 'UPDATE usuarios SET nombre_completo=:n, usuario=:u, email=:e, rol_id=:r, activo=:a';
-        $params = ['n' => $nombre, 'u' => $usuario, 'e' => $email, 'r' => $rolId, 'a' => $activo, 'id' => $id];
+        $sql = 'UPDATE usuarios SET nombre_completo=:n, usuario=:u, email=:e, rol_id=:r, activo=:a, es_master=:m, estado_asignado=:est';
+        $params = ['n' => $nombre, 'u' => $usuario, 'e' => $email, 'r' => $rolId, 'a' => $activo, 'm' => $esMaster, 'est' => $estadoAsignado, 'id' => $id];
         if ($password !== '') {
             $sql .= ', password_hash=:p';
             $params['p'] = password_hash($password, PASSWORD_BCRYPT);
@@ -63,12 +72,13 @@ try {
         flash('success', 'Usuario actualizado correctamente.');
     } else {
         $pdo->prepare(
-            'INSERT INTO usuarios (nombre_completo, usuario, email, password_hash, rol_id, activo)
-             VALUES (:n, :u, :e, :p, :r, :a)'
+            'INSERT INTO usuarios (nombre_completo, usuario, email, password_hash, rol_id, activo, es_master, estado_asignado)
+             VALUES (:n, :u, :e, :p, :r, :a, :m, :est)'
         )->execute([
             'n' => $nombre, 'u' => $usuario, 'e' => $email,
             'p' => password_hash($password, PASSWORD_BCRYPT),
             'r' => $rolId, 'a' => $activo,
+            'm' => $esMaster, 'est' => $estadoAsignado,
         ]);
         registrarLog($_SESSION['user_id'], 'usuario_creado', "Usuario: $usuario");
         flash('success', 'Usuario creado correctamente.');
