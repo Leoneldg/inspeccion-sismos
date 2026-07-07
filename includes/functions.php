@@ -229,6 +229,45 @@ function tablaFotosExiste(): bool
     return $existe;
 }
 
+/** true si existe la tabla seguimiento_obras (módulo de Seguimiento y Control). */
+function tablaSeguimientoExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        $existe = (bool)db()->query("SHOW TABLES LIKE 'seguimiento_obras'")->fetch();
+    }
+    return $existe;
+}
+
+/**
+ * Opciones del mapa del dashboard (activables/desactivables desde
+ * Configuración). Devuelve un arreglo con banderas:
+ *   - 'listado_emergente' : mostrar el panel/ventana con la lista de fichas
+ *                           al hacer clic en una zona del geojson. (Temporal:
+ *                           por pedido queda DESACTIVADO por defecto.)
+ *   - 'solo_seguimiento'  : mostrar en el mapa SOLO los edificios que ya
+ *                           tienen ficha de Seguimiento y Control.
+ */
+function obtenerOpcionesMapa(): array
+{
+    $defaults = [
+        'listado_emergente' => false, // temporalmente apagado por defecto
+        'solo_seguimiento'  => false,
+    ];
+    if (!tablaPanelConfigExiste()) {
+        return $defaults;
+    }
+    $guardado = obtenerConfigValor('mapa_opciones');
+    if (is_array($guardado)) {
+        foreach ($defaults as $k => $v) {
+            if (array_key_exists($k, $guardado)) {
+                $defaults[$k] = (bool)$guardado[$k];
+            }
+        }
+    }
+    return $defaults;
+}
+
 /**
  * true si existe la tabla envios_formulario (deduplicación de envíos, usada
  * por el modo offline para no crear inspecciones duplicadas si un envío se
@@ -841,9 +880,24 @@ function tablaIngenierosExiste(): bool
 function obtenerIngenierosActivos(): array
 {
     try {
+        // Alcance nacional: si el usuario es estadal (no master, con estado
+        // asignado), solo se ofrecen los profesionales de su estado (más los
+        // sin estado, legacy). El master ve todos.
+        $esMaster = !empty($_SESSION['es_master']);
+        $estado   = $_SESSION['estado_asignado'] ?? null;
+        if (!$esMaster && $estado) {
+            $stmt = db()->prepare(
+                'SELECT id, nombre_completo, cedula, telefono, profesion, colegio_inscripcion
+                 FROM ingenieros
+                 WHERE activo = 1 AND (estado = :e OR estado IS NULL)
+                 ORDER BY nombre_completo ASC'
+            );
+            $stmt->execute(['e' => $estado]);
+            return $stmt->fetchAll();
+        }
         return db()->query('SELECT id, nombre_completo, cedula, telefono, profesion, colegio_inscripcion FROM ingenieros WHERE activo = 1 ORDER BY nombre_completo ASC')->fetchAll();
     } catch (Throwable $e) {
-        return []; // tabla aún no existe (falta correr actualizacion_v6.sql)
+        return []; // tabla aún no existe
     }
 }
 

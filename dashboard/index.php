@@ -51,6 +51,9 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="flex items-center gap-12" style="flex-wrap:wrap;">
         <span class="text-sm" style="color:#9fb0d6;"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
+        <button type="button" id="btn-modo-presentacion" class="btn btn-outline btn-sm" title="Modo presentación (pantalla completa)">
+            <i class="bi bi-easel2-fill"></i> <span class="btn-presentacion-txt">Presentación</span>
+        </button>
         <?php
             // Tiene "vista nacional" quien es master O quien (siendo no-master)
             // no tiene un estado asignado. Sólo un estadal con estado fijo NO
@@ -88,7 +91,28 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="dashboard-tv-body">
 
-<div class="split-grid cols-10-14 align-start dashboard-chart-map" style="margin-bottom:16px;">
+<?php
+    // ¿Hay algún indicador visible en la columna izquierda (KPIs + gráficos)?
+    // Si toda la izquierda está oculta, el mapa ocupa todo el ancho; si el
+    // mapa está oculto, la izquierda ocupa todo el ancho. Así, al desactivar
+    // indicadores, los que quedan aprovechan el máximo espacio disponible.
+    $izqVisible = visibleDash($wcfg, 'kpi_inspecciones') || visibleDash($wcfg, 'kpi_personas')
+        || visibleDash($wcfg, 'kpi_grid') || (visibleDash($wcfg, 'kpis_custom') && $kpisCustomDefs)
+        || visibleDash($wcfg, 'chart_decision') || visibleDash($wcfg, 'chart_parroquia');
+    $mapaVisible = visibleDash($wcfg, 'mapa');
+    // Clase de columnas del grid principal:
+    //   - ambos visibles        -> cols-10-14 (izquierda | mapa, como siempre)
+    //   - solo uno visible      -> cols-1 (una sola columna a todo el ancho)
+    $claseGridPrincipal = ($izqVisible && $mapaVisible) ? 'cols-10-14' : 'cols-1';
+    // Caso especial: el mapa es el ÚNICO indicador visible. Se marca para que
+    // además de todo el ancho ocupe todo el ALTO disponible de la pantalla.
+    $soloMapa = ($mapaVisible && !$izqVisible);
+    $claseAlto = $soloMapa ? ' dashboard-solo-mapa' : '';
+    // Con solo el mapa no conviene "align-start" (impediría estirarlo a lo alto).
+    $claseAlinear = $soloMapa ? '' : ' align-start';
+?>
+<div class="split-grid <?= $claseGridPrincipal ?><?= $claseAlinear ?> dashboard-chart-map<?= $claseAlto ?>" style="margin-bottom:16px;">
+    <?php if ($izqVisible): ?>
     <div class="dashboard-left-col">
         <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;order:<?= ordenFila($wcfg, ['kpi_inspecciones','kpi_personas']) ?>;">
             <?php if (visibleDash($wcfg, 'kpi_inspecciones')): ?>
@@ -152,8 +176,11 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
+        <?php
+            $chartsVisibles = (int)visibleDash($wcfg, 'chart_decision') + (int)visibleDash($wcfg, 'chart_parroquia');
+        ?>
         <?php if (visibleDash($wcfg, 'chart_decision') || visibleDash($wcfg, 'chart_parroquia')): ?>
-        <div class="split-grid cols-11" style="order:<?= ordenFila($wcfg, ['chart_decision','chart_parroquia']) ?>;">
+        <div class="split-grid <?= $chartsVisibles === 1 ? 'cols-1' : 'cols-11' ?>" style="order:<?= ordenFila($wcfg, ['chart_decision','chart_parroquia']) ?>;">
             <?php if (visibleDash($wcfg, 'chart_decision')): ?>
             <div class="card" style="<?= estiloDash($wcfg, 'chart_decision') ?>">
                 <div class="card-header">
@@ -196,6 +223,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
     </div>
+    <?php endif; // fin columna izquierda ($izqVisible) ?>
 
     <?php if (visibleDash($wcfg, 'mapa')): ?>
     <div class="card card-mapa" style="<?= estiloDash($wcfg, 'mapa') ?>">
@@ -209,6 +237,7 @@ include __DIR__ . '/../includes/header.php';
                 <div class="item"><span class="dot" style="background:#2E7D32;"></span> Acceso Permitido</div>
                 <div class="item"><span class="dot" style="background:#C9A227;"></span> Precaución al Entrar</div>
                 <div class="item"><span class="dot" style="background:#A61C1C;"></span> Acceso No Permitido</div>
+                <div class="item"><span class="leyenda-pin"><i class="bi bi-tools"></i></span> Con ficha de seguimiento</div>
                 <div class="item text-muted" id="nota-limites" style="font-size:10.5px;max-width:220px;"></div>
             </div>
             <div id="lista-edificios" class="mapa-lista"></div>
@@ -451,6 +480,17 @@ function actualizarIndicadoresFiltro() {
 function renderListaEdificios(lista) {
     const cont = document.getElementById('lista-edificios');
     if (!cont) return; // widget "mapa" oculto por configuración
+
+    // Opción de sistema (Configuración › Opciones del mapa): si el listado
+    // emergente está desactivado, nunca se muestra el panel de fichas al
+    // seleccionar una zona. Se apaga de forma temporal por pedido.
+    const opts = (ultimoDatosDashboard && ultimoDatosDashboard.mapa_opciones) || {};
+    if (!opts.listado_emergente) {
+        cont.innerHTML = '';
+        cont.classList.add('mapa-lista-hidden');
+        return;
+    }
+
     cont.innerHTML = '';
     const hayFiltro = !!(parroquiaSeleccionada || decisionSeleccionada);
     cont.classList.toggle('mapa-lista-hidden', !hayFiltro);
@@ -618,13 +658,13 @@ async function cargarDashboard() {
     const data = await res.json();
 
     window.DashboardNacional.sincronizar(data);
+    ultimoDatosDashboard = data; // disponible para los render* de abajo
     renderBreadcrumb(data);
     // La lista del <select> de unidades cambia según el nivel: re-poblar.
     poblarFiltroParroquia(data.por_parroquia);
     poblarFiltroDecisionParroquia(data.decision);
     actualizarIndicadoresFiltro();
     renderListaEdificios(data.inspecciones);
-    ultimoDatosDashboard = data;
 
     document.getElementById('hora-actualizacion').textContent = data.actualizado;
 
@@ -766,37 +806,16 @@ async function cargarDashboard() {
         }).addTo(seccionesLayer);
     }
 
-    // 2) Burbujas de TOTAL por sección (el "puntero indicador de total").
-    //    Se ubican en el centroide del polígono si existe, si no en el
-    //    promedio de coordenadas de las inspecciones de esa sección.
-    const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
-    data.secciones_geo.forEach(s => {
-        const clave = normalizarTexto(s.parroquia);
-        let pos = centroidesPoligono[clave];
-        if (!pos && s.lat != null && s.lng != null) pos = [s.lat, s.lng];
-        if (!pos) return; // sin ubicación conocida
-        const seleccionada = esParroquiaSeleccionada(s.parroquia);
-        // Tamaño de la burbuja proporcional al total (escala suave).
-        const size = 30 + Math.round((s.total / maxTotal) * 26);
-        const color = s.color || '#2d4488';
-        const burbuja = L.marker(pos, {
-            icon: L.divIcon({
-                className: 'seccion-total-marker' + (seleccionada ? ' activa' : ''),
-                html: '<div class="seccion-burbuja" style="width:' + size + 'px;height:' + size + 'px;'
-                    + 'background:' + color + ';border-color:' + (seleccionada ? '#1f4bd8' : '#fff') + ';">'
-                    + '<span>' + formatNum(s.total) + '</span></div>'
-                    + '<div class="seccion-nombre">' + s.parroquia + '</div>',
-                iconSize: [size, size],
-                iconAnchor: [size / 2, size / 2],
-            }),
-        });
-        burbuja.on('click', () => clicSeccion(s.parroquia));
-        burbuja.addTo(seccionesLayer);
-    });
+    // 2) (Se eliminaron las "burbujas de total" por sección.) Por decisión
+    //    de producto, el mapa NO muestra conteos numéricos sobre las
+    //    secciones: los polígonos del geojson quedan solo como contexto y
+    //    para filtrar/drill-down al hacer clic. La cuantificación se ve en
+    //    los widgets (KPIs y gráficos), no rotulada sobre el mapa. Los
+    //    únicos marcadores del mapa son los puntos de cada edificio (abajo).
 
     document.getElementById('nota-limites').textContent = esNivelNacional
-        ? 'Vista nacional: total de inspecciones por estado. Haga clic en un estado para ver su detalle.'
-        : (limites ? ('Detalle por ' + (data.unidad_base || 'unidad') + '. Haga clic para filtrar.') : 'Secciones aproximadas.');
+        ? 'Vista nacional: haga clic en un estado para ver su detalle.'
+        : (limites ? ('Detalle por ' + (data.unidad_base || 'unidad') + '. Haga clic en una zona para filtrar.') : 'Secciones aproximadas.');
 
     // Zoom/encuadre por nivel.
     const claveEncuadre = (data.estado_filtro || 'PAIS') + '|' + (data.municipio_filtro || '') + '|' + parroquiaSeleccionada;
@@ -814,23 +833,48 @@ async function cargarDashboard() {
         ultimaParroquiaEnMapa = claveEncuadre;
     }
 
-    // ---- Marcadores individuales de cada inspección (clusters).
-    //    En la vista NACIONAL no se dibujan (serían miles de puntos sin
-    //    contexto); aparecen al entrar a un estado. ----
+    // ---- Marcadores individuales de cada inspección (agrupados en
+    //    clusters). Ahora se muestran en TODOS los niveles, incluida la
+    //    vista nacional: el agrupamiento por clusters evita saturar el mapa
+    //    y son la única capa de puntos (ya no hay burbujas de total). ----
     clusterLayer.clearLayers();
-    if (!esNivelNacional) {
+    {
         (data.puntos || []).forEach(p => {
             const lat = p.lat, lng = p.lng;
             if (lat == null || lng == null) return;
-            const marcador = L.circleMarker([lat, lng], {
-                radius: 7,
-                weight: 1.5,
-                color: '#1f2937',
-                fillColor: p.decision_color,
-                fillOpacity: 0.9,
-            });
+
+            let marcador;
+            if (p.seguimiento) {
+                // Edificio que YA tiene ficha de Seguimiento y Control: se
+                // dibuja con un marcador distinto (pin con ícono de obra),
+                // conservando el color de la decisión final. Es el mismo
+                // punto geográfico, solo cambia el ícono.
+                const color = p.decision_color || '#2d4488';
+                marcador = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'punto-seguimiento-icon',
+                        html: '<div class="punto-seg-pin" style="background:' + color + ';">'
+                            + '<i class="bi bi-tools"></i></div>',
+                        iconSize: [26, 26],
+                        iconAnchor: [13, 13],
+                    }),
+                });
+            } else {
+                // Edificio sin ficha de seguimiento: punto circular normal.
+                marcador = L.circleMarker([lat, lng], {
+                    radius: 7,
+                    weight: 1.5,
+                    color: '#1f2937',
+                    fillColor: p.decision_color,
+                    fillOpacity: 0.9,
+                });
+            }
+
+            const notaSeg = p.seguimiento
+                ? `<br><span style="color:#8fd19e;"><i class="bi bi-tools"></i> En seguimiento${p.estado_obra ? ' · ' + p.estado_obra : ''}</span>`
+                : '';
             marcador.bindTooltip(
-                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}`,
+                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}${notaSeg}`,
                 { direction: 'top', offset: [0, -8] }
             );
             marcador.on('click', () => abrirFicha(p.id));
@@ -952,6 +996,57 @@ document.getElementById('sidebar-backdrop')?.addEventListener('click', function 
 window.addEventListener('sismos:layout-change', () => {
     if (map) map.invalidateSize();
 });
+
+// ---- Modo presentación (pantalla completa para TV/proyector) ----
+// Pone el dashboard en pantalla completa y aplica una clase que oculta el
+// menú lateral y compacta la cabecera para una vista limpia. Si el
+// navegador no permite Fullscreen API, hace un "fullscreen simulado" con
+// solo la clase CSS (position:fixed a pantalla completa).
+(function () {
+    const btn = document.getElementById('btn-modo-presentacion');
+    if (!btn) return;
+    const objetivo = document.documentElement; // pantalla completa de toda la página
+
+    function enFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+    function aplicarEstado(activo) {
+        document.body.classList.toggle('modo-presentacion', activo);
+        const txt = btn.querySelector('.btn-presentacion-txt');
+        if (txt) txt.textContent = activo ? 'Salir' : 'Presentación';
+        btn.querySelector('i')?.classList.toggle('bi-easel2-fill', !activo);
+        btn.querySelector('i')?.classList.toggle('bi-fullscreen-exit', activo);
+        btn.title = activo ? 'Salir del modo presentación' : 'Modo presentación (pantalla completa)';
+        // El mapa necesita recalcular su tamaño tras el cambio de layout.
+        setTimeout(() => { if (map) map.invalidateSize(); }, 250);
+    }
+    async function entrar() {
+        try {
+            if (objetivo.requestFullscreen) await objetivo.requestFullscreen();
+            else if (objetivo.webkitRequestFullscreen) objetivo.webkitRequestFullscreen();
+        } catch (e) {
+            /* el navegador rechazó (o no hay gesto de usuario): se usa el
+               modo simulado con la clase CSS más abajo */
+        }
+        // Si no se logró el fullscreen real, activar el modo simulado. Si sí,
+        // el evento fullscreenchange ya habrá aplicado el estado.
+        if (!enFullscreen()) aplicarEstado(true);
+    }
+    async function salir() {
+        if (enFullscreen()) {
+            try { await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); }
+            catch (e) { /* ignore */ }
+        }
+        aplicarEstado(false);
+    }
+    btn.addEventListener('click', () => {
+        const activo = document.body.classList.contains('modo-presentacion') || enFullscreen();
+        if (activo) salir(); else entrar();
+    });
+    // Sincroniza la clase cuando el usuario entra/sale con F11/Esc del navegador.
+    document.addEventListener('fullscreenchange', () => aplicarEstado(enFullscreen()));
+    document.addEventListener('webkitfullscreenchange', () => aplicarEstado(enFullscreen()));
+})();
 
 initMap();
 cargarDashboard();

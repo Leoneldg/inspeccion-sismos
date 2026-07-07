@@ -27,6 +27,7 @@ if (!tablaPanelConfigExiste()) {
 $secciones      = catalogoSeccionesFormulario();
 $seccionesEstado = obtenerConfigFormulario();
 $widgets        = obtenerConfigDashboard();
+$opcionesMapa   = obtenerOpcionesMapa();
 $camposKpi      = catalogoCamposKpi();
 $kpisCustom     = obtenerConfigKpisCustom();
 
@@ -120,6 +121,50 @@ include __DIR__ . '/../includes/header.php';
             <p class="help-text">El "Orden" reordena el widget dentro de la zona del dashboard donde ya vive (tarjetas grandes, cuadrícula, gráficos o mapa); no lo mueve a otra columna.</p>
             <?php if ($puedeEditar): ?>
             <button class="btn btn-primary" style="margin-top:8px;"><i class="bi bi-save-fill"></i> Guardar configuración del dashboard</button>
+            <?php endif; ?>
+        </form>
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <div class="card-header"><h2><i class="bi bi-geo-alt-fill"></i> Opciones del mapa</h2></div>
+    <div class="card-body">
+        <p class="text-sm text-muted" style="margin-top:0;">
+            Controles rápidos del mapa del dashboard. Son interruptores de mostrar/ocultar: no cambian
+            el resto del tablero ni el orden de los indicadores.
+        </p>
+        <form method="post" action="<?= APP_URL_BASE ?>admin/guardar_configuracion.php">
+            <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+            <input type="hidden" name="accion" value="guardar_mapa">
+
+            <div class="check-row" style="margin-bottom:12px;">
+                <input type="checkbox" name="mapa[listado_emergente]" id="mapa_listado" value="1"
+                    <?= !empty($opcionesMapa['listado_emergente']) ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>
+                    style="width:17px;height:17px;accent-color:var(--azul-700);">
+                <label for="mapa_listado">
+                    Mostrar el <strong>listado de fichas</strong> al seleccionar una zona en el mapa
+                    <span class="text-sm text-muted" style="display:block;">
+                        (Al hacer clic en una parroquia/municipio del geojson se abre el panel con los edificios.
+                        Desactívelo para ocultar ese panel temporalmente.)
+                    </span>
+                </label>
+            </div>
+
+            <div class="check-row" style="margin-bottom:4px;">
+                <input type="checkbox" name="mapa[solo_seguimiento]" id="mapa_solo_seg" value="1"
+                    <?= !empty($opcionesMapa['solo_seguimiento']) ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>
+                    style="width:17px;height:17px;accent-color:var(--azul-700);">
+                <label for="mapa_solo_seg">
+                    Mostrar en el mapa <strong>solo las fichas de Seguimiento y Control</strong>
+                    <span class="text-sm text-muted" style="display:block;">
+                        (Filtra los puntos del mapa a únicamente los edificios que ya tienen ficha de seguimiento.
+                        El resto del dashboard no se altera.)
+                    </span>
+                </label>
+            </div>
+
+            <?php if ($puedeEditar): ?>
+            <button class="btn btn-primary" style="margin-top:12px;"><i class="bi bi-save-fill"></i> Guardar opciones del mapa</button>
             <?php endif; ?>
         </form>
     </div>

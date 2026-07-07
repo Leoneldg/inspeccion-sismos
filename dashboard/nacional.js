@@ -55,6 +55,11 @@
      *   - nacional            → estados_venezuela.geojson
      *   - estado (no DC)      → municipios/<slug>.geojson
      *   - estado = DC, o dentro de un municipio → parroquias/<slug>.geojson
+     *
+     * Cuando hay un municipio seleccionado, el archivo de parroquias del
+     * estado trae TODAS las parroquias del estado; aquí se recortan a las
+     * del municipio elegido (comparando la propiedad `municipio` de cada
+     * feature) para que el mapa realmente baje a ese municipio.
      */
     async function limitesActuales() {
         if (!NAV.estado) {
@@ -63,9 +68,36 @@
         const slug = slugEstado(NAV.estado);
         const esDC = NAV.estado === 'Distrito Capital';
         if (esDC || NAV.municipio) {
-            return await fetchJson('parroquias/' + slug + '.geojson');
+            const geo = await fetchJson('parroquias/' + slug + '.geojson');
+            // Si estamos dentro de un municipio (y no es DC, que ya se agrupa
+            // por parroquia), filtrar las parroquias de ese municipio.
+            if (geo && geo.features && NAV.municipio && !esDC) {
+                const objetivo = normalizarClave(NAV.municipio);
+                const features = geo.features.filter(function (f) {
+                    const m = (f.properties && (f.properties.municipio || f.properties.MUNICIPIO || f.properties.NAME_2)) || '';
+                    return normalizarClave(m) === objetivo;
+                });
+                // Si el filtro deja features, devolver el subconjunto; si por
+                // alguna discrepancia de nombres quedara vacío, devolver el
+                // geojson completo para no romper la vista.
+                if (features.length) {
+                    return { type: 'FeatureCollection', features: features };
+                }
+            }
+            return geo;
         }
         return await fetchJson('municipios/' + slug + '.geojson');
+    }
+
+    // Normaliza un nombre para comparar (sin acentos, minúsculas, sin
+    // caracteres no alfanuméricos). Se usa para casar el municipio elegido
+    // con la propiedad `municipio` de cada parroquia.
+    function normalizarClave(txt) {
+        return (txt || '')
+            .toString()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]+/g, '')
+            .toLowerCase();
     }
 
     // Nombre de la unidad (estado/municipio/parroquia) de un feature, según nivel.

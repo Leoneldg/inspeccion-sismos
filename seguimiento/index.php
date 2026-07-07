@@ -17,7 +17,6 @@ $filtros = [
     'estado'      => trim($_GET['estado'] ?? ''),
     'estado_obra' => trim($_GET['estado_obra'] ?? ''),
     'ente_id'     => trim($_GET['ente_id'] ?? ''),
-    'solo_mias'   => !empty($_GET['solo_mias']),
 ];
 
 $kpis        = segKpis();
@@ -97,10 +96,6 @@ include __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <label class="check-row" style="margin:0 4px 6px;">
-                <input type="checkbox" name="solo_mias" value="1" <?= $filtros['solo_mias'] ? 'checked' : '' ?>>
-                <span class="text-sm">Solo asignadas a mí</span>
-            </label>
             <button class="btn btn-outline"><i class="bi bi-funnel"></i> Filtrar</button>
             <a href="<?= APP_URL_BASE ?>seguimiento/entes.php" class="btn btn-outline"><i class="bi bi-building-gear"></i> Entes</a>
         </form>

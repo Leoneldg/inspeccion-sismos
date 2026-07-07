@@ -14,17 +14,42 @@ $activeModule = 'usuarios';
 $pdo = db();
 $roles = $pdo->query('SELECT id, nombre FROM roles ORDER BY nombre')->fetchAll();
 
+// Entes disponibles para asignar al usuario (para el módulo de seguimiento).
+// El estadal solo ve entes de su estado o nacionales.
+$condsE = ['activo = 1'];
+$paramsE = [];
+if (!usuarioEsMaster() && estadoDelUsuario() !== null) {
+    $condsE[] = '(estado = :ee OR estado IS NULL)';
+    $paramsE['ee'] = estadoDelUsuario();
+}
+$stmtE = $pdo->prepare('SELECT id, nombre, estado FROM entes WHERE ' . implode(' AND ', $condsE) . ' ORDER BY nombre');
+$stmtE->execute($paramsE);
+$entesDisponibles = $stmtE->fetchAll();
+
 $editId = isset($_GET['id']) ? (int)$_GET['id'] : null;
 $editUser = null;
 if ($editId) {
     $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE id = :id');
     $stmt->execute(['id' => $editId]);
     $editUser = $stmt->fetch();
+    // Alcance nacional: un usuario estadal no puede editar cuentas de otro estado.
+    if ($editUser && !usuarioEsMaster() && ($editUser['estado_asignado'] ?? null) !== estadoDelUsuario()) {
+        http_response_code(403);
+        include __DIR__ . '/../403.php';
+        exit;
+    }
 }
 
-$usuarios = $pdo->query(
-    'SELECT u.*, r.nombre AS rol_nombre FROM usuarios u JOIN roles r ON r.id = u.rol_id ORDER BY u.creado_en DESC'
-)->fetchAll();
+// Listado de usuarios: el estadal solo ve los de su propio estado.
+$condsU = [];
+$paramsU = [];
+aplicarScopeEstadoCol($condsU, $paramsU, 'estado_asignado', 'u');
+$whereU = $condsU ? ('WHERE ' . implode(' AND ', $condsU)) : '';
+$stmtU = $pdo->prepare(
+    "SELECT u.*, r.nombre AS rol_nombre FROM usuarios u JOIN roles r ON r.id = u.rol_id $whereU ORDER BY u.creado_en DESC"
+);
+$stmtU->execute($paramsU);
+$usuarios = $stmtU->fetchAll();
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -71,22 +96,46 @@ include __DIR__ . '/../includes/header.php';
             <!-- Alcance territorial (nacional) -->
             <div class="field" style="margin:6px 0 14px;padding-top:12px;border-top:1px solid var(--border,#e5e7eb);">
                 <label style="font-weight:600;"><i class="bi bi-geo-alt-fill"></i> Alcance territorial</label>
-                <div class="check-row" style="margin:8px 0;">
-                    <input type="checkbox" name="es_master" id="es_master" value="1"
-                           <?= ($editUser['es_master'] ?? 0) ? 'checked' : '' ?>
-                           onchange="document.getElementById('campo-estado-asignado').style.display=this.checked?'none':'';">
-                    <label for="es_master">Usuario <strong>master</strong> (acceso nacional, todos los estados)</label>
-                </div>
-                <div id="campo-estado-asignado" style="<?= ($editUser['es_master'] ?? 0) ? 'display:none;' : '' ?>">
-                    <label>Estado asignado</label>
-                    <select name="estado_asignado" class="form-control">
-                        <option value="">— Seleccione un estado —</option>
-                        <?php foreach (catalogoEstados() as $est): ?>
-                            <option value="<?= e($est) ?>" <?= ($editUser['estado_asignado'] ?? '') === $est ? 'selected' : '' ?>><?= e($est) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <div class="text-sm text-muted" style="margin-top:4px;">El usuario solo verá inspecciones y seguimiento de este estado.</div>
-                </div>
+                <?php if (usuarioEsMaster()): ?>
+                    <!-- Solo un master puede crear otros master o elegir cualquier estado -->
+                    <div class="check-row" style="margin:8px 0;">
+                        <input type="checkbox" name="es_master" id="es_master" value="1"
+                               <?= ($editUser['es_master'] ?? 0) ? 'checked' : '' ?>
+                               onchange="document.getElementById('campo-estado-asignado').style.display=this.checked?'none':'';">
+                        <label for="es_master">Usuario <strong>master</strong> (acceso nacional, todos los estados)</label>
+                    </div>
+                    <div id="campo-estado-asignado" style="<?= ($editUser['es_master'] ?? 0) ? 'display:none;' : '' ?>">
+                        <label>Estado asignado</label>
+                        <select name="estado_asignado" class="form-control">
+                            <option value="">— Seleccione un estado —</option>
+                            <?php foreach (catalogoEstados() as $est): ?>
+                                <option value="<?= e($est) ?>" <?= ($editUser['estado_asignado'] ?? '') === $est ? 'selected' : '' ?>><?= e($est) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="text-sm text-muted" style="margin-top:4px;">El usuario solo verá inspecciones y seguimiento de este estado.</div>
+                    </div>
+                <?php else: ?>
+                    <!-- Un administrador estadal solo crea usuarios de SU estado -->
+                    <input type="hidden" name="estado_asignado" value="<?= e(estadoDelUsuario()) ?>">
+                    <div class="text-sm" style="margin-top:6px;">
+                        <span class="badge badge-gris"><i class="bi bi-geo-alt"></i> <?= e(estadoDelUsuario()) ?></span>
+                        <span class="text-muted">Los usuarios que registre pertenecen a su estado.</span>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Ente (para el módulo de Seguimiento y Control) -->
+            <div class="field" style="margin-bottom:14px;">
+                <label><i class="bi bi-building"></i> Ente al que pertenece</label>
+                <select name="ente_id" class="form-control">
+                    <option value="">— Ninguno —</option>
+                    <?php foreach ($entesDisponibles as $ente): ?>
+                        <option value="<?= (int)$ente['id'] ?>" <?= (int)($editUser['ente_id'] ?? 0) === (int)$ente['id'] ? 'selected' : '' ?>>
+                            <?= e($ente['nombre']) ?><?= $ente['estado'] ? ' (' . e($ente['estado']) . ')' : ' (Nacional)' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="text-sm text-muted" style="margin-top:4px;">Si pertenece a un ente, en Seguimiento verá solo las obras asignadas a ese ente.</div>
             </div>
 
             <div class="flex gap-8">

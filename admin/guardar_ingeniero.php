@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
 requierePermiso('ingenieros', $id ? 'editar' : 'crear');
@@ -19,6 +20,24 @@ $telefono = trim($_POST['telefono'] ?? '');
 $profesion = trim($_POST['profesion'] ?? '');
 $colegio  = trim($_POST['colegio_inscripcion'] ?? '');
 $activo   = !empty($_POST['activo']) ? 1 : 0;
+// Estado (alcance nacional): el estadal siempre queda con su propio estado.
+$estadoIng = trim($_POST['estado'] ?? '');
+if (!usuarioEsMaster()) {
+    $estadoIng = estadoDelUsuario() ?? '';
+}
+$estadoIng = $estadoIng === '' ? null : $estadoIng;
+
+// Al editar, un estadal no puede tocar profesionales de otro estado.
+if ($id && !usuarioEsMaster()) {
+    $chk = db()->prepare('SELECT estado FROM ingenieros WHERE id = :id');
+    $chk->execute(['id' => $id]);
+    $obj = $chk->fetch();
+    if ($obj && ($obj['estado'] ?? null) !== null && ($obj['estado'] ?? null) !== estadoDelUsuario()) {
+        flash('error', 'No puede editar profesionales de otro estado.');
+        header('Location: ' . APP_URL_BASE . 'admin/ingenieros.php');
+        exit;
+    }
+}
 
 if ($nombre === '' || $cedula === '') {
     flash('error', 'Nombre completo y cédula son obligatorios.');
@@ -41,21 +60,21 @@ if ($stmtDup->fetch()) {
 if ($id) {
     $pdo->prepare(
         'UPDATE ingenieros SET nombre_completo=:nombre, cedula=:cedula, telefono=:telefono,
-         profesion=:profesion, colegio_inscripcion=:colegio, activo=:activo WHERE id=:id'
+         profesion=:profesion, colegio_inscripcion=:colegio, estado=:estado, activo=:activo WHERE id=:id'
     )->execute([
         'nombre' => $nombre, 'cedula' => $cedula, 'telefono' => nullSiVacio($telefono),
-        'profesion' => nullSiVacio($profesion), 'colegio' => nullSiVacio($colegio), 'activo' => $activo, 'id' => $id,
+        'profesion' => nullSiVacio($profesion), 'colegio' => nullSiVacio($colegio), 'estado' => $estadoIng, 'activo' => $activo, 'id' => $id,
     ]);
     $ingenieroId = $id;
     registrarLog($_SESSION['user_id'], 'ingeniero_actualizado', "$nombre ($cedula)");
     flash('success', 'Profesional actualizado.');
 } else {
     $pdo->prepare(
-        'INSERT INTO ingenieros (nombre_completo, cedula, telefono, profesion, colegio_inscripcion, activo, creado_por)
-         VALUES (:nombre, :cedula, :telefono, :profesion, :colegio, :activo, :creado_por)'
+        'INSERT INTO ingenieros (nombre_completo, cedula, telefono, profesion, colegio_inscripcion, estado, activo, creado_por)
+         VALUES (:nombre, :cedula, :telefono, :profesion, :colegio, :estado, :activo, :creado_por)'
     )->execute([
         'nombre' => $nombre, 'cedula' => $cedula, 'telefono' => nullSiVacio($telefono),
-        'profesion' => nullSiVacio($profesion), 'colegio' => nullSiVacio($colegio), 'activo' => $activo,
+        'profesion' => nullSiVacio($profesion), 'colegio' => nullSiVacio($colegio), 'estado' => $estadoIng, 'activo' => $activo,
         'creado_por' => $_SESSION['user_id'],
     ]);
     $ingenieroId = (int)$pdo->lastInsertId();

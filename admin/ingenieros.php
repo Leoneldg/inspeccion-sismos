@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('ingenieros', 'ver');
 
@@ -30,11 +31,23 @@ if ($editId) {
     $stmt = $pdo->prepare('SELECT * FROM ingenieros WHERE id = :id');
     $stmt->execute(['id' => $editId]);
     $editIng = $stmt->fetch();
+    // Alcance nacional: no editar profesionales de otro estado.
+    if ($editIng && !usuarioEsMaster() && ($editIng['estado'] ?? null) !== estadoDelUsuario()) {
+        http_response_code(403);
+        include __DIR__ . '/../403.php';
+        exit;
+    }
 }
 
 $q = trim($_GET['q'] ?? '');
 $where = [];
 $params = [];
+// El estadal solo ve los profesionales de su estado (y los sin estado, que
+// se consideran heredados/legacy y visibles para todos hasta que se asignen).
+if (!usuarioEsMaster() && estadoDelUsuario() !== null) {
+    $where[] = '(estado = :sc_est OR estado IS NULL)';
+    $params['sc_est'] = estadoDelUsuario();
+}
 if ($q !== '') {
     $where[] = '(nombre_completo LIKE :q1 OR cedula LIKE :q2)';
     $params['q1'] = "%$q%";
@@ -85,6 +98,21 @@ include __DIR__ . '/../includes/header.php';
             <div class="field" style="margin-bottom:14px;">
                 <label>N° de inscripción en el colegio de ingenieros (opcional)</label>
                 <input name="colegio_inscripcion" class="form-control" value="<?= e($editIng['colegio_inscripcion'] ?? '') ?>">
+            </div>
+            <!-- Estado (alcance nacional) -->
+            <div class="field" style="margin-bottom:14px;">
+                <label>Estado</label>
+                <?php if (usuarioEsMaster()): ?>
+                <select name="estado" class="form-control">
+                    <option value="">— Sin estado —</option>
+                    <?php foreach (catalogoEstados() as $est): ?>
+                        <option value="<?= e($est) ?>" <?= ($editIng['estado'] ?? '') === $est ? 'selected' : '' ?>><?= e($est) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <?php else: ?>
+                <input type="hidden" name="estado" value="<?= e(estadoDelUsuario()) ?>">
+                <span class="badge badge-gris"><i class="bi bi-geo-alt"></i> <?= e(estadoDelUsuario()) ?></span>
+                <?php endif; ?>
             </div>
             <div class="check-row" style="margin-bottom:16px;">
                 <input type="checkbox" name="activo" id="activo" value="1" <?= ($editIng['activo'] ?? 1) ? 'checked' : '' ?>>

@@ -74,11 +74,13 @@ CREATE TABLE `ingenieros` (
   `colegio_inscripcion` varchar(50) DEFAULT NULL,
   `foto` varchar(255) DEFAULT NULL,
   `activo` tinyint(1) NOT NULL DEFAULT 1,
+  `estado` varchar(100) DEFAULT NULL COMMENT 'Estado del profesional (alcance nacional)',
   `creado_por` int(10) unsigned DEFAULT NULL,
   `creado_en` datetime NOT NULL DEFAULT current_timestamp(),
   `actualizado_en` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `cedula` (`cedula`),
+  KEY `idx_ingeniero_estado` (`estado`),
   KEY `fk_ingeniero_creado_por` (`creado_por`),
   KEY `idx_ingeniero_activo` (`activo`),
   CONSTRAINT `fk_ingeniero_creado_por` FOREIGN KEY (`creado_por`) REFERENCES `usuarios` (`id`) ON DELETE SET NULL
@@ -393,11 +395,14 @@ CREATE TABLE `usuarios` (
   `actualizado_en` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `es_master` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 = acceso nacional (todos los estados)',
   `estado_asignado` varchar(100) DEFAULT NULL COMMENT 'Estado al que se limita el usuario si no es master',
+  `ente_id` int(10) unsigned DEFAULT NULL COMMENT 'Ente al que pertenece (para el modulo de seguimiento)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `usuario` (`usuario`),
   UNIQUE KEY `email` (`email`),
   KEY `fk_usuarios_rol` (`rol_id`),
-  CONSTRAINT `fk_usuarios_rol` FOREIGN KEY (`rol_id`) REFERENCES `roles` (`id`)
+  KEY `fk_usuario_ente` (`ente_id`),
+  CONSTRAINT `fk_usuarios_rol` FOREIGN KEY (`rol_id`) REFERENCES `roles` (`id`),
+  CONSTRAINT `fk_usuario_ente` FOREIGN KEY (`ente_id`) REFERENCES `entes` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

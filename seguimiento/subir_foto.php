@@ -14,7 +14,7 @@ $volver = APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . $inspeccionId;
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrfValidar($_POST['csrf'] ?? null)) {
     flash('error', 'Solicitud inválida.'); header('Location: ' . $volver); exit;
 }
-if (!puede('seguimiento', 'editar') && !puede('seguimiento', 'crear')) {
+if (!puede('seguimiento', 'ver') && !puede('seguimiento', 'crear')) {
     flash('error', 'No tiene permisos.'); header('Location: ' . $volver); exit;
 }
 
@@ -26,6 +26,12 @@ if (!$insp || (!usuarioEsMaster() && ($insp['estado'] ?? null) !== estadoDelUsua
 $obra = segObtenerOCrearObra($inspeccionId);
 $obraId = (int)$obra['id'];
 $accion = $_POST['accion'] ?? 'subir';
+
+// Un usuario de un ente solo sube/borra fotos de obras de su ente.
+$miEnte = enteDelUsuario();
+if ($miEnte !== null && !usuarioEsMaster() && $obra['ente_id'] !== null && (int)$obra['ente_id'] !== (int)$miEnte) {
+    flash('error', 'No autorizado para este ente.'); header('Location: ' . APP_URL_BASE . 'seguimiento/index.php'); exit;
+}
 
 try {
     if ($accion === 'eliminar') {

@@ -3,8 +3,17 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('usuarios', 'ver');
+
+// Roles y permisos son infraestructura compartida por todos los estados;
+// solo un usuario master puede gestionarlos.
+if (!usuarioEsMaster()) {
+    http_response_code(403);
+    include __DIR__ . '/../403.php';
+    exit;
+}
 
 $pageTitle    = 'Roles y Permisos';
 $pageSubtitle = 'Defina qué puede hacer cada rol en cada módulo del sistema';

@@ -72,7 +72,7 @@ function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes
 function selectorIngeniero(string $prefix, ?array $row, bool $requerido, array $ingenieros): void {
     $valorSeleccionado = val($row, $prefix . '_id');
     ?>
-    <div class="field" style="grid-column:1/-1;">
+    <div class="field field-full">
         <label <?= $requerido ? 'class="req"' : '' ?>>Profesional<?= $requerido ? '' : ' (segundo profesional)' ?></label>
         <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
             <select <?= $requerido ? 'required' : '' ?> id="<?= $prefix ?>_id" name="<?= $prefix ?>_id" class="form-control ingeniero-select" data-prefix="<?= $prefix ?>" style="flex:1;min-width:220px;">
@@ -138,15 +138,25 @@ include __DIR__ . '/../includes/header.php';
      inspección duplicada ni vuelva a subir las mismas fotos. -->
 <input type="hidden" name="client_submission_id" id="client_submission_id">
 
+<!-- Indicador compacto para móvil: "Paso X de 8 · Título". Se oculta en
+     escritorio (allí se ve la barra completa de pasos). -->
+<div class="wizard-mobile-indicator" id="wizard-mobile-indicator" aria-hidden="true">
+    <div class="wm-top">
+        <span class="wm-count">Paso <span id="wm-actual">1</span> de 8</span>
+        <span class="wm-title" id="wm-title">Profesionales</span>
+    </div>
+    <div class="wm-bar"><div class="wm-bar-fill" id="wm-bar-fill" style="width:12.5%;"></div></div>
+</div>
+
 <div class="wizard-steps">
-    <div class="step active" data-step="1">1. Profesionales</div>
-    <div class="step" data-step="2">2. Identificación y ubicación</div>
-    <div class="step" data-step="3">3. Características</div>
-    <div class="step" data-step="4">4. Riesgo y colapso</div>
-    <div class="step" data-step="5">5. Daños estructurales</div>
-    <div class="step" data-step="6">6. Daños no estructurales</div>
-    <div class="step" data-step="7">7. Personas afectadas</div>
-    <div class="step" data-step="8">8. Decisión y recomendaciones</div>
+    <div class="step active" data-step="1"><span class="step-n">1</span><span class="step-label">Profesionales</span></div>
+    <div class="step" data-step="2"><span class="step-n">2</span><span class="step-label">Identificación y ubicación</span></div>
+    <div class="step" data-step="3"><span class="step-n">3</span><span class="step-label">Características</span></div>
+    <div class="step" data-step="4"><span class="step-n">4</span><span class="step-label">Riesgo y colapso</span></div>
+    <div class="step" data-step="5"><span class="step-n">5</span><span class="step-label">Daños estructurales</span></div>
+    <div class="step" data-step="6"><span class="step-n">6</span><span class="step-label">Daños no estructurales</span></div>
+    <div class="step" data-step="7"><span class="step-n">7</span><span class="step-label">Personas afectadas</span></div>
+    <div class="step" data-step="8"><span class="step-n">8</span><span class="step-label">Decisión y recomendaciones</span></div>
 </div>
 
 <div class="card">
@@ -177,7 +187,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="2">
     <div class="section-title"><i class="bi bi-building"></i> Identificación de la edificación</div>
     <div class="form-grid">
-        <div class="field" style="grid-column:span 2;"><label class="req">Nombre de edificio o estructura</label><input required name="nombre_edificio" class="form-control" value="<?= e(val($row,'nombre_edificio')) ?>"></div>
+        <div class="field field-span2"><label class="req">Nombre de edificio o estructura</label><input required name="nombre_edificio" class="form-control" value="<?= e(val($row,'nombre_edificio')) ?>"></div>
         <div class="field"><label class="req">Fecha de inspección</label><input required type="date" name="fecha_inspeccion" class="form-control" value="<?= e(val($row,'fecha_inspeccion', date('Y-m-d'))) ?>"></div>
         <div class="field"><label>Hora de inicio</label><input type="time" name="hora_inicio" class="form-control" value="<?= e(val($row,'hora_inicio')) ?>"></div>
         <div class="field"><label>Hora de culminación</label><input type="time" name="hora_culminacion" class="form-control" value="<?= e(val($row,'hora_culminacion')) ?>"></div>
@@ -524,7 +534,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="8">
     <div class="section-title"><i class="bi bi-check2-square"></i> Decisión final</div>
     <div class="form-grid cols-2">
-        <div class="field" style="grid-column:span 2;">
+        <div class="field field-span2">
             <label class="req">Decisión final de la inspección</label>
             <select required name="decision_final" class="form-control">
                 <?php foreach ($decisiones as $k => $meta): ?>
@@ -806,6 +816,18 @@ include __DIR__ . '/../includes/header.php';
         document.getElementById('btn-anterior').disabled = current === 1;
         document.getElementById('btn-siguiente').style.display = current === total ? 'none' : 'inline-flex';
         document.getElementById('btn-guardar').style.display = current === total ? 'inline-flex' : 'none';
+
+        // Indicador compacto para móvil (número, título y barra de progreso).
+        const actualEl = document.getElementById('wm-actual');
+        const tituloEl = document.getElementById('wm-title');
+        const barraEl  = document.getElementById('wm-bar-fill');
+        if (actualEl) actualEl.textContent = current;
+        if (tituloEl) {
+            const label = document.querySelector('.step[data-step="' + current + '"] .step-label');
+            tituloEl.textContent = label ? label.textContent : '';
+        }
+        if (barraEl) barraEl.style.width = Math.round((current / total) * 100) + '%';
+
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         if (current === 2) {
@@ -932,8 +954,13 @@ include __DIR__ . '/../includes/header.php';
 
     async function guardarOffline() {
         const formData = new FormData(form);
+        const v = (name) => (document.querySelector('[name="' + name + '"]') || {}).value || '';
         await window.SismosOffline.guardarPendiente(form.action, formData, {
-            nombre_edificio: (document.querySelector('[name="nombre_edificio"]') || {}).value || '',
+            nombre_edificio: v('nombre_edificio'),
+            estado: v('estado'),
+            municipio: v('municipio'),
+            parroquia: v('parroquia'),
+            fecha_inspeccion: v('fecha_inspeccion'),
         });
         await window.SismosOffline.actualizarBadge();
         mostrarConfirmacionOffline();

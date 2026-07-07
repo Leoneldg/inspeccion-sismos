@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requireLogin();
 
@@ -21,14 +22,35 @@ $email   = trim($_POST['email'] ?? '');
 $rolId   = (int)($_POST['rol_id'] ?? 0);
 $activo  = !empty($_POST['activo']) ? 1 : 0;
 $password = (string)($_POST['password'] ?? '');
+$enteId  = ($_POST['ente_id'] ?? '') !== '' ? (int)$_POST['ente_id'] : null;
 // Alcance territorial nacional
 $esMaster = !empty($_POST['es_master']) ? 1 : 0;
 $estadoAsignado = trim($_POST['estado_asignado'] ?? '');
+
+// Un administrador ESTADAL no puede crear/otorgar cuentas master ni asignar
+// otro estado distinto al suyo: se fuerza en servidor (no basta el front).
+if (!usuarioEsMaster()) {
+    $esMaster = 0;
+    $estadoAsignado = estadoDelUsuario() ?? '';
+}
+
 // Un master no se limita a un estado; un no-master debe tener estado
 if ($esMaster) {
     $estadoAsignado = null;
 } elseif ($estadoAsignado === '') {
     $estadoAsignado = null;
+}
+
+// Si estoy EDITANDO, verificar que la cuenta objetivo esté en mi ámbito.
+if ($id && !usuarioEsMaster()) {
+    $chk = db()->prepare('SELECT estado_asignado FROM usuarios WHERE id = :id');
+    $chk->execute(['id' => $id]);
+    $obj = $chk->fetch();
+    if (!$obj || ($obj['estado_asignado'] ?? null) !== estadoDelUsuario()) {
+        flash('error', 'No puede editar usuarios de otro estado.');
+        header('Location: ' . APP_URL_BASE . 'admin/usuarios.php');
+        exit;
+    }
 }
 
 if ($nombre === '' || $usuario === '' || $email === '' || !$rolId || (!$id && $password === '')) {
@@ -60,8 +82,8 @@ try {
     }
 
     if ($id) {
-        $sql = 'UPDATE usuarios SET nombre_completo=:n, usuario=:u, email=:e, rol_id=:r, activo=:a, es_master=:m, estado_asignado=:est';
-        $params = ['n' => $nombre, 'u' => $usuario, 'e' => $email, 'r' => $rolId, 'a' => $activo, 'm' => $esMaster, 'est' => $estadoAsignado, 'id' => $id];
+        $sql = 'UPDATE usuarios SET nombre_completo=:n, usuario=:u, email=:e, rol_id=:r, activo=:a, es_master=:m, estado_asignado=:est, ente_id=:ente';
+        $params = ['n' => $nombre, 'u' => $usuario, 'e' => $email, 'r' => $rolId, 'a' => $activo, 'm' => $esMaster, 'est' => $estadoAsignado, 'ente' => $enteId, 'id' => $id];
         if ($password !== '') {
             $sql .= ', password_hash=:p';
             $params['p'] = password_hash($password, PASSWORD_BCRYPT);
@@ -72,13 +94,13 @@ try {
         flash('success', 'Usuario actualizado correctamente.');
     } else {
         $pdo->prepare(
-            'INSERT INTO usuarios (nombre_completo, usuario, email, password_hash, rol_id, activo, es_master, estado_asignado)
-             VALUES (:n, :u, :e, :p, :r, :a, :m, :est)'
+            'INSERT INTO usuarios (nombre_completo, usuario, email, password_hash, rol_id, activo, es_master, estado_asignado, ente_id)
+             VALUES (:n, :u, :e, :p, :r, :a, :m, :est, :ente)'
         )->execute([
             'n' => $nombre, 'u' => $usuario, 'e' => $email,
             'p' => password_hash($password, PASSWORD_BCRYPT),
             'r' => $rolId, 'a' => $activo,
-            'm' => $esMaster, 'est' => $estadoAsignado,
+            'm' => $esMaster, 'est' => $estadoAsignado, 'ente' => $enteId,
         ]);
         registrarLog($_SESSION['user_id'], 'usuario_creado', "Usuario: $usuario");
         flash('success', 'Usuario creado correctamente.');

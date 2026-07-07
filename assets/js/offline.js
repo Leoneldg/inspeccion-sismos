@@ -200,12 +200,46 @@
         await sincronizarPendientes();
     }
 
+    /**
+     * Reintenta el envío de UN pendiente específico (por id). Devuelve un
+     * objeto { ok, motivo } para que la interfaz muestre el resultado. Se usa
+     * desde el buzón (botón "Reintentar" de cada fila).
+     */
+    async function reintentarUno(id) {
+        let pendientes;
+        try { pendientes = await listarPendientes(); }
+        catch (e) { return { ok: false, motivo: 'sin-db' }; }
+        const p = pendientes.find((x) => x.id === id);
+        if (!p) return { ok: false, motivo: 'no-existe' };
+        if (!navigator.onLine) return { ok: false, motivo: 'sin-conexion' };
+        try {
+            const fd = reconstruirFormData(p.campos);
+            const resp = await fetch(p.url, { method: 'POST', body: fd, credentials: 'same-origin' });
+            if (envioFueExitoso(resp)) {
+                await eliminarPendiente(p.id);
+                await actualizarBadge();
+                return { ok: true };
+            }
+            // Respondió pero no fue guardado exitoso (sesión/CSRF/validación).
+            p.intentos = (p.intentos || 0) + 1;
+            p.ultimoError = resp.url;
+            await actualizarPendiente(p);
+            await actualizarBadge();
+            return { ok: false, motivo: 'rechazado' };
+        } catch (err) {
+            return { ok: false, motivo: 'red' };
+        }
+    }
+
     window.SismosOffline = {
         guardarPendiente,
         listarPendientes,
         sincronizarPendientes,
         actualizarBadge,
         reintentarFallidos,
+        reintentarUno,
+        eliminarPendiente,
+        MAX_INTENTOS_SYNC,
     };
 
     window.addEventListener('online', function () {

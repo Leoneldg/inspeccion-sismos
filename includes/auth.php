@@ -112,7 +112,7 @@ function intentarLogin(string $usuario, string $password): array
     $stmt = db()->prepare(
         'SELECT u.id, u.nombre_completo, u.usuario, u.password_hash, u.activo,
                 u.rol_id, r.nombre AS rol_nombre,
-                u.es_master, u.estado_asignado
+                u.es_master, u.estado_asignado, u.ente_id
          FROM usuarios u
          JOIN roles r ON r.id = u.rol_id
          WHERE u.usuario = :usuario1 OR u.email = :usuario2
@@ -147,6 +147,7 @@ function intentarLogin(string $usuario, string $password): array
     // Alcance nacional: master (ve todo el país) vs. estadal (un solo estado)
     $_SESSION['es_master']       = (int)($user['es_master'] ?? 0);
     $_SESSION['estado_asignado'] = $user['estado_asignado'] ?? null;
+    $_SESSION['ente_id']         = $user['ente_id'] ?? null;
     unset($_SESSION['permisos']); // forzar recarga de permisos
 
     db()->prepare('UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = :id')

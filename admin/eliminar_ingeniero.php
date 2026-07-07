@@ -24,6 +24,16 @@ if ($id) {
     // nombre/cédula/teléfono tal como quedaron guardados (son columnas de
     // texto aparte); solo se pierde la referencia (ing1_id/ing2_id vuelven
     // a NULL automáticamente por el ON DELETE SET NULL de la foreign key).
+    if (!usuarioEsMaster()) {
+        $chk = $pdo->prepare('SELECT estado FROM ingenieros WHERE id = :id');
+        $chk->execute(['id' => $id]);
+        $obj = $chk->fetch();
+        if ($obj && ($obj['estado'] ?? null) !== null && ($obj['estado'] ?? null) !== estadoDelUsuario()) {
+            flash('error', 'No puede eliminar profesionales de otro estado.');
+            header('Location: ' . APP_URL_BASE . 'admin/ingenieros.php');
+            exit;
+        }
+    }
     $pdo->prepare('DELETE FROM ingenieros WHERE id = :id')->execute(['id' => $id]);
     registrarLog($_SESSION['user_id'], 'ingeniero_eliminado', $ing ? "{$ing['nombre_completo']} ({$ing['cedula']})" : "ID: $id");
     flash('success', 'Profesional eliminado.');

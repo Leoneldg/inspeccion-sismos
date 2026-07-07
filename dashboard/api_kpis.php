@@ -149,16 +149,28 @@ try {
     // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta ambos filtros) ----
     $puntos = [];
     $condPuntos = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
+    $tieneSeguimiento = tablaSeguimientoExiste();
+    $opcionesMapa = obtenerOpcionesMapa();
+    // Si la opción "solo fichas de seguimiento" está activa (y el módulo
+    // existe), el mapa muestra únicamente edificios con ficha de obra.
+    $soloSeguimiento = $tieneSeguimiento && !empty($opcionesMapa['solo_seguimiento']);
+    $condSoloSeg = $soloSeguimiento
+        ? " AND EXISTS (SELECT 1 FROM seguimiento_obras so2 WHERE so2.inspeccion_id = i.id)"
+        : '';
+    // Subconsultas de seguimiento (solo si el módulo está instalado).
+    $segSel = $tieneSeguimiento
+        ? ",\n                  (SELECT COUNT(*) FROM seguimiento_obras so WHERE so.inspeccion_id = i.id) AS tiene_seguimiento,\n                  (SELECT so.estado_obra FROM seguimiento_obras so WHERE so.inspeccion_id = i.id LIMIT 1) AS estado_obra"
+        : ",\n                  0 AS tiene_seguimiento, NULL AS estado_obra";
     $sqlPuntos = $tieneFotos
         ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
-                  (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
+                  (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada$segSel
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos"
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$condSoloSeg"
         : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
-                  0 AS cantidad_fotos, NULL AS foto_portada
+                  0 AS cantidad_fotos, NULL AS foto_portada$segSel
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos";
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$condSoloSeg";
     $stmt = $pdo->prepare($sqlPuntos);
     $stmt->execute($paramsFiltro);
     foreach ($stmt->fetchAll() as $row) {
@@ -175,6 +187,8 @@ try {
             'fecha'     => $row['fecha_inspeccion'],
             'fotos'     => (int)$row['cantidad_fotos'],
             'portada'   => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,
+            'seguimiento' => !empty($row['tiene_seguimiento']),
+            'estado_obra' => $row['estado_obra'] ?? null,
         ];
     }
 
@@ -350,6 +364,7 @@ try {
         'municipio_filtro'=> $tieneMunicipio ? $municipioFiltro : null,
         'unidad_base'     => $colGeo,
         'es_master'       => usuarioEsMaster() || estadoDelUsuario() === null,
+        'mapa_opciones'   => $opcionesMapa,
         'actualizado'     => date('H:i:s'),
     ], JSON_UNESCAPED_UNICODE);
 

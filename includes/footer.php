@@ -26,6 +26,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/offline.js?v=<?= ASSET_VERSION ?>"></script>
+<script src="<?= APP_URL_BASE ?>assets/js/buzon.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/main.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/qr.js?v=<?= ASSET_VERSION ?>"></script>
 </body>

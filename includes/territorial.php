@@ -145,3 +145,42 @@ function puedeAccederEstadoDe(string $estadoInspeccion): bool
     if (usuarioEsMaster()) return true;
     return estadoDelUsuario() === $estadoInspeccion;
 }
+
+/**
+ * Igual que scopeEstadoSql pero contra una COLUMNA arbitraria (no solo
+ * "estado"). Útil para tablas administrativas cuyo campo territorial tiene
+ * otro nombre, p. ej. usuarios.estado_asignado o ingenieros.estado.
+ *
+ *   scopeEstadoColSql('estado_asignado', 'u')
+ *     master        → ['', []]
+ *     estadal        → ['u.estado_asignado = :scope_estado', [...]]
+ */
+function scopeEstadoColSql(string $columna, string $alias = ''): array
+{
+    if (usuarioEsMaster()) {
+        return ['', []];
+    }
+    $estado = estadoDelUsuario();
+    if ($estado === null) {
+        return ['', []];
+    }
+    $col = ($alias !== '') ? ($alias . '.' . $columna) : $columna;
+    return [$col . ' = :scope_estado', ['scope_estado' => $estado]];
+}
+
+/** Aplica scopeEstadoColSql a un arreglo de condiciones. */
+function aplicarScopeEstadoCol(array &$conds, array &$params, string $columna, string $alias = ''): void
+{
+    [$frag, $p] = scopeEstadoColSql($columna, $alias);
+    if ($frag !== '') {
+        $conds[] = $frag;
+        $params = array_merge($params, $p);
+    }
+}
+
+/** Ente al que pertenece el usuario actual (null si no tiene o es master). */
+function enteDelUsuario(): ?int
+{
+    $e = $_SESSION['ente_id'] ?? null;
+    return ($e !== null && $e !== '') ? (int)$e : null;
+}

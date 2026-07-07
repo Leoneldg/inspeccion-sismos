@@ -33,6 +33,13 @@ Esta entrega REEMPLAZA por completo el antiguo schema.sql y todas las
 migraciones actualizacion_v2..v7 (ya no existen). datos_iniciales.sql ya
 trae las 510 inspecciones existentes migradas al esquema nacional.
 
+Si YA tenia cargada la version nacional anterior y NO quiere recargar la
+base, corra unicamente la migracion incremental (agrega las columnas
+nuevas de esta entrega: ingenieros.estado y usuarios.ente_id). Es
+idempotente:
+
+    mysql -u root -p inspecciones_sismos < database/actualizacion.sql
+
 ====================================================================
  QUE INCLUYE ESTA VERSION
 ====================================================================
@@ -61,9 +68,83 @@ trae las 510 inspecciones existentes migradas al esquema nacional.
      obra terminada al 100%), y bitacora automatica.
    - Directorio de entes ejecutores (seguimiento/entes.php).
 
+3) ALCANCE ESTADAL EN LOS MODULOS ADMINISTRATIVOS
+   - Usuarios: un administrador estadal solo ve, crea, edita y elimina
+     usuarios de SU estado. No puede crear usuarios master ni asignar
+     otro estado. El master ve y administra todos.
+   - Ingenieros/Inspectores: el directorio de profesionales ahora tiene
+     estado. El estadal solo ve y gestiona los de su estado (y los
+     heredados sin estado). En el formulario de inspeccion tambien se
+     ofrecen solo los profesionales del estado del usuario.
+   - Roles y Permisos: es infraestructura compartida por todos los
+     estados, por lo que queda reservado SOLO a usuarios master (a los
+     estadales se les oculta del menu y se bloquea por URL).
+
+4) SEGUIMIENTO: AVANCE AUTOMATICO Y REPORTE POR ENTE
+   - El AVANCE ya no se fija a mano: se calcula solo a partir del consumo
+     de recursos. Formula: suma de lo consumido / suma de lo estimado
+     (ponderada por el tamano de cada recurso, y cada recurso aporta como
+     maximo su propio estimado). Asi un recurso grande pesa mas que uno
+     pequeno y refleja el avance fisico real. Al llegar a 100% la obra
+     pasa sola a "Culminada"; si luego se corrige el consumo, vuelve a
+     "En ejecucion".
+   - Dos perfiles de trabajo en el modulo:
+       * GESTION (permiso 'crear' en seguimiento): arma el plan de accion
+         -> asigna ente y responsable, fija tiempo de accion, agrega o
+         quita recursos.
+       * REPORTE (permiso 'ver' en seguimiento): el ente / gobernante /
+         sistematizador reporta el CONSUMO de cada recurso (estilo
+         inventario) y sube el registro fotografico. No arma el plan ni
+         agrega recursos.
+   - Cada usuario puede pertenecer a un ENTE (campo en Usuarios). Un
+     usuario con ente ve en Seguimiento SOLO las obras asignadas a su
+     ente (en el listado, los KPIs y la ficha; las de otro ente dan 403).
+     Reemplaza el antiguo filtro "solo asignadas a mi".
+
 ====================================================================
  CORRECCIONES DE ESTA ENTREGA
 ====================================================================
+ - Formulario responsive: la rejilla de campos ahora se adapta sola al
+   ancho de la pantalla (3-4 columnas en escritorio, 2 en tablet, 1 en
+   móvil) sin saltos bruscos. En móvil la barra larga de 8 pasos se
+   reemplaza por un indicador compacto "Paso X de 8" con barra de
+   progreso; los campos no provocan zoom automático en iPhone y la
+   navegación (Anterior/Siguiente) se acomoda al pulgar.
+ - Buzón de envíos pendientes (modo offline): el contador "N por subir"
+   del encabezado ahora es un botón que abre un buzón con la lista de las
+   inspecciones guardadas en el dispositivo que faltan por subir. Cada
+   fila muestra su información (edificio, ubicación, fecha, nº de fotos,
+   intentos) y un botón "Reintentar" que reejecuta el envío de ese
+   registro; al subirse con éxito, desaparece del listado. Hay además un
+   botón "Reintentar todo". El envío automático al recuperar señal sigue
+   funcionando igual que antes.
+ - Dashboard / mapa: se quitaron las "burbujas" con el conteo numérico
+   sobre cada parroquia/municipio. El mapa ahora muestra ÚNICAMENTE los
+   puntos de cada edificio (la ubicación capturada en el formulario). Los
+   polígonos del geojson quedan solo como contexto y para filtrar/entrar
+   al hacer clic; la cuantificación se ve en los KPIs y gráficos, no
+   rotulada sobre el mapa. Los puntos se agrupan en clusters, por lo que
+   también se ven en la vista nacional sin saturar.
+ - Dashboard / flujo geográfico: al entrar a un municipio (en cualquier
+   estado) el mapa ahora recorta correctamente a las PARROQUIAS de ese
+   municipio (antes mostraba todas las parroquias del estado). El archivo
+   de parroquias del estado se filtra por la propiedad "municipio".
+ - Dashboard / seguimiento: los edificios que YA tienen ficha en el
+   módulo de Seguimiento y Control se muestran con un ícono distinto (un
+   pin con herramienta), conservando el color de la decisión final. Es el
+   mismo punto geográfico; solo cambia el ícono. Hay una entrada en la
+   leyenda del mapa ("Con ficha de seguimiento").
+ - Configuración › Opciones del mapa (nuevo): dos interruptores de
+   mostrar/ocultar que no alteran el resto del tablero:
+     * "Mostrar el listado de fichas al seleccionar una zona": controla el
+       panel emergente que aparecía al hacer clic en una parroquia/municipio
+       del geojson. Viene DESACTIVADO por defecto (apagado temporalmente).
+     * "Mostrar en el mapa solo las fichas de Seguimiento y Control": deja
+       en el mapa únicamente los edificios con ficha de obra.
+ - Configuración › Widgets del dashboard: cada indicador (tarjetas,
+   gráficos, mapa, KPIs personalizados) se puede mostrar/ocultar de forma
+   independiente con su casilla "Visible". Ocultar uno NO reordena el
+   resto del tablero (es hide/show, el orden se conserva).
  - Formulario mostraba lista vacia y no guardaba: causado por columnas
    faltantes (migraciones no aplicadas) y por el generador de codigo, que
    usaba COUNT(*)+1 y chocaba con codigos existentes cuando habia huecos

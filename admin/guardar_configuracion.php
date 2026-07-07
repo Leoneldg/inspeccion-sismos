@@ -41,6 +41,14 @@ if ($accion === 'guardar_formulario') {
     guardarConfigValor('dashboard_widgets', $widgets, $_SESSION['user_id']);
     registrarLog($_SESSION['user_id'], 'config_dashboard_actualizada', json_encode($widgets));
     flash('success', 'Configuración del dashboard actualizada.');
+} elseif ($accion === 'guardar_mapa') {
+    $opciones = [
+        'listado_emergente' => !empty($_POST['mapa']['listado_emergente']),
+        'solo_seguimiento'  => !empty($_POST['mapa']['solo_seguimiento']),
+    ];
+    guardarConfigValor('mapa_opciones', $opciones, $_SESSION['user_id']);
+    registrarLog($_SESSION['user_id'], 'config_mapa_actualizada', json_encode($opciones));
+    flash('success', 'Opciones del mapa actualizadas.');
 } elseif ($accion === 'agregar_kpi') {
     $campos = catalogoCamposKpi();
     $campo  = trim($_POST['campo'] ?? '');

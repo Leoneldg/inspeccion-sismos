@@ -23,10 +23,20 @@ if (!usuarioEsMaster() && ($insp['estado'] ?? null) !== estadoDelUsuario()) {
     exit;
 }
 
-$puedeEditar = puede('seguimiento', 'editar') || puede('seguimiento', 'crear');
+// Dos niveles de acción en el módulo:
+//  - GESTIONAR (permiso 'crear'): define el plan de acción — ente asignado,
+//    responsable, tiempo de acción/fechas, prioridad, y agrega/quita recursos.
+//    Es quien "arma" la ficha.
+//  - REPORTAR (permiso 'ver'): la persona sistematizadora / ente / gobernante
+//    que reporta el CONSUMO de cada recurso (estilo inventario) y sube el
+//    registro fotográfico. NO define el plan ni agrega recursos nuevos.
+// El avance ya NO se fija a mano: se calcula del consumo de recursos.
+$puedeGestionar = puede('seguimiento', 'crear');
+$puedeReportar  = puede('seguimiento', 'ver') || $puedeGestionar;
 
-// Se crea la ficha si aún no existe (y pre-carga recursos de la inspección).
-$obra = $puedeEditar ? segObtenerOCrearObra($inspeccionId) : (function () use ($inspeccionId) {
+// La ficha (obra) se crea al abrirla solo si quien entra puede gestionar; un
+// reportero sin obra creada ve la ficha en modo consulta.
+$obra = $puedeGestionar ? segObtenerOCrearObra($inspeccionId) : (function () use ($inspeccionId) {
     $stmt = db()->prepare('SELECT * FROM seguimiento_obras WHERE inspeccion_id = :i');
     $stmt->execute(['i' => $inspeccionId]);
     return $stmt->fetch() ?: ['id' => 0, 'estado_obra' => 'Sin iniciar', 'avance_pct' => 0, 'ente_id' => null,
@@ -34,6 +44,17 @@ $obra = $puedeEditar ? segObtenerOCrearObra($inspeccionId) : (function () use ($
         'tiempo_accion_dias' => null, 'presupuesto_estimado' => null, 'prioridad' => 'Media',
         'observaciones' => null, 'responsable_id' => null];
 })();
+
+// Si el usuario pertenece a un ente, no puede abrir fichas de otro ente.
+$miEnte = enteDelUsuario();
+if ($miEnte !== null && !usuarioEsMaster()) {
+    $obraEnte = $obra['ente_id'] ?? null;
+    if ($obraEnte !== null && (int)$obraEnte !== (int)$miEnte) {
+        http_response_code(403);
+        include __DIR__ . '/../403.php';
+        exit;
+    }
+}
 
 $obraId      = (int)($obra['id'] ?? 0);
 $entes       = segEntes(usuarioEsMaster() ? null : estadoDelUsuario());
@@ -113,7 +134,10 @@ include __DIR__ . '/../includes/header.php';
         <div class="card">
             <div class="card-header"><h2><i class="bi bi-clipboard-check"></i> Plan de acción</h2></div>
             <div class="card-body">
-                <?php if ($puedeEditar): ?>
+                <div class="text-sm text-muted" style="margin-bottom:10px;">
+                    <i class="bi bi-info-circle"></i> El <strong>avance</strong> se calcula automáticamente según el consumo de recursos reportado más abajo.
+                </div>
+                <?php if ($puedeGestionar): ?>
                 <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_obra.php" id="form-plan">
                     <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
                     <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
@@ -182,12 +206,6 @@ include __DIR__ . '/../includes/header.php';
                             </select>
                         </div>
                         <div class="field">
-                            <label>Avance (%)</label>
-                            <input type="range" min="0" max="100" step="5" name="avance_pct" id="f-avance-range" value="<?= (int)$obra['avance_pct'] ?>"
-                                   oninput="document.getElementById('f-avance-val').textContent=this.value+'%'">
-                            <div class="text-sm" style="text-align:center;font-weight:600;" id="f-avance-val"><?= (int)$obra['avance_pct'] ?>%</div>
-                        </div>
-                        <div class="field">
                             <label>Presupuesto estimado</label>
                             <input type="number" min="0" step="0.01" name="presupuesto_estimado" class="form-control" value="<?= e($obra['presupuesto_estimado']) ?>" placeholder="Bs. / USD">
                         </div>
@@ -201,12 +219,14 @@ include __DIR__ . '/../includes/header.php';
                     <button class="btn btn-primary w-full" style="justify-content:center;"><i class="bi bi-save-fill"></i> Guardar plan de acción</button>
                 </form>
                 <?php else: ?>
-                    <div class="text-muted text-sm">No tiene permisos para editar el plan de acción. Consulta de solo lectura.</div>
+                    <div class="text-muted text-sm" style="margin-bottom:8px;">Solo un usuario con permiso de gestión define el plan de acción. Usted puede reportar el consumo de recursos y subir fotos.</div>
                     <dl class="seg-datos">
                         <div><dt>Ente</dt><dd><?= e($insp['ente_nombre'] ?? 'Sin asignar') ?></dd></div>
                         <div><dt>Estado</dt><dd><?= e($obra['estado_obra']) ?></dd></div>
                         <div><dt>Inicio</dt><dd><?= e($obra['fecha_inicio'] ?? '—') ?></dd></div>
                         <div><dt>Fin estimado</dt><dd><?= e($obra['fecha_fin_estimada'] ?? '—') ?></dd></div>
+                        <div><dt>Tiempo de acción</dt><dd><?= $obra['tiempo_accion_dias'] !== null ? e($obra['tiempo_accion_dias']) . ' días' : '—' ?></dd></div>
+                        <div><dt>Prioridad</dt><dd><?= e($obra['prioridad'] ?? '—') ?></dd></div>
                     </dl>
                 <?php endif; ?>
             </div>
@@ -217,22 +237,51 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-header"><h2><i class="bi bi-box-seam"></i> Recursos para la recuperación</h2></div>
             <div class="card-body">
                 <div class="text-sm text-muted" style="margin-bottom:8px;">
-                    Los recursos marcados <span class="badge badge-gris">Inspección</span> se cargaron automáticamente desde los datos de la inspección (m² de losas, muros a reconstruir).
+                    Los recursos marcados <span class="badge badge-gris">Inspección</span> se cargaron automáticamente desde los datos de la inspección. A medida que se reporta el <strong>consumo</strong> de cada recurso, el avance de la obra se actualiza solo.
                 </div>
                 <div class="table-wrap">
                     <table class="data-table seg-recursos-table">
-                        <thead><tr><th>Recurso</th><th>Unidad</th><th>Estimado</th><th>Usado</th><th>Origen</th><?php if ($puedeEditar): ?><th></th><?php endif; ?></tr></thead>
+                        <thead><tr>
+                            <th>Recurso</th><th>Unidad</th><th>Estimado</th>
+                            <th style="min-width:170px;">Consumido</th><th>Origen</th>
+                            <?php if ($puedeGestionar): ?><th></th><?php endif; ?>
+                        </tr></thead>
                         <tbody>
                         <?php if (!$recursos): ?>
                             <tr><td colspan="6" class="text-muted text-sm">Aún no hay recursos registrados.</td></tr>
-                        <?php else: foreach ($recursos as $rec): ?>
+                        <?php else: foreach ($recursos as $rec):
+                            $est = $rec['cantidad_estimada'] !== null ? (float)$rec['cantidad_estimada'] : null;
+                            $uso = (float)$rec['cantidad_utilizada'];
+                            $pct = ($est && $est > 0) ? min(100, round($uso / $est * 100)) : null;
+                        ?>
                             <tr>
                                 <td><?= e($rec['recurso']) ?></td>
                                 <td class="text-sm"><?= e($rec['unidad'] ?? '—') ?></td>
-                                <td><?= $rec['cantidad_estimada'] !== null ? e(rtrim(rtrim(number_format((float)$rec['cantidad_estimada'], 2), '0'), '.')) : '—' ?></td>
-                                <td><?= e(rtrim(rtrim(number_format((float)$rec['cantidad_utilizada'], 2), '0'), '.')) ?></td>
+                                <td><?= $est !== null ? e(rtrim(rtrim(number_format($est, 2), '0'), '.')) : '—' ?></td>
+                                <td>
+                                    <?php if ($puedeReportar && $obraId): ?>
+                                    <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_recurso.php" class="seg-consumo-form">
+                                        <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+                                        <input type="hidden" name="accion" value="consumo">
+                                        <input type="hidden" name="recurso_id" value="<?= (int)$rec['id'] ?>">
+                                        <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
+                                        <input type="number" step="0.01" min="0" name="cantidad_utilizada"
+                                               value="<?= e(rtrim(rtrim(number_format($uso, 2), '0'), '.')) ?>"
+                                               class="form-control seg-consumo-input" title="Cantidad consumida">
+                                        <button class="btn btn-primary btn-sm" title="Guardar consumo"><i class="bi bi-check-lg"></i></button>
+                                    </form>
+                                    <?php if ($pct !== null): ?>
+                                        <div class="seg-progress seg-progress-sm" style="margin-top:4px;">
+                                            <div class="seg-progress-bar" style="width:<?= $pct ?>%;"></div>
+                                            <span class="seg-progress-txt"><?= $pct ?>%</span>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                        <?= e(rtrim(rtrim(number_format($uso, 2), '0'), '.')) ?><?= $pct !== null ? " ($pct%)" : '' ?>
+                                    <?php endif; ?>
+                                </td>
                                 <td><span class="badge <?= $rec['origen'] === 'Inspección' ? 'badge-gris' : 'badge-verde' ?>"><?= e($rec['origen']) ?></span></td>
-                                <?php if ($puedeEditar): ?>
+                                <?php if ($puedeGestionar): ?>
                                 <td>
                                     <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_recurso.php" onsubmit="return confirm('¿Eliminar este recurso?');" style="display:inline;">
                                         <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
@@ -248,14 +297,14 @@ include __DIR__ . '/../includes/header.php';
                         </tbody>
                     </table>
                 </div>
-                <?php if ($puedeEditar): ?>
+                <?php if ($puedeGestionar): ?>
                 <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_recurso.php" class="seg-add-recurso">
                     <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
                     <input type="hidden" name="accion" value="agregar">
                     <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
                     <input type="text" name="recurso" class="form-control" placeholder="Recurso (ej. Cemento)" required>
                     <input type="text" name="unidad" class="form-control" placeholder="Unidad" style="max-width:90px;">
-                    <input type="number" step="0.01" name="cantidad_estimada" class="form-control" placeholder="Cantidad" style="max-width:110px;">
+                    <input type="number" step="0.01" name="cantidad_estimada" class="form-control" placeholder="Estimado" style="max-width:110px;">
                     <button class="btn btn-outline btn-sm"><i class="bi bi-plus-lg"></i> Agregar</button>
                 </form>
                 <?php endif; ?>
@@ -270,7 +319,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="card">
             <div class="card-header"><h2><i class="bi bi-camera-fill"></i> Registro fotográfico de la obra</h2></div>
             <div class="card-body">
-                <?php if ($puedeEditar && $obraId): ?>
+                <?php if ($puedeReportar && $obraId): ?>
                 <form method="post" action="<?= APP_URL_BASE ?>seguimiento/subir_foto.php" enctype="multipart/form-data" class="seg-foto-form">
                     <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
                     <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
@@ -320,7 +369,7 @@ include __DIR__ . '/../includes/header.php';
                                                 <?php if ($foto['avance_pct'] !== null): ?><span class="seg-foto-pct"><?= round((float)$foto['avance_pct']) ?>%</span><?php endif; ?>
                                                 <?php if ($foto['descripcion']): ?><span class="seg-foto-desc"><?= e($foto['descripcion']) ?></span><?php endif; ?>
                                             </figcaption>
-                                            <?php if ($puedeEditar): ?>
+                                            <?php if ($puedeReportar): ?>
                                             <form method="post" action="<?= APP_URL_BASE ?>seguimiento/subir_foto.php" onsubmit="return confirm('¿Eliminar esta foto?');" class="seg-foto-del">
                                                 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
                                                 <input type="hidden" name="accion" value="eliminar">

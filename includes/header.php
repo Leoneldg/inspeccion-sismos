@@ -71,9 +71,11 @@ $flashes = obtenerFlashes();
         <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule === 'usuarios' ? 'active' : '' ?>" title="Usuarios">
             <i class="bi bi-people-fill"></i> <span>Usuarios</span>
         </a>
+        <?php if (!empty($_SESSION['es_master'])): // Roles/permisos: solo master (afectan a todos los estados) ?>
         <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule === 'roles' ? 'active' : '' ?>" title="Roles y Permisos">
             <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>
         </a>
+        <?php endif; ?>
         <?php endif; ?>
         <?php if (puede('ingenieros', 'ver')): ?>
         <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item <?= $activeModule === 'ingenieros' ? 'active' : '' ?>" title="Ingenieros / Inspectores">
@@ -107,14 +109,40 @@ $flashes = obtenerFlashes();
                     <?php if ($pageSubtitle): ?><div class="subtitle"><?= e($pageSubtitle) ?></div><?php endif; ?>
                 </div>
             </div>
-            <div class="pendientes-offline oculto-offline" data-pendientes-offline-wrap title="Inspecciones guardadas localmente esperando señal para subirse">
+            <div class="pendientes-offline oculto-offline" data-pendientes-offline-wrap
+                 title="Inspecciones guardadas localmente esperando señal para subirse. Clic para ver el buzón."
+                 role="button" tabindex="0" onclick="window.SismosBuzon && window.SismosBuzon.abrir()"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); window.SismosBuzon && window.SismosBuzon.abrir();}">
                 <i class="bi bi-cloud-arrow-up"></i>
                 <span data-pendientes-offline>0</span> por subir
                 <button type="button" class="btn-reintentar-offline oculto-offline" data-pendientes-offline-error
                         title="Algunas no se pudieron sincronizar automáticamente (sesión expirada u otro error). Click para reintentar."
-                        onclick="window.SismosOffline && window.SismosOffline.reintentarFallidos()">
+                        onclick="event.stopPropagation(); window.SismosOffline && window.SismosOffline.reintentarFallidos()">
                     <i class="bi bi-exclamation-triangle-fill"></i> <span data-pendientes-offline-error-count>0</span> con error, reintentar
                 </button>
+            </div>
+
+            <!-- Buzón de envíos pendientes (modo offline). Lista las inspecciones
+                 guardadas en este dispositivo que faltan por subir; cada una con
+                 su botón de reintentar. Al subirse, desaparecen del listado. -->
+            <div class="buzon-offline-overlay" id="buzon-offline" hidden>
+                <div class="buzon-offline" role="dialog" aria-modal="true" aria-labelledby="buzon-titulo">
+                    <div class="buzon-offline-header">
+                        <h2 id="buzon-titulo"><i class="bi bi-inbox-fill"></i> Buzón de envíos pendientes</h2>
+                        <button type="button" class="buzon-offline-cerrar" title="Cerrar"
+                                onclick="window.SismosBuzon && window.SismosBuzon.cerrar()"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                    <div class="buzon-offline-sub">
+                        <span id="buzon-resumen">Cargando…</span>
+                        <div class="buzon-offline-acciones">
+                            <button type="button" class="btn btn-outline btn-sm" id="buzon-reintentar-todo"
+                                    onclick="window.SismosBuzon && window.SismosBuzon.reintentarTodo()">
+                                <i class="bi bi-arrow-repeat"></i> Reintentar todo
+                            </button>
+                        </div>
+                    </div>
+                    <div class="buzon-offline-lista" id="buzon-offline-lista"></div>
+                </div>
             </div>
         </div>
         <div class="content">

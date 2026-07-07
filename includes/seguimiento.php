@@ -130,6 +130,68 @@ function segRecursos(int $obraId): array
     return $stmt->fetchAll();
 }
 
+/**
+ * Calcula el AVANCE (%) de una obra a partir del consumo de recursos.
+ *
+ * Fórmula: avance = SUMA(cantidad_utilizada) / SUMA(cantidad_estimada) * 100,
+ * considerando SOLO los recursos que tienen una cantidad estimada > 0. Es un
+ * promedio PONDERADO por tamaño: un recurso grande (p. ej. 500 m² de losa)
+ * pesa más que uno pequeño (10 sacos), reflejando el avance físico real de la
+ * reconstrucción. Cada recurso aporta como máximo su propio estimado (un
+ * consumo por encima del 100% de ese recurso no infla el total).
+ *
+ * Si no hay recursos con estimado, devuelve null (no se puede calcular).
+ */
+function segCalcularAvance(int $obraId): ?float
+{
+    $stmt = db()->prepare(
+        'SELECT COALESCE(SUM(cantidad_estimada),0) AS estimado,
+                COALESCE(SUM(LEAST(cantidad_utilizada, cantidad_estimada)),0) AS usado
+         FROM seguimiento_recursos
+         WHERE obra_id = :o AND cantidad_estimada IS NOT NULL AND cantidad_estimada > 0'
+    );
+    $stmt->execute(['o' => $obraId]);
+    $r = $stmt->fetch();
+    $estimado = (float)$r['estimado'];
+    if ($estimado <= 0) return null;
+    $pct = ((float)$r['usado'] / $estimado) * 100;
+    return round(max(0, min(100, $pct)), 2);
+}
+
+/**
+ * Recalcula y guarda el avance de la obra en base a los recursos, y ajusta el
+ * estado_obra en consecuencia (0% y "Sin iniciar" → queda igual; >0% pasa a
+ * "En ejecución" si estaba "Sin iniciar"; 100% → "Culminada"). No pisa un
+ * estado "Suspendida" puesto manualmente. Devuelve el nuevo avance (o el
+ * existente si no se pudo calcular).
+ */
+function segRecalcularAvance(int $obraId): void
+{
+    $avance = segCalcularAvance($obraId);
+    if ($avance === null) return; // sin recursos estimados: no se toca el avance
+
+    $obra = segObraPorId($obraId);
+    if (!$obra) return;
+    $estado = $obra['estado_obra'];
+
+    if ($estado !== 'Suspendida') {
+        if ($avance >= 100) {
+            $estado = 'Culminada';
+        } elseif ($avance > 0) {
+            // Si estaba "Sin iniciar" o quedó "Culminada" pero el avance ya no
+            // es 100% (p. ej. se corrigió un consumo), pasa a "En ejecución".
+            if ($estado === 'Sin iniciar' || $estado === 'Culminada') {
+                $estado = 'En ejecución';
+            }
+        } else { // avance == 0
+            if ($estado === 'Culminada') $estado = 'En ejecución';
+        }
+    }
+
+    db()->prepare('UPDATE seguimiento_obras SET avance_pct = :av, estado_obra = :eo WHERE id = :id')
+        ->execute(['av' => $avance, 'eo' => $estado, 'id' => $obraId]);
+}
+
 /** Fotos de una obra, agrupadas por fase. */
 function segFotos(int $obraId): array
 {
@@ -257,9 +319,15 @@ function segListaEdificios(array $filtros = []): array
         $conds[] = 'so.ente_id = :ente';
         $params['ente'] = (int)$filtros['ente_id'];
     }
-    if (!empty($filtros['solo_mias'])) {
-        $conds[] = 'so.responsable_id = :resp';
-        $params['resp'] = $_SESSION['user_id'] ?? 0;
+
+    // Alcance por ENTE (reemplaza el antiguo "solo asignadas a mí"): un
+    // usuario que pertenece a un ente (ente/gobernante) ve automáticamente
+    // SOLO las obras asignadas a su ente. El master y quien no pertenece a
+    // ningún ente no se filtran por este criterio (ven todo su ámbito).
+    $miEnte = enteDelUsuario();
+    if ($miEnte !== null && !usuarioEsMaster()) {
+        $conds[] = 'so.ente_id = :mi_ente';
+        $params['mi_ente'] = $miEnte;
     }
 
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
@@ -304,6 +372,14 @@ function segKpis(): array
     $conds = [];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
+    // Alcance por ente (igual que la lista): un usuario con ente solo cuenta
+    // sus obras. Nota: esto filtra por so.ente_id, así que las inspecciones
+    // sin obra (sin_seguimiento) no aplican a un usuario de ente.
+    $miEnte = enteDelUsuario();
+    if ($miEnte !== null && !usuarioEsMaster()) {
+        $conds[] = 'so.ente_id = :mi_ente';
+        $params['mi_ente'] = $miEnte;
+    }
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
     $stmt = $pdo->prepare("
         SELECT
