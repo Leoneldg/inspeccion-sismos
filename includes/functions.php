@@ -240,32 +240,56 @@ function tablaSeguimientoExiste(): bool
 }
 
 /**
- * Opciones del mapa del dashboard (activables/desactivables desde
- * Configuración). Devuelve un arreglo con banderas:
- *   - 'listado_emergente' : mostrar el panel/ventana con la lista de fichas
- *                           al hacer clic en una zona del geojson. (Temporal:
- *                           por pedido queda DESACTIVADO por defecto.)
- *   - 'solo_seguimiento'  : mostrar en el mapa SOLO los edificios que ya
- *                           tienen ficha de Seguimiento y Control.
+ * Opciones del mapa del dashboard (configurables desde Configuración).
+ *
+ * Modelo actual:
+ *   - 'modo' : opción ÚNICA (single choice) del modo de visualización:
+ *        'normal'    -> todos los puntos, sin listado emergente
+ *        'seguimiento' -> solo edificios con ficha de Seguimiento y Control
+ *        'listado'   -> muestra el panel de fichas al hacer clic en una zona
+ *   - 'filtro_parroquias' : toggle independiente para habilitar/deshabilitar
+ *        el filtrado por parroquias al hacer clic en el mapa.
+ *
+ * Para no romper el resto del código, se derivan además las banderas
+ * booleanas que ya se usaban ('listado_emergente' y 'solo_seguimiento').
  */
 function obtenerOpcionesMapa(): array
 {
-    $defaults = [
-        'listado_emergente' => false, // temporalmente apagado por defecto
-        'solo_seguimiento'  => false,
-    ];
-    if (!tablaPanelConfigExiste()) {
-        return $defaults;
-    }
-    $guardado = obtenerConfigValor('mapa_opciones');
-    if (is_array($guardado)) {
-        foreach ($defaults as $k => $v) {
-            if (array_key_exists($k, $guardado)) {
-                $defaults[$k] = (bool)$guardado[$k];
+    $modo = 'normal';               // opción única por defecto
+    $filtroParroquias = true;       // por defecto se puede filtrar por parroquias
+    $edificios = [];                // IDs de inspecciones a mostrar en modo 'seleccionados'
+
+    if (tablaPanelConfigExiste()) {
+        $guardado = obtenerConfigValor('mapa_opciones');
+        if (is_array($guardado)) {
+            // Nuevo formato: campo 'modo'.
+            if (!empty($guardado['modo']) && in_array($guardado['modo'], ['normal', 'seguimiento', 'listado', 'seleccionados'], true)) {
+                $modo = $guardado['modo'];
+            } else {
+                // Compatibilidad con el formato anterior (dos booleanos).
+                if (!empty($guardado['solo_seguimiento'])) {
+                    $modo = 'seguimiento';
+                } elseif (!empty($guardado['listado_emergente'])) {
+                    $modo = 'listado';
+                }
+            }
+            if (array_key_exists('filtro_parroquias', $guardado)) {
+                $filtroParroquias = (bool)$guardado['filtro_parroquias'];
+            }
+            if (!empty($guardado['edificios']) && is_array($guardado['edificios'])) {
+                $edificios = array_values(array_unique(array_map('intval', $guardado['edificios'])));
             }
         }
     }
-    return $defaults;
+
+    return [
+        'modo'               => $modo,
+        'filtro_parroquias'  => $filtroParroquias,
+        'edificios'          => $edificios,
+        // Banderas derivadas (compatibilidad con el código existente):
+        'listado_emergente'  => ($modo === 'listado'),
+        'solo_seguimiento'   => ($modo === 'seguimiento'),
+    ];
 }
 
 /**

@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/seguimiento.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -84,13 +85,68 @@ try {
     $danosEstructuralesTexto = [];
     foreach ($elementosEstruct as $k => $label) {
         if (!empty($danosEst[$k])) {
-            $danosEstructuralesTexto[] = ['label' => $label, 'valor' => $nivelesDano[$danosEst[$k]] ?? $danosEst[$k]];
+            $danosEstructuralesTexto[] = ['k' => $label, 'v' => $nivelesDano[$danosEst[$k]] ?? $danosEst[$k]];
         }
     }
     $danosNoEstructuralesTexto = [];
     foreach ($elementosNoEstruct as $k => $label) {
         if (!empty($danosNo[$k])) {
-            $danosNoEstructuralesTexto[] = ['label' => $label, 'valor' => $nivelesDano[$danosNo[$k]] ?? $danosNo[$k]];
+            $danosNoEstructuralesTexto[] = ['k' => $label, 'v' => $nivelesDano[$danosNo[$k]] ?? $danosNo[$k]];
+        }
+    }
+
+    // ---- Bloque de SEGUIMIENTO Y CONTROL (si el edificio ya tiene ficha de
+    // obra): ente asignado, tiempo de acción, avance y materiales a usar.
+    // Solo se incluye si existe la tabla del módulo y hay una obra para esta
+    // inspección. ----
+    $seguimiento = null;
+    if (tablaSeguimientoExiste()) {
+        $stmtSeg = db()->prepare(
+            'SELECT so.*, e.nombre AS ente_nombre, e.tipo AS ente_tipo,
+                    u.nombre_completo AS responsable_nombre
+             FROM seguimiento_obras so
+             LEFT JOIN entes e ON e.id = so.ente_id
+             LEFT JOIN usuarios u ON u.id = so.responsable_id
+             WHERE so.inspeccion_id = :i'
+        );
+        $stmtSeg->execute(['i' => $id]);
+        $obra = $stmtSeg->fetch();
+
+        if ($obra) {
+            $obraId = (int)$obra['id'];
+            // Materiales / recursos a usar
+            $recursos = segRecursos($obraId);
+            $materiales = array_map(function ($rec) {
+                $est = $rec['cantidad_estimada'] !== null ? (float)$rec['cantidad_estimada'] : null;
+                $uso = (float)$rec['cantidad_utilizada'];
+                $pct = ($est && $est > 0) ? min(100, round($uso / $est * 100)) : null;
+                return [
+                    'recurso'   => $rec['recurso'],
+                    'unidad'    => $rec['unidad'],
+                    'estimado'  => $est,
+                    'utilizado' => $uso,
+                    'porcentaje'=> $pct,
+                    'origen'    => $rec['origen'],
+                ];
+            }, $recursos);
+
+            // Tiempo de acción / fechas
+            $tiempoTxt = $obra['tiempo_accion_dias'] !== null ? ((int)$obra['tiempo_accion_dias'] . ' días') : '—';
+
+            $seguimiento = [
+                'obra_id'         => $obraId,
+                'estado_obra'     => $obra['estado_obra'],
+                'avance_pct'      => $obra['avance_pct'] !== null ? (float)$obra['avance_pct'] : null,
+                'prioridad'       => $obra['prioridad'],
+                'ente'            => $obra['ente_nombre'] ?: null,
+                'ente_tipo'       => $obra['ente_tipo'] ?: null,
+                'responsable'     => $obra['responsable_nombre'] ?: null,
+                'tiempo_accion'   => $tiempoTxt,
+                'fecha_inicio'    => $obra['fecha_inicio'] ?: null,
+                'fecha_fin_est'   => $obra['fecha_fin_estimada'] ?: null,
+                'materiales'      => $materiales,
+                'url_ficha'       => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . $id,
+            ];
         }
     }
 
@@ -145,6 +201,7 @@ try {
         'registrado_por'   => $r['creado_por_nombre'],
         'creado_en'        => $r['creado_en'],
         'fotos'            => $fotosSalida,
+        'seguimiento'      => $seguimiento,
         'url_ficha_completa' => APP_URL_BASE . 'formulario/view.php?id=' . $r['id'],
     ], JSON_UNESCAPED_UNICODE);
 

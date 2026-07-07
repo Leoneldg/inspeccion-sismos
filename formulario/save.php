@@ -97,6 +97,14 @@ if (!usuarioEsMaster()) {
 if (empty($_POST['ing1_id'])) {
     $errores[] = 'Debe seleccionar un profesional responsable del directorio de ingenieros.';
 }
+// La decisión final debe ser uno de los valores válidos del catálogo (la
+// columna es un ENUM: un valor fuera de la lista haría fallar el INSERT
+// completo con "Data truncated", perdiendo toda la inspección). Validarlo
+// aquí da un mensaje claro en vez de un error genérico de base de datos.
+$decisionesValidas = array_keys(catalogoDecisionFinal());
+if (($_POST['decision_final'] ?? '') !== '' && !in_array($_POST['decision_final'], $decisionesValidas, true)) {
+    $errores[] = 'La decisión final seleccionada no es válida.';
+}
 if ($errores) {
     progresoActualizar($clientSubmissionId, 'validando', 'error', implode(' ', $errores));
     flash('error', implode(' ', $errores));
@@ -217,7 +225,7 @@ $campos = [
     'amenaza_geologica'           => $_POST['amenaza_geologica'] ?? 'No',
     'asentamiento_edificio'       => $_POST['asentamiento_edificio'] ?? 'No',
     'inclinacion_edificio'        => $_POST['inclinacion_edificio'] ?? 'No',
-    'requiere_inspeccion_interna' => $_POST['requiere_inspeccion_interna'] ?? 'No',
+    'requiere_inspeccion_interna' => (($_POST['requiere_inspeccion_interna'] ?? 'No') === 'Si') ? 'Si' : 'No',
     'riesgo_externo'              => nullSiVacio($_POST['riesgo_externo'] ?? ''),
 
     'pisos_inspeccionados'          => nullSiVacio(trim($_POST['pisos_inspeccionados'] ?? '')),
@@ -228,7 +236,7 @@ $campos = [
     'riesgo_estructural_moderado'   => nullSiVacio($_POST['riesgo_estructural_moderado'] ?? ''),
 
     'danos_estructurales'         => json_encode($danosEstructurales, JSON_UNESCAPED_UNICODE),
-    'requiere_intervencion'       => $_POST['requiere_intervencion'] ?? 'No',
+    'requiere_intervencion'       => (($_POST['requiere_intervencion'] ?? 'No') === 'Si') ? 'Si' : 'No',
     'pct_dano_iii'                => nullSiVacio($_POST['pct_dano_iii'] ?? ''),
     'pct_dano_iv'                 => nullSiVacio($_POST['pct_dano_iv'] ?? ''),
     'pct_dano_v'                  => nullSiVacio($_POST['pct_dano_v'] ?? ''),
@@ -339,6 +347,12 @@ try {
     exit;
 
 } catch (Throwable $e) {
+    // Registrar SIEMPRE el detalle real en el log del servidor (aunque
+    // APP_DEBUG esté apagado en producción). Así, si un guardado falla por un
+    // problema de base de datos (columna faltante, valor que no cabe en un
+    // ENUM, etc.), queda rastro para diagnosticarlo, en vez de perderse.
+    error_log('[save.php] Error al guardar inspección: ' . $e->getMessage()
+        . ' | archivo ' . $e->getFile() . ':' . $e->getLine());
     progresoActualizar($clientSubmissionId, 'ficha', 'error', 'Ocurrió un error al guardar');
     flash('error', APP_DEBUG ? $e->getMessage() : 'Ocurrió un error al guardar la inspección. Verifique los datos e intente nuevamente.');
     header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));

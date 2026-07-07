@@ -31,6 +31,45 @@ $opcionesMapa   = obtenerOpcionesMapa();
 $camposKpi      = catalogoCamposKpi();
 $kpisCustom     = obtenerConfigKpisCustom();
 
+// Lista de edificios (inspecciones) disponibles para el modo "puntos
+// seleccionados" del mapa. Solo tiene sentido elegir los que tienen
+// coordenadas, pues son los únicos que se dibujan como punto. Se respeta el
+// alcance territorial: un usuario estadal solo ve/selecciona los suyos.
+// Se marca cuáles ya tienen ficha de Seguimiento y Control, para separarlos
+// en dos pestañas (seguimiento vs. solo inspección).
+require_once __DIR__ . '/../includes/territorial.php';
+$haySeguimiento = tablaSeguimientoExiste();
+$selSeg = $haySeguimiento
+    ? ', (SELECT COUNT(*) FROM seguimiento_obras so WHERE so.inspeccion_id = inspecciones.id) AS tiene_seg'
+    : ', 0 AS tiene_seg';
+$sqlEdif = 'SELECT id, codigo, nombre_edificio, parroquia, municipio, estado' . $selSeg . '
+            FROM inspecciones
+            WHERE latitud IS NOT NULL AND longitud IS NOT NULL';
+$paramsEdif = [];
+if (!usuarioEsMaster()) {
+    $estadoU = estadoDelUsuario();
+    if ($estadoU !== null) {
+        $sqlEdif .= ' AND estado = :est';
+        $paramsEdif['est'] = $estadoU;
+    }
+}
+$sqlEdif .= ' ORDER BY estado, municipio, nombre_edificio';
+$stmtEdif = db()->prepare($sqlEdif);
+$stmtEdif->execute($paramsEdif);
+$edificiosTodos = $stmtEdif->fetchAll();
+
+// Separar en dos grupos: con seguimiento y solo inspección.
+$edificiosSeguimiento = [];
+$edificiosInspeccion  = [];
+foreach ($edificiosTodos as $ed) {
+    if (!empty($ed['tiene_seg'])) {
+        $edificiosSeguimiento[] = $ed;
+    } else {
+        $edificiosInspeccion[] = $ed;
+    }
+}
+$edificiosSeleccionados = $opcionesMapa['edificios'] ?? [];
+
 include __DIR__ . '/../includes/header.php';
 ?>
 
@@ -130,41 +169,143 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-header"><h2><i class="bi bi-geo-alt-fill"></i> Opciones del mapa</h2></div>
     <div class="card-body">
         <p class="text-sm text-muted" style="margin-top:0;">
-            Controles rápidos del mapa del dashboard. Son interruptores de mostrar/ocultar: no cambian
-            el resto del tablero ni el orden de los indicadores.
+            Configure cómo se comporta el mapa del dashboard. El modo de visualización es una sola opción
+            a la vez; no cambia el resto del tablero ni el orden de los indicadores.
         </p>
         <form method="post" action="<?= APP_URL_BASE ?>admin/guardar_configuracion.php">
             <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
             <input type="hidden" name="accion" value="guardar_mapa">
 
-            <div class="check-row" style="margin-bottom:12px;">
-                <input type="checkbox" name="mapa[listado_emergente]" id="mapa_listado" value="1"
-                    <?= !empty($opcionesMapa['listado_emergente']) ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>
-                    style="width:17px;height:17px;accent-color:var(--azul-700);">
-                <label for="mapa_listado">
-                    Mostrar el <strong>listado de fichas</strong> al seleccionar una zona en el mapa
-                    <span class="text-sm text-muted" style="display:block;">
-                        (Al hacer clic en una parroquia/municipio del geojson se abre el panel con los edificios.
-                        Desactívelo para ocultar ese panel temporalmente.)
+            <div class="field" style="margin-bottom:16px;">
+                <label style="font-weight:600;margin-bottom:8px;display:block;">Modo de visualización del mapa</label>
+
+                <label class="radio-row">
+                    <input type="radio" name="mapa[modo]" value="normal"
+                        <?= ($opcionesMapa['modo'] ?? 'normal') === 'normal' ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                    <span>
+                        <strong>Normal</strong>
+                        <span class="text-sm text-muted" style="display:block;">Muestra todos los puntos de edificios en el mapa.</span>
+                    </span>
+                </label>
+
+                <label class="radio-row">
+                    <input type="radio" name="mapa[modo]" value="seguimiento"
+                        <?= ($opcionesMapa['modo'] ?? '') === 'seguimiento' ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                    <span>
+                        <strong>Solo fichas de Seguimiento y Control</strong>
+                        <span class="text-sm text-muted" style="display:block;">Muestra únicamente los edificios que ya tienen ficha de seguimiento.</span>
+                    </span>
+                </label>
+
+                <label class="radio-row">
+                    <input type="radio" name="mapa[modo]" value="listado"
+                        <?= ($opcionesMapa['modo'] ?? '') === 'listado' ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                    <span>
+                        <strong>Con listado emergente</strong>
+                        <span class="text-sm text-muted" style="display:block;">Al hacer clic en una zona del mapa se abre el panel con la lista de fichas de esa zona.</span>
+                    </span>
+                </label>
+
+                <label class="radio-row">
+                    <input type="radio" name="mapa[modo]" value="seleccionados" id="mapa-modo-seleccionados"
+                        <?= ($opcionesMapa['modo'] ?? '') === 'seleccionados' ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                    <span>
+                        <strong>Puntos seleccionados</strong>
+                        <span class="text-sm text-muted" style="display:block;">Muestra en el mapa únicamente los edificios que usted elija en la lista de abajo.</span>
                     </span>
                 </label>
             </div>
 
-            <div class="check-row" style="margin-bottom:4px;">
-                <input type="checkbox" name="mapa[solo_seguimiento]" id="mapa_solo_seg" value="1"
-                    <?= !empty($opcionesMapa['solo_seguimiento']) ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>
-                    style="width:17px;height:17px;accent-color:var(--azul-700);">
-                <label for="mapa_solo_seg">
-                    Mostrar en el mapa <strong>solo las fichas de Seguimiento y Control</strong>
-                    <span class="text-sm text-muted" style="display:block;">
-                        (Filtra los puntos del mapa a únicamente los edificios que ya tienen ficha de seguimiento.
-                        El resto del dashboard no se altera.)
+            <!-- Selector de edificios (solo aplica al modo "Puntos seleccionados") -->
+            <div class="field mapa-selector-edificios" id="mapa-selector-edificios"
+                 style="<?= ($opcionesMapa['modo'] ?? '') === 'seleccionados' ? '' : 'display:none;' ?>border-top:1px solid var(--gris-100);padding-top:14px;margin-bottom:16px;">
+                <label style="font-weight:600;margin-bottom:6px;display:block;">
+                    <i class="bi bi-check2-square"></i> Edificios a mostrar
+                    <span class="text-sm text-muted" id="mapa-sel-contador"></span>
+                </label>
+                <?php if (!$edificiosTodos): ?>
+                    <p class="text-sm text-muted">No hay edificios con coordenadas registradas para seleccionar.</p>
+                <?php else: ?>
+                    <?php
+                    // Helper para pintar un item (una casilla de edificio).
+                    $pintarItem = function (array $ed) use ($edificiosSeleccionados, $puedeEditar) {
+                        $checked = in_array((int)$ed['id'], $edificiosSeleccionados, true);
+                        $texto = trim(($ed['nombre_edificio'] ?: 'Sin nombre') . ' ' . ($ed['codigo'] ?: '') . ' ' . ($ed['parroquia'] ?: '') . ' ' . ($ed['municipio'] ?: '') . ' ' . ($ed['estado'] ?: ''));
+                        ?>
+                        <label class="mapa-sel-item" data-busqueda="<?= e(mb_strtolower($texto)) ?>">
+                            <input type="checkbox" name="mapa[edificios][]" value="<?= (int)$ed['id'] ?>" <?= $checked ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                            <span class="mapa-sel-item-info">
+                                <span class="mapa-sel-item-nombre"><?= e($ed['nombre_edificio'] ?: 'Sin nombre') ?> <span class="mapa-sel-item-cod"><?= e($ed['codigo']) ?></span></span>
+                                <span class="mapa-sel-item-loc"><?= e(trim(($ed['parroquia'] ?: '—') . ', ' . ($ed['municipio'] ?: '—') . ', ' . ($ed['estado'] ?: '—'))) ?></span>
+                            </span>
+                        </label>
+                    <?php }; ?>
+
+                    <!-- Pestañas: Seguimiento y Control | Fichas de inspección -->
+                    <div class="mapa-sel-tabs" role="tablist">
+                        <button type="button" class="mapa-sel-tab activo" data-tab="seguimiento">
+                            <i class="bi bi-tools"></i> Seguimiento y Control
+                            <span class="mapa-sel-tab-badge"><?= count($edificiosSeguimiento) ?></span>
+                        </button>
+                        <button type="button" class="mapa-sel-tab" data-tab="inspeccion">
+                            <i class="bi bi-clipboard-check"></i> Fichas de inspección
+                            <span class="mapa-sel-tab-badge"><?= count($edificiosInspeccion) ?></span>
+                        </button>
+                    </div>
+
+                    <input type="text" class="form-control" id="mapa-sel-buscar" placeholder="Buscar por nombre, código, municipio…" style="margin:8px 0;" <?= $puedeEditar ? '' : 'disabled' ?>>
+                    <div class="mapa-sel-acciones" style="margin-bottom:8px;">
+                        <button type="button" class="btn btn-outline btn-sm" id="mapa-sel-todos" <?= $puedeEditar ? '' : 'disabled' ?>><i class="bi bi-check-all"></i> Marcar visibles</button>
+                        <button type="button" class="btn btn-outline btn-sm" id="mapa-sel-ninguno" <?= $puedeEditar ? '' : 'disabled' ?>><i class="bi bi-x-lg"></i> Quitar visibles</button>
+                        <span class="text-sm text-muted mapa-sel-ayuda">Aplica a la pestaña activa según la búsqueda.</span>
+                    </div>
+
+                    <!-- Panel: Seguimiento y Control -->
+                    <div class="mapa-sel-panel" id="mapa-sel-panel-seguimiento">
+                        <?php if (!$edificiosSeguimiento): ?>
+                            <p class="text-sm text-muted" style="padding:8px;">Aún no hay edificios con ficha de Seguimiento y Control.</p>
+                        <?php else: ?>
+                            <div class="mapa-sel-lista">
+                                <?php foreach ($edificiosSeguimiento as $ed) $pintarItem($ed); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Panel: Fichas de inspección -->
+                    <div class="mapa-sel-panel" id="mapa-sel-panel-inspeccion" style="display:none;">
+                        <?php if (!$edificiosInspeccion): ?>
+                            <p class="text-sm text-muted" style="padding:8px;">No hay fichas de inspección sin seguimiento.</p>
+                        <?php else: ?>
+                            <div class="mapa-sel-lista">
+                                <?php foreach ($edificiosInspeccion as $ed) $pintarItem($ed); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <p class="text-sm text-muted" id="mapa-sel-sinresultados" style="display:none;">Ningún edificio coincide con la búsqueda.</p>
+                <?php endif; ?>
+            </div>
+
+            <!-- Toggle independiente: filtrar por parroquias -->
+            <div class="field" style="border-top:1px solid var(--gris-100);padding-top:14px;">
+                <label class="toggle-row">
+                    <span>
+                        <strong>Filtrar por parroquias</strong>
+                        <span class="text-sm text-muted" style="display:block;">
+                            Permite que al hacer clic en una parroquia del mapa se filtre la información por esa parroquia.
+                            Desactívelo para deshabilitar ese filtrado.
+                        </span>
+                    </span>
+                    <span class="toggle-switch">
+                        <input type="checkbox" name="mapa[filtro_parroquias]" value="1"
+                            <?= !empty($opcionesMapa['filtro_parroquias']) ? 'checked' : '' ?> <?= $puedeEditar ? '' : 'disabled' ?>>
+                        <span class="toggle-slider"></span>
                     </span>
                 </label>
             </div>
 
             <?php if ($puedeEditar): ?>
-            <button class="btn btn-primary" style="margin-top:12px;"><i class="bi bi-save-fill"></i> Guardar opciones del mapa</button>
+            <button class="btn btn-primary" style="margin-top:14px;"><i class="bi bi-save-fill"></i> Guardar opciones del mapa</button>
             <?php endif; ?>
         </form>
     </div>
@@ -360,5 +501,80 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+// Selector de edificios para el modo "Puntos seleccionados" del mapa,
+// con dos pestañas: Seguimiento y Control | Fichas de inspección.
+(function () {
+    const selector = document.getElementById('mapa-selector-edificios');
+    if (!selector) return;
+    const radios = document.querySelectorAll('input[name="mapa[modo]"]');
+    const buscar = document.getElementById('mapa-sel-buscar');
+    const sinRes = document.getElementById('mapa-sel-sinresultados');
+    const contador = document.getElementById('mapa-sel-contador');
+    const btnTodos = document.getElementById('mapa-sel-todos');
+    const btnNinguno = document.getElementById('mapa-sel-ninguno');
+    const tabs = Array.from(selector.querySelectorAll('.mapa-sel-tab'));
+    const paneles = {
+        seguimiento: document.getElementById('mapa-sel-panel-seguimiento'),
+        inspeccion:  document.getElementById('mapa-sel-panel-inspeccion'),
+    };
+    // Todos los items (de ambos paneles) para contar y filtrar globalmente.
+    const todosItems = Array.from(selector.querySelectorAll('.mapa-sel-item'));
+    let tabActiva = 'seguimiento';
+
+    function itemsDeTab(tab) {
+        const panel = paneles[tab];
+        return panel ? Array.from(panel.querySelectorAll('.mapa-sel-item')) : [];
+    }
+    function mostrarSelector() {
+        const sel = document.getElementById('mapa-modo-seleccionados');
+        selector.style.display = (sel && sel.checked) ? '' : 'none';
+    }
+    function actualizarContador() {
+        if (!contador) return;
+        // Cuenta el total seleccionado en AMBAS pestañas (lo que se guardará).
+        const n = todosItems.filter(it => it.querySelector('input').checked).length;
+        contador.textContent = n ? `— ${n} seleccionado${n === 1 ? '' : 's'} en total` : '— ninguno seleccionado';
+    }
+    function filtrar() {
+        const q = (buscar ? buscar.value : '').trim().toLowerCase();
+        let visibles = 0;
+        itemsDeTab(tabActiva).forEach(it => {
+            const ok = !q || it.dataset.busqueda.includes(q);
+            it.style.display = ok ? '' : 'none';
+            if (ok) visibles++;
+        });
+        if (sinRes) sinRes.style.display = visibles ? 'none' : '';
+    }
+    function cambiarTab(tab) {
+        tabActiva = tab;
+        tabs.forEach(t => t.classList.toggle('activo', t.dataset.tab === tab));
+        Object.keys(paneles).forEach(k => {
+            if (paneles[k]) paneles[k].style.display = (k === tab) ? '' : 'none';
+        });
+        filtrar();
+    }
+
+    radios.forEach(r => r.addEventListener('change', mostrarSelector));
+    tabs.forEach(t => t.addEventListener('click', () => cambiarTab(t.dataset.tab)));
+    if (buscar) buscar.addEventListener('input', filtrar);
+    todosItems.forEach(it => it.querySelector('input').addEventListener('change', actualizarContador));
+    if (btnTodos) btnTodos.addEventListener('click', () => {
+        // Marca los visibles de la pestaña activa (según el filtro actual).
+        itemsDeTab(tabActiva).forEach(it => { if (it.style.display !== 'none') it.querySelector('input').checked = true; });
+        actualizarContador();
+    });
+    if (btnNinguno) btnNinguno.addEventListener('click', () => {
+        // Desmarca los visibles de la pestaña activa.
+        itemsDeTab(tabActiva).forEach(it => { if (it.style.display !== 'none') it.querySelector('input').checked = false; });
+        actualizarContador();
+    });
+
+    mostrarSelector();
+    cambiarTab('seguimiento');
+    actualizarContador();
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

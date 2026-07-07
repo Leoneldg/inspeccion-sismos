@@ -455,6 +455,18 @@ function poblarFiltroParroquia(lista) {
     }
     if (nombres.includes(prev)) select.value = prev;
     select.dataset.poblado = '1';
+
+    // Si el filtrado por parroquias está desactivado (toggle de Configuración)
+    // y estamos en el nivel de parroquia, se deshabilita el selector para que
+    // no se pueda filtrar por parroquia. La navegación por estado/municipio no
+    // se ve afectada.
+    if (nivel === 'parroquia' && !filtroParroquiasHabilitado()) {
+        select.disabled = true;
+        select.title = 'El filtrado por parroquias está desactivado en Configuración del Sistema.';
+    } else {
+        select.disabled = false;
+        select.title = '';
+    }
 }
 
 // Texto combinado de los filtros activos (parroquia y/o decisión), para
@@ -557,12 +569,20 @@ function seleccionarParroquia(nombre) {
     cargarDashboard();
 }
 
+// ¿Está habilitado el filtrado por parroquias? (toggle de Configuración).
+// Por defecto true si no viene el dato.
+function filtroParroquiasHabilitado() {
+    const opts = (ultimoDatosDashboard && ultimoDatosDashboard.mapa_opciones) || {};
+    return opts.filtro_parroquias !== false;
+}
+
 // Clic sobre una sección del mapa. El comportamiento depende del NIVEL:
 //   - Vista nacional: entra al estado.
 //   - Dentro de un estado (no DC, nivel municipio): entra al municipio
 //     (drill-down a sus parroquias).
 //   - Nivel parroquia (DC o dentro de un municipio): filtra por esa parroquia
-//     (toggle, como siempre).
+//     (toggle, como siempre) SOLO si el filtrado por parroquias está
+//     habilitado en Configuración; si no, el clic no filtra.
 function clicSeccion(nombre) {
     if (!nombre) return;
     const nivel = (ultimoDatosDashboard && ultimoDatosDashboard.nivel) || 'parroquia';
@@ -576,6 +596,7 @@ function clicSeccion(nombre) {
         parroquiaSeleccionada = '';
         cargarDashboard();
     } else { // parroquia
+        if (!filtroParroquiasHabilitado()) return; // filtrado por parroquias desactivado
         seleccionarParroquia(nombre === parroquiaSeleccionada ? '' : nombre);
     }
 }
@@ -839,7 +860,16 @@ async function cargarDashboard() {
     //    y son la única capa de puntos (ya no hay burbujas de total). ----
     clusterLayer.clearLayers();
     {
-        (data.puntos || []).forEach(p => {
+        // Modo "Puntos seleccionados": si está activo, en el mapa se muestran
+        // ÚNICAMENTE los edificios elegidos en Configuración (por su id). En
+        // cualquier otro modo se muestran todos los puntos que devuelva la API.
+        const optsMapa = (ultimoDatosDashboard && ultimoDatosDashboard.mapa_opciones) || {};
+        let puntos = data.puntos || [];
+        if (optsMapa.modo === 'seleccionados') {
+            const permitidos = new Set((optsMapa.edificios || []).map(Number));
+            puntos = permitidos.size ? puntos.filter(p => permitidos.has(Number(p.id))) : [];
+        }
+        puntos.forEach(p => {
             const lat = p.lat, lng = p.lng;
             if (lat == null || lng == null) return;
 
@@ -895,7 +925,13 @@ async function abrirFicha(id) {
     const f = await res.json();
 
     function filas(arr) {
-        return arr.map(r => `<div class="ficha-row"><span class="k">${r.k}</span><span class="v">${r.v ?? '—'}</span></div>`).join('');
+        if (!Array.isArray(arr)) return '';
+        return arr.map(r => {
+            // Soporta tanto {k, v} como {label, valor}, y nunca imprime "undefined".
+            const etiqueta = (r.k ?? r.label ?? '');
+            const valor = (r.v ?? r.valor);
+            return `<div class="ficha-row"><span class="k">${etiqueta}</span><span class="v">${(valor === null || valor === undefined || valor === '') ? '—' : valor}</span></div>`;
+        }).join('');
     }
     function galeria(fotos) {
         if (!fotos || !fotos.length) return '<p class="text-sm text-muted">Sin registro fotográfico.</p>';
@@ -905,6 +941,47 @@ async function abrirFicha(id) {
                 ${g.fotos.map(ph => `<a href="javascript:void(0)" onclick="abrirLightbox('${ph.url}')"><img src="${ph.url}" loading="lazy"></a>`).join('')}
             </div>
         `).join('');
+    }
+
+    // Sección de Seguimiento y Control (solo si el edificio tiene ficha de obra).
+    function seguimientoHtml(s) {
+        if (!s) return '';
+        const fmtNum = (n) => (n === null || n === undefined) ? '—' :
+            new Intl.NumberFormat('es-VE').format(Number(n));
+        const materiales = (s.materiales && s.materiales.length)
+            ? `<div class="tabla-wrap-mini">
+                 <table class="ficha-materiales">
+                   <thead><tr><th>Material / recurso</th><th>Unidad</th><th>Estimado</th><th>Usado</th></tr></thead>
+                   <tbody>
+                     ${s.materiales.map(m => `<tr>
+                        <td>${m.recurso ?? '—'}</td>
+                        <td>${m.unidad ?? '—'}</td>
+                        <td>${m.estimado === null ? '—' : fmtNum(m.estimado)}</td>
+                        <td>${fmtNum(m.utilizado)}${m.porcentaje !== null ? ` <span class="text-muted">(${m.porcentaje}%)</span>` : ''}</td>
+                     </tr>`).join('')}
+                   </tbody>
+                 </table>
+               </div>`
+            : '<p class="text-sm text-muted">Aún no se han registrado materiales para esta obra.</p>';
+
+        const datos = [
+            { k: 'Ente asignado', v: s.ente ? (s.ente + (s.ente_tipo ? ' (' + s.ente_tipo + ')' : '')) : 'Sin asignar' },
+            { k: 'Responsable', v: s.responsable || '—' },
+            { k: 'Estado de la obra', v: s.estado_obra || '—' },
+            { k: 'Avance', v: s.avance_pct !== null ? (Math.round(s.avance_pct) + '%') : '—' },
+            { k: 'Tiempo de acción', v: s.tiempo_accion || '—' },
+            { k: 'Inicio / Fin estimado', v: (s.fecha_inicio || '—') + ' / ' + (s.fecha_fin_est || '—') },
+        ];
+
+        return `
+            <div class="section-title" style="color:var(--azul-800);"><i class="bi bi-tools"></i> Seguimiento y Control</div>
+            <div class="ficha-grid">${filas(datos)}</div>
+            <div class="foto-categoria-titulo" style="margin-top:10px;">Materiales a usar</div>
+            ${materiales}
+            <div class="flex gap-8" style="margin-top:12px;">
+                <a href="${s.url_ficha}" class="btn btn-outline btn-sm"><i class="bi bi-arrow-up-right-square"></i> Abrir ficha de seguimiento</a>
+            </div>
+        `;
     }
 
     const html = `
@@ -939,6 +1016,8 @@ async function abrirFicha(id) {
 
             ${f.observaciones ? `<div class="section-title"><i class="bi bi-card-text"></i> Observaciones</div><p class="text-sm">${f.observaciones}</p>` : ''}
             ${f.recomendaciones ? `<div class="section-title"><i class="bi bi-lightbulb-fill"></i> Recomendaciones</div><p class="text-sm">${f.recomendaciones}</p>` : ''}
+
+            ${seguimientoHtml(f.seguimiento)}
 
             <div class="section-title"><i class="bi bi-camera-fill"></i> Registro fotográfico ${f.fotos.length ? '(' + f.fotos.reduce((n,g) => n + g.fotos.length, 0) + ' fotos)' : ''}</div>
             ${galeria(f.fotos)}

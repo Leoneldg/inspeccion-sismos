@@ -42,9 +42,20 @@ if ($accion === 'guardar_formulario') {
     registrarLog($_SESSION['user_id'], 'config_dashboard_actualizada', json_encode($widgets));
     flash('success', 'Configuración del dashboard actualizada.');
 } elseif ($accion === 'guardar_mapa') {
+    $modo = $_POST['mapa']['modo'] ?? 'normal';
+    if (!in_array($modo, ['normal', 'seguimiento', 'listado', 'seleccionados'], true)) {
+        $modo = 'normal';
+    }
+    // Edificios elegidos manualmente (modo 'seleccionados'). Llegan como lista
+    // de IDs; se normalizan a enteros y se quitan duplicados/valores vacíos.
+    $edificios = [];
+    if (!empty($_POST['mapa']['edificios']) && is_array($_POST['mapa']['edificios'])) {
+        $edificios = array_values(array_unique(array_filter(array_map('intval', $_POST['mapa']['edificios']))));
+    }
     $opciones = [
-        'listado_emergente' => !empty($_POST['mapa']['listado_emergente']),
-        'solo_seguimiento'  => !empty($_POST['mapa']['solo_seguimiento']),
+        'modo'              => $modo,
+        'filtro_parroquias' => !empty($_POST['mapa']['filtro_parroquias']),
+        'edificios'         => $edificios,
     ];
     guardarConfigValor('mapa_opciones', $opciones, $_SESSION['user_id']);
     registrarLog($_SESSION['user_id'], 'config_mapa_actualizada', json_encode($opciones));

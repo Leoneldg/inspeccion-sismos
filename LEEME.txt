@@ -104,7 +104,78 @@ idempotente:
 ====================================================================
  CORRECCIONES DE ESTA ENTREGA
 ====================================================================
- - Formulario responsive: la rejilla de campos ahora se adapta sola al
+ - CORREGIDO: datos que salían "undefined" en la ficha del punto del
+   mapa (el recuadro que se abre al hacer clic en un edificio del
+   dashboard). En las secciones "Daño en elementos estructurales" y
+   "Daño en elementos no estructurales" la etiqueta aparecía como
+   "undefined" aunque en la base de datos el dato SÍ existía. La causa
+   era una diferencia interna de nombres entre lo que enviaba el servidor
+   y lo que esperaba la pantalla (label/valor vs. k/v). Ahora esas
+   secciones muestran correctamente cada elemento y su nivel de daño
+   (p. ej. "Columna = Sin daño (I)"). Además se reforzó la función que
+   dibuja esas filas para que nunca muestre "undefined": si un dato
+   faltara, muestra un guion (—). Verificado en varias inspecciones: 0
+   casos de "undefined".
+
+     * Se agregó arriba un bloque destacado del ENTE ASIGNADO (tarjeta con
+       ícono grande y color), para que se vea de un vistazo quién está a
+       cargo de la recuperación.
+     * Al lado se muestra un RESUMEN breve de la inspección (ubicación,
+       decisión final, N° de pisos, apartamentos, uso, familias y total de
+       personas afectadas), en vez de repetir todos los detalles. Incluye
+       un enlace "Abrir" a la ficha completa de inspección para quien
+       necesite el detalle.
+ - Configuración → Opciones del mapa → nuevo modo "Puntos seleccionados":
+     * Permite elegir manualmente CUÁLES edificios se muestran en el mapa
+       del dashboard. El selector tiene DOS PESTAÑAS separadas:
+         · "Seguimiento y Control": edificios que ya tienen ficha de obra.
+         · "Fichas de inspección": edificios sin seguimiento aún.
+       Cada pestaña muestra cuántos edificios contiene. Puede elegir de una,
+       de la otra, o de ambas a la vez (se pueden mezclar): el mapa mostrará
+       todos los que marque, sin importar la pestaña.
+     * Hay un buscador y botones "Marcar visibles" / "Quitar visibles" que
+       actúan sobre la pestaña activa según lo que esté filtrado. Solo se
+       listan los edificios que tienen coordenadas (los únicos que se
+       dibujan como punto).
+     * En el dashboard, al activar este modo, el mapa muestra ÚNICAMENTE
+       los edificios seleccionados (reemplaza al resto). Cada punto conserva
+       su ícono según el tipo (pin de obra para los de seguimiento, punto
+       circular para los de solo inspección). Los demás modos (Normal, Solo
+       seguimiento, Con listado emergente) siguen igual.
+     * Respeta el alcance territorial: un usuario estadal solo puede
+       elegir edificios de su estado.
+
+   la base de datos: se identificó y corrigió la causa. El guardado podía
+   fallar en el servidor por un "truncamiento de datos" (error 1265 de
+   MySQL): cuando un valor no coincide EXACTAMENTE con los permitidos de
+   una columna de lista (ENUM) —por ejemplo la "decisión final", o los
+   campos Sí/No—, MySQL rechazaba TODO el registro y la inspección no se
+   guardaba. Cambios aplicados:
+     * Se valida la "decisión final" contra la lista oficial ANTES de
+       guardar: si por algún motivo llega un valor inesperado, ahora se
+       muestra un mensaje claro ("La decisión final seleccionada no es
+       válida") en lugar de perder la inspección en silencio.
+     * Se normalizan los campos Sí/No ("requiere inspección interna" y
+       "requiere intervención") para que nunca trunquen.
+     * El navegador ya NO da sensación de "enviado" si el guardado falló:
+       solo se considera exitoso si el servidor confirma la ficha
+       guardada; si hubo cualquier error, se muestra el mensaje del
+       servidor y el usuario sabe que debe reintentar.
+     * Todo error de guardado queda registrado en el log del servidor
+       (con la línea "[save.php] Error al guardar inspección: ..."),
+       aunque el modo depuración esté apagado. Si el problema reapareciera
+       en el servidor, ese log dirá exactamente qué columna lo causó.
+   NOTA: si algún usuario vio "Guardado localmente" (sin conexión), esa
+   inspección está en el dispositivo, no en la base; se sube desde el
+   nuevo Buzón de envíos pendientes (ver más abajo).
+ - Ficha del punto del mapa (Seguimiento y Control): al hacer clic en un
+   punto del dashboard, la ficha ahora incluye —cuando el edificio ya
+   tiene obra de seguimiento— el Ente asignado, el Tiempo de acción, el
+   avance y los Materiales a usar (tabla con estimado/usado), además de
+   las fotos de la inspección. Incluye un enlace directo a la ficha
+   completa de seguimiento. Si el edificio no tiene obra, la ficha se ve
+   como antes.
+
    ancho de la pantalla (3-4 columnas en escritorio, 2 en tablet, 1 en
    móvil) sin saltos bruscos. En móvil la barra larga de 8 pasos se
    reemplaza por un indicador compacto "Paso X de 8" con barra de

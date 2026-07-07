@@ -125,6 +125,75 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<?php
+// Total de personas afectadas (suma de los grupos poblacionales).
+$totalPersonas = 0;
+foreach (['ninos','mujeres','hombres','adultos_tercera_edad','gestantes','movilidad_reducida'] as $gp) {
+    $totalPersonas += (int)($insp[$gp] ?? 0);
+}
+$enteNombre = $insp['ente_nombre'] ?? null;
+$enteTipo   = null;
+if ($enteNombre && !empty($obra['ente_id'])) {
+    foreach ($entes as $en) {
+        if ((int)$en['id'] === (int)$obra['ente_id']) { $enteTipo = $en['tipo']; break; }
+    }
+}
+?>
+<!-- Bloque destacado: ENTE ASIGNADO + resumen breve de la inspección -->
+<div class="seg-resumen-top">
+    <!-- Ente asignado, resaltado con ícono grande -->
+    <div class="seg-ente-destacado <?= $enteNombre ? 'tiene-ente' : 'sin-ente' ?>">
+        <div class="seg-ente-icono"><i class="bi bi-building-fill-gear"></i></div>
+        <div class="seg-ente-info">
+            <span class="seg-ente-label">Ente asignado</span>
+            <span class="seg-ente-nombre"><?= $enteNombre ? e($enteNombre) : 'Sin asignar' ?></span>
+            <?php if ($enteTipo): ?><span class="seg-ente-tipo"><?= e($enteTipo) ?></span><?php endif; ?>
+            <?php if (!$enteNombre && $puedeGestionar): ?>
+                <span class="seg-ente-hint">Asígnelo en el <strong>Plan de acción</strong>, más abajo.</span>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Resumen breve de la inspección (no todos los detalles) -->
+    <div class="seg-resumen-insp">
+        <div class="seg-resumen-titulo"><i class="bi bi-clipboard-data"></i> Resumen de la inspección</div>
+        <div class="seg-resumen-grid">
+            <div class="seg-resumen-item seg-resumen-item-full">
+                <span class="k"><i class="bi bi-geo-alt-fill"></i> Ubicación</span>
+                <span class="v"><?= e($insp['parroquia'] ?? '—') ?><?php if (!empty($insp['municipio'])): ?>, <?= e($insp['municipio']) ?><?php endif; ?>, <?= e($insp['estado'] ?? '—') ?></span>
+            </div>
+            <div class="seg-resumen-item seg-resumen-item-full">
+                <span class="k">Decisión final</span>
+                <span class="v"><span class="badge" style="background:<?= $decMeta['color'] ?>22;color:<?= $decMeta['color'] ?>;"><?= e($decMeta['corto']) ?></span></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Pisos</span>
+                <span class="v"><?= (int)($insp['num_pisos'] ?? 0) ?></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Apartamentos</span>
+                <span class="v"><?= (int)($insp['cantidad_apartamentos'] ?? 0) ?></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Uso</span>
+                <span class="v"><?= e($insp['uso_edificacion'] ?: '—') ?></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Familias</span>
+                <span class="v"><?= (int)($insp['familias'] ?? 0) ?></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Personas afectadas</span>
+                <span class="v"><?= $totalPersonas ?></span>
+            </div>
+            <div class="seg-resumen-item">
+                <span class="k">Ver ficha completa</span>
+                <span class="v"><a href="<?= APP_URL_BASE ?>formulario/view.php?id=<?= (int)$inspeccionId ?>" class="seg-resumen-link">Abrir <i class="bi bi-box-arrow-up-right"></i></a></span>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="seg-ficha-grid">
 
     <!-- Columna izquierda: datos de planificación + recursos -->
@@ -221,7 +290,6 @@ include __DIR__ . '/../includes/header.php';
                 <?php else: ?>
                     <div class="text-muted text-sm" style="margin-bottom:8px;">Solo un usuario con permiso de gestión define el plan de acción. Usted puede reportar el consumo de recursos y subir fotos.</div>
                     <dl class="seg-datos">
-                        <div><dt>Ente</dt><dd><?= e($insp['ente_nombre'] ?? 'Sin asignar') ?></dd></div>
                         <div><dt>Estado</dt><dd><?= e($obra['estado_obra']) ?></dd></div>
                         <div><dt>Inicio</dt><dd><?= e($obra['fecha_inicio'] ?? '—') ?></dd></div>
                         <div><dt>Fin estimado</dt><dd><?= e($obra['fecha_fin_estimada'] ?? '—') ?></dd></div>

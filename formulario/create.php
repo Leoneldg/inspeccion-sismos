@@ -1008,7 +1008,35 @@ include __DIR__ . '/../includes/header.php';
             const formData = new FormData(form);
             const resp = await fetch(form.action, { method: 'POST', body: formData, credentials: 'same-origin' });
             detenerPollingProgreso();
-            window.location.href = resp.redirected ? resp.url : INDEX_URL;
+            // El guardado SOLO fue exitoso si el servidor terminó en la página
+            // de vista de la inspección (view.php). Si terminó en create.php o
+            // login.php, hubo un error (validación, sesión, o error de base de
+            // datos) y la inspección NO se guardó: en ese caso NO debemos dar
+            // sensación de éxito, sino llevar al usuario a la página con el
+            // mensaje de error para que lo vea y reintente.
+            const urlFinal = resp.redirected ? resp.url : resp.url;
+            const guardadoOk = /\/formulario\/view\.php(\?|$)/.test(urlFinal);
+            if (guardadoOk) {
+                window.location.href = urlFinal;
+            } else {
+                // Terminó en create.php/login.php: error. Mostrar el HTML
+                // devuelto (que incluye el mensaje de error del servidor) para
+                // que el usuario sepa que NO se guardó.
+                btnGuardar.disabled = false;
+                btnGuardar.innerHTML = textoOriginalBtn;
+                cajaProgreso.classList.remove('activo');
+                cajaProgreso.innerHTML = '';
+                if (urlFinal && !/\/formulario\/create\.php/.test(urlFinal)) {
+                    // Redirigió a login u otra página: seguir la redirección.
+                    window.location.href = urlFinal;
+                } else {
+                    // Se quedó en el formulario: recargar esa página para
+                    // mostrar el mensaje de error del servidor tal cual.
+                    document.open();
+                    document.write(await resp.text());
+                    document.close();
+                }
+            }
         } catch (err) {
             // La red falló justo al enviar (típico de señal intermitente): no se pierde nada.
             detenerPollingProgreso();
