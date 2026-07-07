@@ -1,3 +1,58 @@
+================================================================================
+ AISLAMIENTO POR ENTE + PROFESIÓN + FOTOS OPCIONALES + DEMO ADMIN (esta entrega)
+================================================================================
+
+1. ASIGNAR Y CREAR ENTE DESDE USUARIOS
+--------------------------------------
+- En el formulario de "Nuevo/Editar usuario" ahora hay un selector "Ente al
+  que pertenece". Con el enlace "+ Crear un ente nuevo" se puede registrar un
+  ente sin salir de la pantalla (queda seleccionado al instante).
+- La lista de usuarios muestra una columna "Ente".
+
+2. AISLAMIENTO DE DATOS POR ENTE ("bases de datos" separadas)
+------------------------------------------------------------
+Cada ente ve solo SUS datos: su dashboard (números y mapa), sus inspecciones,
+sus inspectores y sus usuarios. Reglas:
+  - Ente normal (alcaldía, empresa…): ve solo lo de su propio ente.
+  - Ente de tipo "Gobernación": ve TODO lo de su estado (todos los entes de
+    ese estado).
+  - Administrador master: ve todo el sistema.
+El "dueño" de una inspección es el ente del usuario que la creó (se guarda al
+registrarla). También se protege el acceso por URL: no se puede abrir la ficha
+de una inspección de otro ente.
+
+3. PANEL MASTER: "BASES POR ENTE"
+---------------------------------
+Nuevo módulo visible solo para el administrador master (menú Administración →
+"Bases por ente"). Muestra, por cada ente, cuántos usuarios, inspectores e
+inspecciones tiene, más el TOTAL GLOBAL del sistema.
+
+4. PROFESIÓN COMO CAMPO "ELEGIR O CREAR"
+----------------------------------------
+En Ingenieros/Inspectores, la profesión ahora es un selector: se elige una
+existente o se crea una nueva ("+ Otra"). Las profesiones quedan en un catálogo
+y arriba de la lista aparecen chips con cuántos profesionales hay por cada
+profesión (se puede filtrar tocándolos).
+
+5. FOTOS OPCIONALES
+-------------------
+Ninguna foto del formulario de inspección es obligatoria (incluida la del
+inspector). Se pueden subir tomándolas con la cámara o eligiéndolas de la
+galería.
+
+6. MODO DEMOSTRACIÓN PARA EL ADMINISTRADOR
+------------------------------------------
+Solo el rol Administrador puede recorrer los 8 pasos del formulario de
+inspección sin llenar los campos, para mostrar el sistema. Los demás roles
+siguen con los campos obligatorios normales.
+
+7. BASE DE DATOS
+----------------
+Correr database/actualizacion.sql (idempotente). Agrega: inspecciones.ente_id,
+ingenieros.ente_id y la tabla "profesiones", y rellena el ente de los registros
+existentes a partir del usuario creador.
+
+
 FORMULARIO — Stepper rediseñado + bloqueo del paso 1 + buscador de ingenieros
 ================================================================================
 

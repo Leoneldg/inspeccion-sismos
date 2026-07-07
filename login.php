@@ -77,11 +77,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
                 <div class="field" style="margin-bottom:16px;">
                     <label class="req">Usuario o correo</label>
-                    <input type="text" name="usuario" class="form-control" required autofocus value="<?= e($_POST['usuario'] ?? '') ?>">
+                    <input type="text" name="usuario" class="form-control" required autofocus autocomplete="off" value="">
                 </div>
                 <div class="field" style="margin-bottom:20px;position:relative;">
                     <label class="req">Contraseña</label>
-                    <input id="password-input" type="password" name="password" class="form-control" required>
+                    <input id="password-input" type="password" name="password" class="form-control" required autocomplete="new-password">
                     <button id="toggle-password" type="button" class="password-toggle" aria-label="Mostrar contraseña" style="position:absolute;right:12px;top:38px;border:none;background:none;color:var(--gris-700);cursor:pointer;font-size:18px;">
                         <i class="bi bi-eye-fill"></i>
                     </button>
@@ -90,10 +90,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <i class="bi bi-box-arrow-in-right"></i> Ingresar
                 </button>
             </form>
-
-            <div class="text-sm text-muted" style="margin-top:22px;padding-top:18px;border-top:1px solid var(--gris-300);">
-                Usuario demo administrador: <code>admin</code> / <code>Admin#2026</code>
-            </div>
         </div>
     </div>
 </div>

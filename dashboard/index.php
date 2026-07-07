@@ -30,6 +30,19 @@ function ordenFila(array $wcfg, array $ids): int {
     return $ordenes ? min($ordenes) : 0;
 }
 
+// ¿Hay algún widget visible en la columna izquierda? Si no, el mapa (columna
+// derecha) debe ocupar todo el ancho, en vez de dejar la izquierda en negro.
+$hayIzquierda =
+       visibleDash($wcfg, 'kpi_inspecciones')
+    || visibleDash($wcfg, 'kpi_personas')
+    || visibleDash($wcfg, 'kpi_grid')
+    || (visibleDash($wcfg, 'kpis_custom') && $kpisCustomDefs)
+    || visibleDash($wcfg, 'chart_decision')
+    || visibleDash($wcfg, 'chart_parroquia');
+$mapaVisible = visibleDash($wcfg, 'mapa');
+// El mapa ocupa todo el ancho cuando es lo único visible.
+$soloMapa = $mapaVisible && !$hayIzquierda;
+
 $pageTitle    = 'Dashboard';
 $pageSubtitle = 'Panorama general de inspecciones estructurales post-sismo';
 $activeModule = 'dashboard';
@@ -88,7 +101,8 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="dashboard-tv-body">
 
-<div class="split-grid cols-10-14 align-start dashboard-chart-map" style="margin-bottom:16px;">
+<div id="dash-grid" class="split-grid <?= $soloMapa ? 'dashboard-solo-mapa' : 'cols-10-14' ?> align-start dashboard-chart-map" style="margin-bottom:16px;">
+    <?php if (!$soloMapa): ?>
     <div class="dashboard-left-col">
         <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;order:<?= ordenFila($wcfg, ['kpi_inspecciones','kpi_personas']) ?>;">
             <?php if (visibleDash($wcfg, 'kpi_inspecciones')): ?>
@@ -196,6 +210,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
 
     <?php if (visibleDash($wcfg, 'mapa')): ?>
     <div class="card card-mapa" style="<?= estiloDash($wcfg, 'mapa') ?>">
@@ -617,22 +632,13 @@ async function cargarDashboard() {
     const res = await fetch(url);
     const data = await res.json();
 
-    window.DashboardNacional.sincronizar(data);
-    renderBreadcrumb(data);
-    // La lista del <select> de unidades cambia según el nivel: re-poblar.
-    poblarFiltroParroquia(data.por_parroquia);
-    poblarFiltroDecisionParroquia(data.decision);
-    actualizarIndicadoresFiltro();
-    renderListaEdificios(data.inspecciones);
-    ultimoDatosDashboard = data;
-
-    document.getElementById('hora-actualizacion').textContent = data.actualizado;
-
+    // Primero los indicadores (no dependen de librerías externas), para que
+    // siempre se muestren aunque el mapa o los gráficos fallen al cargar.
     setTxt('kpi-inspecciones', formatNum(data.totales.inspecciones));
-    const personasTotales = (Number(data.totales.hombres) || 0) + (Number(data.totales.mujeres) || 0) +
+    const personasTotalesTop = (Number(data.totales.hombres) || 0) + (Number(data.totales.mujeres) || 0) +
         (Number(data.totales.ninos) || 0) + (Number(data.totales.adultos_tercera_edad) || 0) +
         (Number(data.totales.gestantes) || 0);
-    setTxt('kpi-personas-totales', formatNum(personasTotales));
+    setTxt('kpi-personas-totales', formatNum(personasTotalesTop));
     setTxt('kpi-familias', formatNum(data.totales.familias));
     setTxt('kpi-hombres', formatNum(data.totales.hombres));
     setTxt('kpi-mujeres', formatNum(data.totales.mujeres));
@@ -641,6 +647,23 @@ async function cargarDashboard() {
     setTxt('kpi-terceraedad', formatNum(data.totales.adultos_tercera_edad));
     setTxt('kpi-gestantes', formatNum(data.totales.gestantes));
     setTxt('kpi-mascotas', formatNum(data.totales.mascotas));
+    if (data.kpis_custom) {
+        Object.keys(data.kpis_custom).forEach(id => setTxt('kpi-custom-' + id, formatNum(data.kpis_custom[id])));
+    }
+
+    try {
+        window.DashboardNacional.sincronizar(data);
+    } catch (e) { console.error('Error al sincronizar el mapa:', e); }
+    renderBreadcrumb(data);
+    // La lista del <select> de unidades cambia según el nivel: re-poblar.
+    poblarFiltroParroquia(data.por_parroquia);
+    poblarFiltroDecisionParroquia(data.decision);
+    actualizarIndicadoresFiltro();
+
+    renderListaEdificios(data.inspecciones);
+    ultimoDatosDashboard = data;
+
+    document.getElementById('hora-actualizacion').textContent = data.actualizado;
 
     // ---- KPIs personalizados (definidos en Configuración del Sistema) ----
     if (data.kpis_custom) {
@@ -953,7 +976,13 @@ window.addEventListener('sismos:layout-change', () => {
     if (map) map.invalidateSize();
 });
 
-initMap();
+// Si una librería externa del mapa (Leaflet) no cargó, no debe impedir que se
+// muestren los indicadores y gráficos: se aísla su inicialización.
+try {
+    initMap();
+} catch (e) {
+    console.error('No se pudo iniciar el mapa (se continúa con los indicadores):', e);
+}
 cargarDashboard();
 setInterval(cargarDashboard, 60000);
 </script>

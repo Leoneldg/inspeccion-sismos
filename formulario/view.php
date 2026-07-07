@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('formulario', 'ver');
 
@@ -18,6 +19,22 @@ if (!$r) {
     flash('error', 'La inspección solicitada no existe.');
     header('Location: ' . APP_URL_BASE . 'formulario/index.php');
     exit;
+}
+
+// Aislamiento por ente: un usuario no puede abrir por URL una inspección que
+// no pertenece a su ente (una Gobernación sí puede ver las de su estado; el
+// master, todas).
+if (!usuarioEsMaster() && enteDelUsuario() !== null && function_exists('scopeEnteSql')) {
+    [$fragEnte, $pEnte] = scopeEnteSql('ente_id', 'estado');
+    if ($fragEnte !== '' && columnaInspeccionExiste('ente_id')) {
+        $chk = db()->prepare("SELECT 1 FROM inspecciones WHERE id = :id AND ($fragEnte) LIMIT 1");
+        $chk->execute(array_merge(['id' => $id], $pEnte));
+        if (!$chk->fetchColumn()) {
+            flash('error', 'No tiene acceso a esa inspección.');
+            header('Location: ' . APP_URL_BASE . 'formulario/index.php');
+            exit;
+        }
+    }
 }
 
 $danosEst = json_decode($r['danos_estructurales'] ?? '{}', true) ?: [];

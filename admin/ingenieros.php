@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 requierePermiso('ingenieros', 'ver');
 
@@ -40,11 +41,59 @@ if ($q !== '') {
     $params['q1'] = "%$q%";
     $params['q2'] = "%$q%";
 }
+// Aislamiento por ente: cada ente ve solo sus profesionales (Gobernación, los
+// de su estado; master, todos). Solo si la columna ente_id existe.
+$tieneEnteIng = false;
+try { $pdo->query('SELECT ente_id FROM ingenieros LIMIT 1'); $tieneEnteIng = true; } catch (Throwable $e) { $tieneEnteIng = false; }
+if ($tieneEnteIng) {
+    aplicarScopeEnte($where, $params, 'ente_id', 'estado');
+}
+
+// Filtro por profesión (para saber cuántos hay de cada una).
+$profesionFiltro = trim($_GET['profesion'] ?? '');
+if ($profesionFiltro !== '') {
+    $where[] = 'profesion = :prof';
+    $params['prof'] = $profesionFiltro;
+}
+
+// Catálogo de profesiones para el selector y para el filtro.
+$profesiones = catalogoProfesiones();
+// Conteo de profesionales por profesión (respetando el mismo alcance de ente).
+$condConteo = [];
+$paramsConteo = [];
+if ($tieneEnteIng) { aplicarScopeEnte($condConteo, $paramsConteo, 'ente_id', 'estado'); }
+$whereConteo = $condConteo ? ('WHERE ' . implode(' AND ', $condConteo)) : '';
+$conteoPorProfesion = [];
+try {
+    $stmtCp = $pdo->prepare("SELECT COALESCE(NULLIF(TRIM(profesion),''),'(Sin profesión)') AS prof, COUNT(*) AS n FROM ingenieros $whereConteo GROUP BY prof ORDER BY n DESC");
+    $stmtCp->execute($paramsConteo);
+    $conteoPorProfesion = $stmtCp->fetchAll();
+} catch (Throwable $e) { $conteoPorProfesion = []; }
+
 $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
 $stmt = $pdo->prepare("SELECT * FROM ingenieros $whereSql ORDER BY activo DESC, nombre_completo ASC");
 $stmt->execute($params);
 $ingenieros = $stmt->fetchAll();
+
+// Catálogo de entes para asignar al profesional (aísla los datos por ente).
+$entesIng = [];
+if (tablaEntesExiste()) {
+    try {
+        // El master ve todos los entes; un usuario con ente ve los de su estado.
+        if (usuarioEsMaster()) {
+            $entesIng = $pdo->query('SELECT id, nombre, tipo, estado FROM entes WHERE activo = 1 ORDER BY nombre')->fetchAll();
+        } elseif (!empty($_SESSION['ente_estado'])) {
+            $st = $pdo->prepare('SELECT id, nombre, tipo, estado FROM entes WHERE activo = 1 AND estado = :e ORDER BY nombre');
+            $st->execute(['e' => $_SESSION['ente_estado']]);
+            $entesIng = $st->fetchAll();
+        } elseif (!empty($_SESSION['ente_id'])) {
+            $st = $pdo->prepare('SELECT id, nombre, tipo, estado FROM entes WHERE id = :id');
+            $st->execute(['id' => $_SESSION['ente_id']]);
+            $entesIng = $st->fetchAll();
+        }
+    } catch (Throwable $e) { $entesIng = []; }
+}
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -80,12 +129,46 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <div class="field" style="margin-bottom:14px;">
                 <label>Profesión</label>
-                <input name="profesion" class="form-control" placeholder="Ej: Ingeniero Civil, Arquitecto…" value="<?= e($editIng['profesion'] ?? '') ?>">
+                <?php
+                $profActual = $editIng['profesion'] ?? '';
+                // Lista fija de profesiones.
+                $profesionesFijas = ['Ingeniero', 'Arquitecto', 'Bombero', 'Protección Civil', 'Psicólogo', 'Psiquiatra', 'Antropólogo', 'Politólogo'];
+                // ¿La profesión guardada está en la lista fija? Si no, es "Otro".
+                $profEsOtro = ($profActual !== '' && !in_array($profActual, $profesionesFijas, true));
+                ?>
+                <select name="profesion_sel" id="profesion-sel" class="form-control">
+                    <option value="">— Seleccione una profesión —</option>
+                    <?php foreach ($profesionesFijas as $pf): ?>
+                        <option value="<?= e($pf) ?>" <?= ($profActual === $pf) ? 'selected' : '' ?>><?= e($pf) ?></option>
+                    <?php endforeach; ?>
+                    <option value="__otro__" <?= $profEsOtro ? 'selected' : '' ?>>Otro…</option>
+                </select>
+                <!-- Campo para escribir la profesión manualmente (aparece al elegir "Otro"). -->
+                <input type="text" name="profesion_nueva" id="profesion-nueva" class="form-control"
+                       style="margin-top:8px;<?= $profEsOtro ? '' : 'display:none;' ?>"
+                       placeholder="Escriba la profesión"
+                       value="<?= $profEsOtro ? e($profActual) : '' ?>">
             </div>
             <div class="field" style="margin-bottom:14px;">
                 <label>N° de inscripción en el colegio de ingenieros (opcional)</label>
                 <input name="colegio_inscripcion" class="form-control" value="<?= e($editIng['colegio_inscripcion'] ?? '') ?>">
             </div>
+
+            <?php if ($entesIng): ?>
+            <div class="field" style="margin-bottom:14px;">
+                <label><i class="bi bi-building"></i> Ente al que pertenece</label>
+                <select name="ente_id" class="form-control">
+                    <option value="">— Sin ente (visible solo para el administrador nacional) —</option>
+                    <?php foreach ($entesIng as $en): ?>
+                        <option value="<?= (int)$en['id'] ?>" <?= (($editIng['ente_id'] ?? '') == $en['id']) ? 'selected' : '' ?>>
+                            <?= e($en['nombre']) ?><?= $en['estado'] ? ' — ' . e($en['estado']) : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="text-sm text-muted" style="margin-top:4px;">Determina qué ente y estado puede ver a este profesional en su directorio.</div>
+            </div>
+            <?php endif; ?>
+
             <div class="check-row" style="margin-bottom:16px;">
                 <input type="checkbox" name="activo" id="activo" value="1" <?= ($editIng['activo'] ?? 1) ? 'checked' : '' ?>>
                 <label for="activo">Profesional activo (disponible en el formulario)</label>
@@ -110,6 +193,20 @@ include __DIR__ . '/../includes/header.php';
             <button class="btn btn-outline btn-sm"><i class="bi bi-search"></i></button>
         </form>
     </div>
+
+    <?php if ($conteoPorProfesion): ?>
+    <!-- Cuántos profesionales hay por profesión. Cada chip filtra la lista. -->
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border,#e5e7eb);display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <span class="text-sm text-muted" style="font-weight:600;">Por profesión:</span>
+        <a href="?<?= $q !== '' ? 'q=' . urlencode($q) : '' ?>" class="badge <?= $profesionFiltro === '' ? 'badge-azul' : 'badge-gris' ?>" style="text-decoration:none;">Todas (<?= count($ingenieros) ?>)</a>
+        <?php foreach ($conteoPorProfesion as $cp): ?>
+            <?php $nombreProf = $cp['prof'] === '(Sin profesión)' ? '' : $cp['prof']; ?>
+            <a href="?profesion=<?= urlencode($nombreProf) ?><?= $q !== '' ? '&q=' . urlencode($q) : '' ?>"
+               class="badge <?= ($profesionFiltro === $nombreProf && $nombreProf !== '') ? 'badge-azul' : 'badge-gris' ?>"
+               style="text-decoration:none;"><?= e($cp['prof']) ?> (<?= (int)$cp['n'] ?>)</a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
     <div class="table-wrap">
         <table class="data-table">
             <thead><tr><th></th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Profesión</th><th>Colegio</th><th>Estado</th><th></th></tr></thead>
@@ -153,5 +250,18 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 </div>
+
+<script>
+(function () {
+    const sel = document.getElementById('profesion-sel');
+    const inp = document.getElementById('profesion-nueva');
+    if (!sel || !inp) return;
+    function actualizar() {
+        if (sel.value === '__otro__') { inp.style.display = ''; inp.focus(); }
+        else { inp.style.display = 'none'; inp.value = ''; }
+    }
+    sel.addEventListener('change', actualizar);
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

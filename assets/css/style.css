@@ -976,6 +976,7 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .split-grid { display: grid; gap: 16px; }
 .split-grid.cols-14-10  { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
 .split-grid.cols-10-14  { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.split-grid.dashboard-solo-mapa { grid-template-columns: minmax(0, 1fr); }
 .split-grid.cols-sidebar{ grid-template-columns: 380px minmax(0, 1fr); }
 .split-grid.cols-21     { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 .split-grid.cols-11     { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -1676,3 +1677,30 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
 .sismos-toast-error    { background: #8a2323; }
 .sismos-toast-info      { background: #22366f; }
 .sismos-toast i { margin-right: 6px; }
+
+/* Badge azul (para chips de ente y conteos en el panel master) */
+.badge-azul { background: #eaf0ff; color: #22366f; }
+
+/* =====================================================================
+   RESPONSIVE TELÉFONO — evitar que iOS/Safari haga zoom al enfocar un
+   campo. El zoom ocurre cuando el input mide menos de 16px; al fijarlo
+   en 16px, la pantalla ya no se "achica" ni descuadra al escribir.
+   ===================================================================== */
+@media (max-width: 640px) {
+    .form-control,
+    select.form-control,
+    textarea.form-control,
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="date"],
+    input[type="search"],
+    input[type="tel"] {
+        font-size: 16px;
+    }
+    /* Que el contenido nunca se salga del ancho de la pantalla. */
+    .wizard-pane, .form-grid, .card, .card-body { max-width: 100%; }
+    .form-grid { gap: 12px; }
+}
+

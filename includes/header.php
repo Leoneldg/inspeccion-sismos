@@ -71,6 +71,11 @@ $flashes = obtenerFlashes();
         <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule === 'usuarios' ? 'active' : '' ?>" title="Usuarios">
             <i class="bi bi-people-fill"></i> <span>Usuarios</span>
         </a>
+        <?php if (function_exists('usuarioEsMaster') && usuarioEsMaster()): ?>
+        <a href="<?= APP_URL_BASE ?>admin/entes_resumen.php" class="nav-item <?= $activeModule === 'entes_resumen' ? 'active' : '' ?>" title="Bases de datos por ente">
+            <i class="bi bi-hdd-stack-fill"></i> <span>Bases por ente</span>
+        </a>
+        <?php endif; ?>
         <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule === 'roles' ? 'active' : '' ?>" title="Roles y Permisos">
             <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>
         </a>

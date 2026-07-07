@@ -41,11 +41,9 @@ function val($row, $key, $default = '') {
 /** Imprime el bloque de subida de fotos + miniaturas existentes para una categoría dada. */
 function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes, bool $multiple = true, string $capture = 'environment', string $ayuda = ''): void {
     $existentes = $fotosExistentes[$categoria] ?? [];
-    // Si ya hay al menos una foto guardada de esta categoría (editando una
-    // inspección existente), no se obliga a subir otra -- si no hay
-    // ninguna todavía (inspección nueva, o esta categoría quedó pendiente),
-    // sí se exige al menos una foto.
-    $obligatoria = empty($existentes);
+    // Ninguna foto es obligatoria: el inspector puede subirlas si las tiene,
+    // pero puede guardar la inspección sin ellas.
+    $obligatoria = false;
     ?>
     <div class="foto-input-box">
         <label class="<?= $obligatoria ? 'req' : '' ?>"><i class="bi bi-camera-fill"></i> <?= e($etiqueta) ?></label>
@@ -598,8 +596,21 @@ include __DIR__ . '/../includes/header.php';
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function () {
+    // El rol Administrador puede recorrer todos los pasos del formulario sin
+    // llenar los campos obligatorios (útil para mostrar/demostrar el sistema).
+    // Los demás roles sí deben completar los campos requeridos.
+    const ES_ADMIN = <?= (($_SESSION['rol_nombre'] ?? '') === 'Administrador') ? 'true' : 'false' ?>;
     const panes = document.querySelectorAll('.wizard-pane');
     const steps = document.querySelectorAll('.wizard-steps .step');
+
+    // Si es administrador, se quitan las marcas de "obligatorio" de todos los
+    // campos para que pueda recorrer y mostrar el formulario completo sin
+    // llenarlo. (Al guardar de verdad, el servidor sigue validando lo mínimo.)
+    if (ES_ADMIN) {
+        document.querySelectorAll('#form-inspeccion [required]').forEach(function (el) {
+            el.removeAttribute('required');
+        });
+    }
     let current = 1;
     const total = panes.length;
 
@@ -892,6 +903,8 @@ include __DIR__ . '/../includes/header.php';
      * el "2" del stepper en vez del botón).
      */
     function validarPasoActual() {
+        // El administrador puede avanzar libremente para mostrar el sistema.
+        if (ES_ADMIN) return true;
         const pane = document.querySelector('.wizard-pane.active');
         const stepActual = document.querySelector('.wizard-steps .step[data-step="' + current + '"]');
         const invalid = pane.querySelector(':invalid');

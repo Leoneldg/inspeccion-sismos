@@ -14,6 +14,14 @@ $activeModule = 'usuarios';
 $pdo = db();
 $roles = $pdo->query('SELECT id, nombre FROM roles ORDER BY nombre')->fetchAll();
 
+// Catálogo de entes para asignar al usuario.
+$entes = [];
+if (tablaEntesExiste()) {
+    try {
+        $entes = $pdo->query('SELECT id, nombre, tipo, estado FROM entes WHERE activo = 1 ORDER BY nombre')->fetchAll();
+    } catch (Throwable $e) { $entes = []; }
+}
+
 $editId = isset($_GET['id']) ? (int)$_GET['id'] : null;
 $editUser = null;
 if ($editId) {
@@ -22,12 +30,123 @@ if ($editId) {
     $editUser = $stmt->fetch();
 }
 
-$usuarios = $pdo->query(
-    'SELECT u.*, r.nombre AS rol_nombre FROM usuarios u JOIN roles r ON r.id = u.rol_id ORDER BY u.creado_en DESC'
-)->fetchAll();
+// Aislamiento por ente: un usuario de un ente solo ve los usuarios de su
+// propio ente (o de su estado, si es Gobernación). El master ve todos.
+$condUsuarios = [];
+$paramsUsuarios = [];
+$columnaEnteUsuarios = false;
+try {
+    $pdo->query('SELECT ente_id FROM usuarios LIMIT 1');
+    $columnaEnteUsuarios = true;
+} catch (Throwable $e) { $columnaEnteUsuarios = false; }
+
+if ($columnaEnteUsuarios && !usuarioEsMaster() && enteDelUsuario() !== null) {
+    if (usuarioEsGobernacion() && !empty($_SESSION['ente_estado'])) {
+        // Gobernación: usuarios cuyos entes son de su estado.
+        $condUsuarios[] = 'u.ente_id IN (SELECT id FROM entes WHERE estado = :ue_estado)';
+        $paramsUsuarios['ue_estado'] = $_SESSION['ente_estado'];
+    } else {
+        $condUsuarios[] = 'u.ente_id = :ue_ente';
+        $paramsUsuarios['ue_ente'] = enteDelUsuario();
+    }
+}
+$whereUsuarios = $condUsuarios ? ('WHERE ' . implode(' AND ', $condUsuarios)) : '';
+
+// ---- Panel del administrador master: totales por ente ----
+// Solo lo ve el master. Muestra, por cada ente, cuántos usuarios, inspectores
+// e inspecciones tiene, más una fila "Global" con todo el sistema.
+$panelEntes = null;
+$globalTotales = null;
+if (usuarioEsMaster() && tablaEntesExiste()) {
+    try {
+        $sqlPanel = "
+            SELECT e.id, e.nombre, e.tipo, e.estado,
+                   (SELECT COUNT(*) FROM usuarios u WHERE u.ente_id = e.id) AS n_usuarios,
+                   (SELECT COUNT(*) FROM ingenieros g WHERE g.ente_id = e.id) AS n_inspectores,
+                   (SELECT COUNT(*) FROM inspecciones i WHERE i.ente_id = e.id) AS n_inspecciones
+            FROM entes e
+            ORDER BY e.nombre";
+        $panelEntes = $pdo->query($sqlPanel)->fetchAll();
+    } catch (Throwable $e) {
+        $panelEntes = null; // columnas ente_id aún no existen
+    }
+    // Totales globales del sistema.
+    try {
+        $globalTotales = [
+            'usuarios'     => (int)$pdo->query('SELECT COUNT(*) FROM usuarios')->fetchColumn(),
+            'inspectores'  => (int)$pdo->query('SELECT COUNT(*) FROM ingenieros')->fetchColumn(),
+            'inspecciones' => (int)$pdo->query('SELECT COUNT(*) FROM inspecciones')->fetchColumn(),
+            'entes'        => (int)$pdo->query('SELECT COUNT(*) FROM entes')->fetchColumn(),
+        ];
+    } catch (Throwable $e) { $globalTotales = null; }
+}
+
+$sqlUsuarios = 'SELECT u.*, r.nombre AS rol_nombre, e.nombre AS ente_nombre
+                FROM usuarios u
+                JOIN roles r ON r.id = u.rol_id
+                LEFT JOIN entes e ON e.id = u.ente_id
+                ' . $whereUsuarios . '
+                ORDER BY u.creado_en DESC';
+try {
+    $stmtU = $pdo->prepare($sqlUsuarios);
+    $stmtU->execute($paramsUsuarios);
+    $usuarios = $stmtU->fetchAll();
+} catch (Throwable $e) {
+    // Instalación sin ente_id todavía: listar sin la columna de ente.
+    $usuarios = $pdo->query(
+        'SELECT u.*, r.nombre AS rol_nombre FROM usuarios u JOIN roles r ON r.id = u.rol_id ORDER BY u.creado_en DESC'
+    )->fetchAll();
+}
 
 include __DIR__ . '/../includes/header.php';
 ?>
+
+<?php if ($panelEntes !== null): ?>
+<!-- Panel del administrador master: bases de datos por ente -->
+<div class="card" style="margin-bottom:18px;">
+    <div class="card-header"><h2><i class="bi bi-diagram-3-fill"></i> Bases de datos por ente</h2></div>
+    <?php if ($globalTotales): ?>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border,#e5e7eb);">
+        <div style="flex:1;min-width:130px;background:var(--azul,#22366f);color:#fff;border-radius:10px;padding:12px 14px;">
+            <div style="font-size:22px;font-weight:800;"><?= (int)$globalTotales['entes'] ?></div>
+            <div style="font-size:12px;opacity:.85;">Entes</div>
+        </div>
+        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
+            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['inspecciones'] ?></div>
+            <div style="font-size:12px;color:#6b7280;">Inspecciones (global)</div>
+        </div>
+        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
+            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['inspectores'] ?></div>
+            <div style="font-size:12px;color:#6b7280;">Inspectores (global)</div>
+        </div>
+        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
+            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['usuarios'] ?></div>
+            <div style="font-size:12px;color:#6b7280;">Usuarios (global)</div>
+        </div>
+    </div>
+    <?php endif; ?>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Ente</th><th>Tipo</th><th>Estado</th><th>Inspecciones</th><th>Inspectores</th><th>Usuarios</th></tr></thead>
+            <tbody>
+            <?php if ($panelEntes): foreach ($panelEntes as $pe): ?>
+                <tr>
+                    <td><strong><?= e($pe['nombre']) ?></strong></td>
+                    <td><span class="text-sm text-muted"><?= e($pe['tipo'] ?: '—') ?></span></td>
+                    <td><span class="text-sm text-muted"><?= e($pe['estado'] ?: 'Nacional') ?></span></td>
+                    <td><span class="badge badge-azul"><?= (int)$pe['n_inspecciones'] ?></span></td>
+                    <td><span class="badge badge-gris"><?= (int)$pe['n_inspectores'] ?></span></td>
+                    <td><span class="badge badge-gris"><?= (int)$pe['n_usuarios'] ?></span></td>
+                </tr>
+            <?php endforeach; else: ?>
+                <tr><td colspan="6" class="text-center text-muted" style="padding:20px;">No hay entes registrados todavía.</td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+    <div class="text-sm text-muted" style="padding:10px 16px;">Cada ente funciona como una base de datos independiente: sus usuarios ven solo sus propios datos. Usted, como administrador master, ve el consolidado.</div>
+</div>
+<?php endif; ?>
 
 <div class="split-grid cols-sidebar align-start">
 
@@ -89,6 +208,60 @@ include __DIR__ . '/../includes/header.php';
                 </div>
             </div>
 
+            <!-- Ente al que pertenece el usuario -->
+            <?php if ($entes !== null): ?>
+            <div class="field" style="margin:6px 0 14px;padding-top:12px;border-top:1px solid var(--border,#e5e7eb);">
+                <label style="font-weight:600;"><i class="bi bi-building"></i> Ente al que pertenece</label>
+                <div class="text-sm text-muted" style="margin:2px 0 8px;">Sus inspecciones, inspectores y usuarios quedarán aislados dentro de este ente.</div>
+                <select name="ente_id" id="sel-ente-usuario" class="form-control">
+                    <option value="">— Sin ente —</option>
+                    <?php foreach ($entes as $en): ?>
+                        <option value="<?= (int)$en['id'] ?>" <?= (($editUser['ente_id'] ?? '') == $en['id']) ? 'selected' : '' ?>>
+                            <?= e($en['tipo'] ?: $en['nombre']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if (puede('seguimiento', 'crear') || puede('usuarios', 'crear')): ?>
+                <div style="margin-top:8px;">
+                    <a href="#" id="link-nuevo-ente" class="text-sm" style="color:var(--azul,#22366f);font-weight:600;text-decoration:none;">+ Crear un ente nuevo</a>
+                </div>
+                <!-- Mini-formulario para crear un ente sin salir de esta pantalla -->
+                <div id="box-nuevo-ente" style="display:none;margin-top:10px;padding:12px;border:1px dashed var(--border,#cbd5e1);border-radius:8px;background:#f8fafc;">
+                    <div class="field" style="margin-bottom:8px;">
+                        <label class="text-sm">Nombre del ente</label>
+                        <input type="text" id="nuevo-ente-nombre" class="form-control" placeholder="Ej: Alcaldía de Baruta">
+                    </div>
+                    <div class="flex gap-8" style="margin-bottom:8px;">
+                        <div class="field" style="flex:1;">
+                            <label class="text-sm">Tipo</label>
+                            <select id="nuevo-ente-tipo" class="form-control">
+                                <option value="Gobernación">Gobernación</option>
+                                <option value="Alcaldía">Alcaldía</option>
+                                <option value="Ministerio">Ministerio</option>
+                                <option value="Empresa">Empresa</option>
+                                <option value="Otro" selected>Otro</option>
+                            </select>
+                        </div>
+                        <div class="field" style="flex:1;">
+                            <label class="text-sm">Estado</label>
+                            <select id="nuevo-ente-estado" class="form-control">
+                                <option value="">Nacional</option>
+                                <?php foreach (catalogoEstados() as $est): ?>
+                                    <option value="<?= e($est) ?>"><?= e($est) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex gap-8">
+                        <button type="button" id="btn-guardar-ente" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Guardar ente</button>
+                        <button type="button" id="btn-cancelar-ente" class="btn btn-outline btn-sm">Cancelar</button>
+                    </div>
+                    <div id="nuevo-ente-msg" class="text-sm" style="margin-top:6px;"></div>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
             <div class="flex gap-8">
                 <button class="btn btn-primary w-full" style="justify-content:center;"><i class="bi bi-save-fill"></i> <?= $editUser ? 'Actualizar' : 'Crear usuario' ?></button>
                 <?php if ($editUser): ?><a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="btn btn-outline">Cancelar</a><?php endif; ?>
@@ -104,13 +277,14 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-header"><h2><i class="bi bi-people-fill"></i> Usuarios registrados (<?= count($usuarios) ?>)</h2></div>
     <div class="table-wrap">
         <table class="data-table">
-            <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Alcance</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Ente</th><th>Alcance</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($usuarios as $u): ?>
                 <tr>
                     <td><strong><?= e($u['nombre_completo']) ?></strong><br><span class="text-sm text-muted"><?= e($u['email']) ?></span></td>
                     <td><?= e($u['usuario']) ?></td>
                     <td><span class="badge badge-gris"><?= e($u['rol_nombre']) ?></span></td>
+                    <td><?= !empty($u['ente_nombre']) ? '<span class="badge badge-azul">' . e($u['ente_nombre']) . '</span>' : '<span class="text-sm text-muted">—</span>' ?></td>
                     <td><?= !empty($u['es_master'])
                             ? '<span class="badge badge-verde"><i class="bi bi-globe-americas"></i> Nacional</span>'
                             : ('<span class="badge badge-gris"><i class="bi bi-geo-alt"></i> ' . e($u['estado_asignado'] ?? 'Sin estado') . '</span>') ?></td>
@@ -137,5 +311,48 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 </div>
+
+<script>
+(function () {
+    const link = document.getElementById('link-nuevo-ente');
+    if (!link) return;
+    const box = document.getElementById('box-nuevo-ente');
+    const sel = document.getElementById('sel-ente-usuario');
+    const msg = document.getElementById('nuevo-ente-msg');
+    const inpNombre = document.getElementById('nuevo-ente-nombre');
+    const inpTipo = document.getElementById('nuevo-ente-tipo');
+    const inpEstado = document.getElementById('nuevo-ente-estado');
+    const CSRF = '<?= e(csrfToken()) ?>';
+
+    link.addEventListener('click', function (e) { e.preventDefault(); box.style.display = box.style.display === 'none' ? '' : 'none'; if (box.style.display === '') inpNombre.focus(); });
+    document.getElementById('btn-cancelar-ente').addEventListener('click', function () { box.style.display = 'none'; msg.textContent = ''; });
+
+    document.getElementById('btn-guardar-ente').addEventListener('click', async function () {
+        const nombre = inpNombre.value.trim();
+        if (!nombre) { msg.style.color = '#a61c1c'; msg.textContent = 'Escriba el nombre del ente.'; return; }
+        msg.style.color = 'var(--gris,#6b7280)'; msg.textContent = 'Guardando…';
+        try {
+            const fd = new FormData();
+            fd.append('csrf', CSRF); fd.append('nombre', nombre);
+            fd.append('tipo', inpTipo.value); fd.append('estado', inpEstado.value);
+            const resp = await fetch('<?= APP_URL_BASE ?>admin/crear_ente_json.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+            const data = await resp.json();
+            if (!data.ok) { msg.style.color = '#a61c1c'; msg.textContent = data.error || 'No se pudo crear.'; return; }
+            // Agregar al selector y seleccionarlo.
+            const opt = document.createElement('option');
+            opt.value = data.id;
+            opt.textContent = data.tipo || data.nombre;
+            opt.selected = true;
+            sel.appendChild(opt);
+            msg.style.color = '#1c6b3d';
+            msg.textContent = data.existia ? 'Ese ente ya existía; se seleccionó.' : 'Ente creado y seleccionado.';
+            inpNombre.value = '';
+            setTimeout(() => { box.style.display = 'none'; msg.textContent = ''; }, 1200);
+        } catch (err) {
+            msg.style.color = '#a61c1c'; msg.textContent = 'Error de conexión.';
+        }
+    });
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

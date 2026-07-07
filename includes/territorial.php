@@ -145,3 +145,74 @@ function puedeAccederEstadoDe(string $estadoInspeccion): bool
     if (usuarioEsMaster()) return true;
     return estadoDelUsuario() === $estadoInspeccion;
 }
+
+// =====================================================================
+// SCOPING POR ENTE (aislamiento de datos entre entes)
+//
+// Reglas:
+//   - Master                 -> ve todo (sin restricción de ente).
+//   - Usuario de Gobernación -> ve todos los datos de SU ESTADO
+//                               (todos los entes de ese estado).
+//   - Usuario de otro ente   -> ve solo los datos de SU ENTE.
+//   - Usuario sin ente        -> se comporta como antes (solo scope por estado
+//                               si aplica); no se le restringe por ente.
+// =====================================================================
+
+/** Ente al que pertenece el usuario actual (null si no tiene o es master sin ente). */
+function enteDelUsuario(): ?int
+{
+    $e = $_SESSION['ente_id'] ?? null;
+    return $e ? (int)$e : null;
+}
+
+/** ¿El ente del usuario actual es una Gobernación? (ve todo su estado). */
+function usuarioEsGobernacion(): bool
+{
+    return strcasecmp((string)($_SESSION['ente_tipo'] ?? ''), 'Gobernación') === 0
+        || strcasecmp((string)($_SESSION['ente_tipo'] ?? ''), 'Gobernacion') === 0;
+}
+
+/**
+ * Devuelve [sqlFragment, params] para restringir por ENTE, aplicando las
+ * reglas de arriba. $enteCol es la columna de ente (ej. 'i.ente_id') y
+ * $estadoCol la de estado (ej. 'i.estado'), usada para las gobernaciones.
+ * Si el usuario no tiene ente asignado, no restringe por ente.
+ */
+function scopeEnteSql(string $enteCol = 'ente_id', string $estadoCol = 'estado'): array
+{
+    if (usuarioEsMaster()) {
+        return ['', []];
+    }
+    $ente = enteDelUsuario();
+    if ($ente === null) {
+        // Usuario sin ente: no se filtra por ente (mantiene compatibilidad).
+        return ['', []];
+    }
+    // Gobernación: ve todo su estado — es decir, los registros cuyo ENTE
+    // pertenece a su mismo estado (no la ubicación geográfica del registro).
+    if (usuarioEsGobernacion()) {
+        $estado = $_SESSION['ente_estado'] ?? ($_SESSION['estado_asignado'] ?? null);
+        if ($estado) {
+            // El ente del registro debe estar en el mismo estado que la
+            // gobernación. Se resuelve con una subconsulta sobre `entes`.
+            $col = $enteCol; // p.ej. 'i.ente_id' o 'ente_id'
+            return [
+                $col . ' IN (SELECT id FROM entes WHERE estado = :scope_ente_estado)',
+                ['scope_ente_estado' => $estado],
+            ];
+        }
+        // Gobernación sin estado definido: cae a su propio ente por seguridad.
+    }
+    // Ente normal: solo su ente.
+    return [$enteCol . ' = :scope_ente_id', ['scope_ente_id' => $ente]];
+}
+
+/** Agrega el filtro de ente a un arreglo de condiciones WHERE (igual que aplicarScopeEstado). */
+function aplicarScopeEnte(array &$conds, array &$params, string $enteCol = 'ente_id', string $estadoCol = 'estado'): void
+{
+    [$frag, $p] = scopeEnteSql($enteCol, $estadoCol);
+    if ($frag !== '') {
+        $conds[] = $frag;
+        $params = array_merge($params, $p);
+    }
+}

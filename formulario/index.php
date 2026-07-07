@@ -26,7 +26,15 @@ $where  = [];
 $params = [];
 // Alcance nacional: el estadal queda restringido a su estado; el master
 // puede filtrar por el estado que quiera desde el desplegable.
-aplicarScopeEstado($where, $params);
+// Aislamiento: si el usuario pertenece a un ente, se filtra POR ENTE (una
+// Gobernación ve su estado; el resto, su ente). Si no tiene ente, se mantiene
+// el alcance por estado como antes.
+$tieneEnteInsp = columnaInspeccionExiste('ente_id') && enteDelUsuario() !== null;
+if ($tieneEnteInsp) {
+    aplicarScopeEnte($where, $params, 'ente_id', 'estado');
+} else {
+    aplicarScopeEstado($where, $params);
+}
 if (usuarioEsMaster() && $estadoFiltroList !== '' && $estadoFiltroList !== 'todos') {
     $where[] = 'estado = :estado_f';
     $params['estado_f'] = $estadoFiltroList;

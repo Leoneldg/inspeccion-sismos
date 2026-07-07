@@ -51,12 +51,17 @@ try {
     // estadal SIEMPRE queda forzado a su estado, ignorando lo que pida el GET.
     $estadoFiltro = trim((string)($_GET['estado'] ?? ''));
     if (!usuarioEsMaster()) {
-        // Un usuario estadal queda forzado a su estado. Si NO tiene estado
-        // asignado (cuenta previa al alcance nacional), se comporta como
-        // master a efectos de visualización: puede navegar el país.
-        $suyo = estadoDelUsuario();
-        if ($suyo !== null) {
-            $estadoFiltro = $suyo;
+        // Si el usuario pertenece a un ente, el aislamiento se hace POR ENTE
+        // (más abajo), no por estado: no se fuerza su estado, para no chocar
+        // con inspecciones del ente que estén en otro estado. Una Gobernación
+        // sí ve por estado, pero eso lo resuelve el scope de ente.
+        $tieneEnteUsuario = (columnaInspeccionExiste('ente_id') && enteDelUsuario() !== null);
+        if (!$tieneEnteUsuario) {
+            // Usuario estadal sin ente: se fuerza a su estado (comportamiento previo).
+            $suyo = estadoDelUsuario();
+            if ($suyo !== null) {
+                $estadoFiltro = $suyo;
+            }
         }
     }
     $tieneEstado = $estadoFiltro !== '' && $estadoFiltro !== '__NINGUNO__';
@@ -97,6 +102,22 @@ try {
     $paramsTerritorio = [];
     if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
+
+    // ---- Aislamiento por ENTE ----
+    // Cada ente ve solo sus datos (una Gobernación ve todo su estado; el
+    // master ve todo). Se agrega a las dos listas base de condiciones para
+    // que TODAS las consultas del dashboard queden restringidas.
+    if (columnaInspeccionExiste('ente_id')) {
+        [$fragEnte, $pEnte] = scopeEnteSql('ente_id', 'estado');
+        if ($fragEnte !== '') {
+            $condiciones[]    = $fragEnte;
+            $paramsFiltro     = array_merge($paramsFiltro, $pEnte);
+            $condTerritorio[] = $fragEnte;
+            $paramsTerritorio = array_merge($paramsTerritorio, $pEnte);
+            // Rearmar el WHERE principal que ya se había construido arriba.
+            $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
+        }
+    }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("

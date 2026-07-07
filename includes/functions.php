@@ -841,9 +841,20 @@ function tablaIngenierosExiste(): bool
 function obtenerIngenierosActivos(): array
 {
     try {
-        return db()->query('SELECT id, nombre_completo, cedula, telefono, profesion, colegio_inscripcion FROM ingenieros WHERE activo = 1 ORDER BY nombre_completo ASC')->fetchAll();
+        $cond = ['activo = 1'];
+        $params = [];
+        // Aislamiento por ente: cada ente usa sus propios profesionales.
+        $tieneEnte = false;
+        try { db()->query('SELECT ente_id FROM ingenieros LIMIT 1'); $tieneEnte = true; } catch (Throwable $e) {}
+        if ($tieneEnte && function_exists('aplicarScopeEnte')) {
+            aplicarScopeEnte($cond, $params, 'ente_id', 'estado');
+        }
+        $where = 'WHERE ' . implode(' AND ', $cond);
+        $st = db()->prepare("SELECT id, nombre_completo, cedula, telefono, profesion, colegio_inscripcion FROM ingenieros $where ORDER BY nombre_completo ASC");
+        $st->execute($params);
+        return $st->fetchAll();
     } catch (Throwable $e) {
-        return []; // tabla aún no existe (falta correr actualizacion_v6.sql)
+        return []; // tabla aún no existe (falta correr la actualización)
     }
 }
 
@@ -872,6 +883,74 @@ function tablaPanelConfigExiste(): bool
         }
     }
     return $existe;
+}
+
+/** ¿Existe una columna dada en la tabla inspecciones? (para migraciones opcionales). */
+function columnaInspeccionExiste(string $columna): bool
+{
+    static $cache = [];
+    if (!array_key_exists($columna, $cache)) {
+        try {
+            db()->query('SELECT `' . str_replace('`', '', $columna) . '` FROM inspecciones LIMIT 1');
+            $cache[$columna] = true;
+        } catch (Throwable $e) {
+            $cache[$columna] = false;
+        }
+    }
+    return $cache[$columna];
+}
+
+/** ¿Existe la tabla de entes? */
+function tablaEntesExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        try {
+            db()->query('SELECT 1 FROM entes LIMIT 1');
+            $existe = true;
+        } catch (Throwable $e) {
+            $existe = false;
+        }
+    }
+    return $existe;
+}
+
+/** ¿Existe la tabla de catálogo de profesiones? */
+function tablaProfesionesExiste(): bool
+{
+    static $existe = null;
+    if ($existe === null) {
+        try {
+            db()->query('SELECT 1 FROM profesiones LIMIT 1');
+            $existe = true;
+        } catch (Throwable $e) {
+            $existe = false;
+        }
+    }
+    return $existe;
+}
+
+/** Lista de profesiones del catálogo (ordenadas). */
+function catalogoProfesiones(): array
+{
+    if (!tablaProfesionesExiste()) return [];
+    try {
+        return db()->query('SELECT nombre FROM profesiones ORDER BY nombre')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/** Registra una profesión en el catálogo si no existe. Devuelve el nombre normalizado. */
+function registrarProfesion(?string $nombre): ?string
+{
+    $nombre = trim((string)$nombre);
+    if ($nombre === '' || !tablaProfesionesExiste()) return $nombre ?: null;
+    try {
+        $st = db()->prepare('INSERT IGNORE INTO profesiones (nombre) VALUES (:n)');
+        $st->execute(['n' => $nombre]);
+    } catch (Throwable $e) { /* ignorar duplicados */ }
+    return $nombre;
 }
 
 /** Lee un valor de panel_config ya decodificado, o null si no existe. */

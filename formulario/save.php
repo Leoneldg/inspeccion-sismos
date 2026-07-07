@@ -275,6 +275,10 @@ try {
     } else {
         $campos['codigo']      = generarCodigoInspeccion();
         $campos['creado_por']  = $_SESSION['user_id'];
+        // El ente "dueño" de la inspección es el ente del usuario que la crea.
+        if (!empty($_SESSION['ente_id']) && columnaInspeccionExiste('ente_id')) {
+            $campos['ente_id'] = (int)$_SESSION['ente_id'];
+        }
         $cols = array_keys($campos);
         $placeholders = implode(', ', array_map(fn($c) => ":$c", $cols));
         $stmt = $pdo->prepare('INSERT INTO inspecciones (' . implode(', ', $cols) . ") VALUES ($placeholders)");
