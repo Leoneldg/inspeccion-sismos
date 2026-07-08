@@ -100,13 +100,51 @@ DELETE FROM `panel_config` WHERE `clave` = 'dashboard_widgets';
 --    - seguimiento_inventario_reportes: historial de reportes de stock.
 -- =====================================================================
 
--- 8a) Columnas nuevas en seguimiento_obras
-ALTER TABLE `seguimiento_obras`
-  ADD COLUMN IF NOT EXISTS `tipo_construccion` VARCHAR(80)   DEFAULT NULL COMMENT 'Tipo de trabajo: Pared, Piso, Techo, etc.' AFTER `prioridad`,
-  ADD COLUMN IF NOT EXISTS `metraje_total`     DECIMAL(10,2) DEFAULT NULL COMMENT 'Metraje total del proyecto (m²/ml)' AFTER `tipo_construccion`,
-  ADD COLUMN IF NOT EXISTS `metraje_unidad`    VARCHAR(20)   DEFAULT 'm²' COMMENT 'Unidad del metraje' AFTER `metraje_total`,
-  ADD COLUMN IF NOT EXISTS `avance_metraje_pct` DECIMAL(5,2) DEFAULT 0 COMMENT 'Avance por metraje completado' AFTER `metraje_unidad`,
-  ADD COLUMN IF NOT EXISTS `avance_material_pct` DECIMAL(5,2) DEFAULT 0 COMMENT 'Avance por materiales usados vs asignados' AFTER `avance_metraje_pct`;
+-- 8a) Columnas nuevas en seguimiento_obras (compatibles con MySQL 5.7+)
+--     Se usa information_schema para verificar si la columna existe antes
+--     de agregarla, ya que MySQL 5.7 no soporta ADD COLUMN IF NOT EXISTS.
+
+SET @db := DATABASE();
+
+SET @s := (SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `seguimiento_obras` ADD COLUMN `tipo_construccion` VARCHAR(80) DEFAULT NULL COMMENT ''Tipo de trabajo: Pared, Piso, Techo, etc.'' AFTER `prioridad`',
+    'DO 0'
+) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'seguimiento_obras' AND COLUMN_NAME = 'tipo_construccion');
+PREPARE _st FROM @s; EXECUTE _st; DEALLOCATE PREPARE _st;
+
+SET @s := (SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `seguimiento_obras` ADD COLUMN `metraje_total` DECIMAL(10,2) DEFAULT NULL COMMENT ''Metraje total del proyecto'' AFTER `tipo_construccion`',
+    'DO 0'
+) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'seguimiento_obras' AND COLUMN_NAME = 'metraje_total');
+PREPARE _st FROM @s; EXECUTE _st; DEALLOCATE PREPARE _st;
+
+SET @s := (SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `seguimiento_obras` ADD COLUMN `metraje_unidad` VARCHAR(20) DEFAULT ''m²'' COMMENT ''Unidad del metraje'' AFTER `metraje_total`',
+    'DO 0'
+) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'seguimiento_obras' AND COLUMN_NAME = 'metraje_unidad');
+PREPARE _st FROM @s; EXECUTE _st; DEALLOCATE PREPARE _st;
+
+SET @s := (SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `seguimiento_obras` ADD COLUMN `avance_metraje_pct` DECIMAL(5,2) DEFAULT 0 COMMENT ''Avance por metraje completado'' AFTER `metraje_unidad`',
+    'DO 0'
+) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'seguimiento_obras' AND COLUMN_NAME = 'avance_metraje_pct');
+PREPARE _st FROM @s; EXECUTE _st; DEALLOCATE PREPARE _st;
+
+SET @s := (SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `seguimiento_obras` ADD COLUMN `avance_material_pct` DECIMAL(5,2) DEFAULT 0 COMMENT ''Avance por materiales usados vs asignados'' AFTER `avance_metraje_pct`',
+    'DO 0'
+) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'seguimiento_obras' AND COLUMN_NAME = 'avance_material_pct');
+PREPARE _st FROM @s; EXECUTE _st; DEALLOCATE PREPARE _st;
 
 -- 8b) Materiales del plan de acción (catálogo de lo que se necesita)
 CREATE TABLE IF NOT EXISTS `seguimiento_materiales` (

@@ -232,52 +232,61 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
                 </div>
 
                 <!-- Sección: Tipo de construcción y metraje -->
-                <div class="section-title" style="margin-bottom:10px;"><i class="bi bi-hammer"></i> Tipo de intervención</div>
-                <div class="form-grid cols-2" style="margin-bottom:14px;">
-                    <div class="field">
-                        <label>Tipo de construcción</label>
-                        <select name="tipo_construccion" class="form-control">
-                            <option value="">— Seleccione —</option>
-                            <?php foreach ($tiposConstruccion as $k => $v): ?>
-                                <option value="<?= e($k) ?>" <?= ($obra['tipo_construccion'] ?? '') === $k ? 'selected' : '' ?>><?= e($v) ?></option>
-                            <?php endforeach; ?>
+                <div class="section-title" style="margin-bottom:10px;"><i class="bi bi-hammer"></i> Intervenciones del plan</div>
+                <div class="text-sm text-muted" style="margin-bottom:10px;">
+                    Agregue cada tipo de construcción con su metraje. Calcule con IA y los materiales se acumularán en la lista de abajo.
+                </div>
+
+                <!-- Filas de intervenciones (tipo + metraje + botón calcular IA) -->
+                <div id="lista-intervenciones" style="margin-bottom:8px;">
+                    <div class="interv-row" style="display:grid;grid-template-columns:1.5fr 1fr 80px auto auto;gap:6px;align-items:center;margin-bottom:6px;">
+                        <select class="form-control form-control-sm interv-tipo">
+                            <option value="">— Tipo de construcción —</option>
+                            <option value="Pared">Pared</option>
+                            <option value="Piso">Piso</option>
+                            <option value="Techo">Techo</option>
+                            <option value="Viga">Viga</option>
+                            <option value="Columna">Columna</option>
+                            <option value="Fundación">Fundación</option>
+                            <option value="Escalera">Escalera</option>
+                            <option value="Fachada">Fachada</option>
+                            <option value="Instalación eléctrica">Instalación eléctrica</option>
+                            <option value="Instalación sanitaria">Instalación sanitaria</option>
+                            <option value="Cielo raso">Cielo raso</option>
+                            <option value="Estructura general">Estructura general</option>
+                            <option value="Otro">Otro</option>
                         </select>
-                    </div>
-                    <div class="field">
-                        <label>Metraje total del proyecto</label>
-                        <div class="flex gap-8">
-                            <input type="number" step="0.01" min="0" name="metraje_total" class="form-control"
-                                   placeholder="Ej: 45.00" value="<?= e($obra['metraje_total'] ?? '') ?>">
-                            <select name="metraje_unidad" class="form-control" style="max-width:80px;">
-                                <?php foreach (segUnidadesMateriales() as $u => $ul): ?>
-                                    <option value="<?= e($u) ?>" <?= ($obra['metraje_unidad'] ?? 'm²') === $u ? 'selected' : '' ?>><?= e($u) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm interv-metraje" placeholder="Metraje">
+                        <select class="form-control form-control-sm interv-unidad">
+                            <option value="m²">m²</option><option value="ml">ml</option>
+                            <option value="m³">m³</option><option value="und">und</option>
+                        </select>
+                        <button type="button" class="btn btn-primary btn-sm btn-calcular-interv" title="Calcular materiales para esta intervención">
+                            <i class="bi bi-stars"></i> Calcular
+                        </button>
+                        <button type="button" class="btn btn-outline btn-sm btn-quitar-interv" style="display:none;" title="Quitar esta fila">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
                     </div>
                 </div>
 
-                <!-- Avance calculado (si hay datos) -->
-                <?php if ($obraId && ((float)($obra['avance_material_pct'] ?? 0) > 0 || (float)($obra['avance_metraje_pct'] ?? 0) > 0)): ?>
-                <div class="flex gap-10" style="margin-bottom:14px;flex-wrap:wrap;">
-                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
-                        <div class="icon" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-box-seam"></i></div>
-                        <div><div class="num"><?= round((float)($obra['avance_material_pct'] ?? 0)) ?>%</div><div class="lbl">Por materiales</div></div>
-                    </div>
-                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
-                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;"><i class="bi bi-rulers"></i></div>
-                        <div><div class="num"><?= round((float)($obra['avance_metraje_pct'] ?? 0)) ?>%</div><div class="lbl">Por metraje</div></div>
-                    </div>
-                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
-                        <div class="icon" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-graph-up-arrow"></i></div>
-                        <div><div class="num"><?= round((float)($obra['avance_pct'] ?? 0)) ?>%</div><div class="lbl">Avance global</div></div>
-                    </div>
-                </div>
-                <?php endif; ?>
+                <button type="button" id="btn-add-intervencion" class="btn btn-outline btn-sm" style="margin-bottom:12px;">
+                    <i class="bi bi-plus-lg"></i> Agregar otra intervención
+                </button>
 
-                <!-- Sección: Materiales del plan -->
-                <div class="section-title" style="margin-bottom:8px;"><i class="bi bi-box-seam"></i> Materiales del plan</div>
+                <!-- Estado de cálculos IA -->
+                <div id="ia-estado" style="display:none;margin-bottom:12px;font-size:13px;padding:10px 14px;border-radius:8px;background:#f4f6fd;border:1px solid #c7d7f9;"></div>
+
+                <!-- Campos ocultos para el guardado (toman el valor de la primera fila) -->
+                <input type="hidden" name="tipo_construccion" id="campo-tipo-principal">
+                <input type="hidden" name="metraje_total"     id="campo-metraje-principal">
+                <input type="hidden" name="metraje_unidad"    id="campo-unidad-principal">
+
+                <!-- Sección: Materiales del plan (acumulados de todas las intervenciones) -->
+                <div class="section-title" style="margin-bottom:8px;margin-top:8px;"><i class="bi bi-box-seam"></i> Materiales del plan</div>
+                <div class="text-sm text-muted" style="margin-bottom:8px;">Los materiales calculados por la IA se acumulan aquí. Puede editarlos manualmente o quitar los que no apliquen.</div>
                 <div id="tabla-materiales">
+
                     <?php if ($materiales): foreach ($materiales as $mat): ?>
                     <div class="seg-material-row" style="display:grid;grid-template-columns:1fr 1.2fr 80px 110px auto;gap:6px;align-items:center;margin-bottom:6px;">
                         <input type="hidden" name="mat_id[]" value="<?= (int)$mat['id'] ?>">
@@ -305,9 +314,11 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
                     </div>
                     <?php endforeach; endif; ?>
                 </div>
+                </div>
                 <button type="button" id="btn-add-material" class="btn btn-outline btn-sm" style="margin-top:6px;">
-                    <i class="bi bi-plus-lg"></i> Agregar material
+                    <i class="bi bi-plus-lg"></i> Agregar material manualmente
                 </button>
+
 
                 <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--gris-200);">
                     <button class="btn btn-primary"><i class="bi bi-save-fill"></i> Guardar plan de acción</button>
@@ -616,6 +627,200 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
     document.getElementById('btn-add-material')?.addEventListener('click', function () {
         document.getElementById('tabla-materiales').appendChild(crearFilaMaterial());
     });
+
+    // ================================================================
+    // INTERVENCIONES MÚLTIPLES + CÁLCULO IA
+    // ================================================================
+
+    const CSRF_TOKEN  = '<?= e(csrfToken()) ?>';
+    const CALCULAR_URL = '<?= APP_URL_BASE ?>seguimiento/calcular_materiales.php';
+    const TIPOS_OPCIONES = <?= json_encode(array_keys(segTiposConstruccion()), JSON_UNESCAPED_UNICODE) ?>;
+
+    /** Crea una nueva fila de intervención (tipo + metraje + unidad + botones). */
+    function crearFilaIntervencion() {
+        const div = document.createElement('div');
+        div.className = 'interv-row';
+        div.style.cssText = 'display:grid;grid-template-columns:1.5fr 1fr 80px auto auto;gap:6px;align-items:center;margin-bottom:6px;';
+        div.innerHTML = `
+            <select class="form-control form-control-sm interv-tipo">
+                <option value="">— Tipo de construcción —</option>
+                ${TIPOS_OPCIONES.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm interv-metraje" placeholder="Metraje">
+            <select class="form-control form-control-sm interv-unidad">
+                <option value="m²">m²</option><option value="ml">ml</option>
+                <option value="m³">m³</option><option value="und">und</option>
+            </select>
+            <button type="button" class="btn btn-primary btn-sm btn-calcular-interv" title="Calcular materiales para esta intervención">
+                <i class="bi bi-stars"></i> Calcular
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-quitar-interv" title="Quitar esta fila">
+                <i class="bi bi-x-lg"></i>
+            </button>`;
+        return div;
+    }
+
+    // Agregar nueva fila de intervención.
+    document.getElementById('btn-add-intervencion')?.addEventListener('click', function () {
+        const lista = document.getElementById('lista-intervenciones');
+        const fila  = crearFilaIntervencion();
+        lista.appendChild(fila);
+        // Mostrar botón quitar en TODAS las filas cuando hay más de una.
+        actualizarBotonesQuitar();
+    });
+
+    /** Muestra/oculta los botones "x" según cuántas filas haya. */
+    function actualizarBotonesQuitar() {
+        const filas = document.querySelectorAll('#lista-intervenciones .interv-row');
+        filas.forEach(f => {
+            const btn = f.querySelector('.btn-quitar-interv');
+            if (btn) btn.style.display = filas.length > 1 ? '' : 'none';
+        });
+    }
+
+    // Delegar eventos en la lista de intervenciones.
+    document.getElementById('lista-intervenciones')?.addEventListener('click', async function (e) {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+
+        // ---- Quitar fila ----
+        if (btn.classList.contains('btn-quitar-interv')) {
+            btn.closest('.interv-row').remove();
+            actualizarBotonesQuitar();
+            sincronizarCamposPrincipales();
+            return;
+        }
+
+        // ---- Calcular con IA ----
+        if (!btn.classList.contains('btn-calcular-interv')) return;
+
+        const fila    = btn.closest('.interv-row');
+        const tipo    = fila.querySelector('.interv-tipo')?.value;
+        const metraje = parseFloat(fila.querySelector('.interv-metraje')?.value);
+        const unidad  = fila.querySelector('.interv-unidad')?.value || 'm²';
+        const estado  = document.getElementById('ia-estado');
+
+        if (!tipo) {
+            mostrarEstado('error', 'Seleccione el tipo de construcción en esa fila.'); return;
+        }
+        if (!metraje || metraje <= 0) {
+            mostrarEstado('error', 'Ingrese el metraje para esa intervención.'); return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;"></span>';
+        mostrarEstado('info', `Calculando materiales para <strong>${tipo} (${metraje} ${unidad})</strong> con IA…`);
+
+        try {
+            const fd = new FormData();
+            fd.append('csrf', CSRF_TOKEN);
+            fd.append('tipo_construccion', tipo);
+            fd.append('metraje', metraje);
+            fd.append('unidad', unidad);
+            const res  = await fetch(CALCULAR_URL, { method:'POST', body:fd, credentials:'same-origin' });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Error en el cálculo');
+
+            // Acumular los materiales: si ya existe la misma categoría+subtipo, SUMAR la cantidad.
+            acumularMateriales(data.materiales);
+
+            const fuente = data.fuente === 'ia' ? '✦ IA (Claude)' : 'tabla COVENIN';
+            mostrarEstado('ok',
+                `<strong>${tipo} · ${metraje} ${unidad}</strong>: ${data.materiales.length} materiales añadidos (${fuente}).`
+                + (data.nota ? `<br><span class="text-muted" style="font-size:11px;">${data.nota}</span>` : '')
+            );
+            // Actualizar campos ocultos principales.
+            sincronizarCamposPrincipales();
+        } catch(err) {
+            mostrarEstado('error', `Error al calcular: ${err.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-stars"></i> Calcular';
+        }
+    });
+
+    /**
+     * Acumula materiales de la IA en la tabla:
+     * - Si ya existe la misma categoría+subtipo → suma la cantidad.
+     * - Si es nuevo → agrega una fila nueva.
+     */
+    function acumularMateriales(nuevos) {
+        const tabla = document.getElementById('tabla-materiales');
+        nuevos.forEach(m => {
+            // Buscar fila existente con la misma cat+subtipo.
+            let encontrado = false;
+            tabla.querySelectorAll('.seg-material-row').forEach(fila => {
+                const catSel = fila.querySelector('.seg-mat-cat');
+                const subSel = fila.querySelector('.seg-mat-sub');
+                const cantInp = fila.querySelector('input[name="mat_cantidad[]"]');
+                if (!catSel || !cantInp) return;
+                const mismacat = catSel.value === m.categoria;
+                const mismosub = !m.subtipo || !subSel || subSel.value === m.subtipo || subSel.value === '';
+                if (mismacat && mismosub && !encontrado) {
+                    // Sumar cantidad.
+                    const actual = parseFloat(cantInp.value) || 0;
+                    cantInp.value = (actual + m.cantidad).toFixed(2).replace(/\.?0+$/, '');
+                    encontrado = true;
+                }
+            });
+            if (!encontrado) {
+                // Agregar fila nueva.
+                const fila = crearFilaMaterial();
+                const selCat  = fila.querySelector('.seg-mat-cat');
+                const selUni  = fila.querySelector('select[name="mat_unidad[]"]');
+                const inpCant = fila.querySelector('input[name="mat_cantidad[]"]');
+                if (selCat) { selCat.value = m.categoria; actualizarSubtipos(selCat); }
+                if (inpCant) inpCant.value = m.cantidad;
+                if (selUni && m.unidad) selUni.value = m.unidad;
+                // Subtipo — después de que se poblen las opciones.
+                if (m.subtipo) {
+                    setTimeout(() => {
+                        const sub = fila.querySelector('.seg-mat-sub');
+                        if (sub) {
+                            const opt = Array.from(sub.options).find(o => o.value === m.subtipo || o.value.startsWith(m.subtipo.split(' ')[0]));
+                            if (opt) sub.value = opt.value;
+                        }
+                    }, 60);
+                }
+                tabla.appendChild(fila);
+            }
+        });
+    }
+
+    /** Sincroniza los campos hidden principales con la primera fila de intervenciones. */
+    function sincronizarCamposPrincipales() {
+        const primera = document.querySelector('#lista-intervenciones .interv-row');
+        if (!primera) return;
+        const t = document.getElementById('campo-tipo-principal');
+        const m = document.getElementById('campo-metraje-principal');
+        const u = document.getElementById('campo-unidad-principal');
+        if (t) t.value = primera.querySelector('.interv-tipo')?.value || '';
+        if (m) m.value = primera.querySelector('.interv-metraje')?.value || '';
+        if (u) u.value = primera.querySelector('.interv-unidad')?.value || 'm²';
+    }
+
+    // Sincronizar al enviar el formulario.
+    document.getElementById('form-plan-completo')?.addEventListener('submit', sincronizarCamposPrincipales);
+
+    function mostrarEstado(tipo, html) {
+        const el = document.getElementById('ia-estado');
+        if (!el) return;
+        el.style.display = '';
+        const colores = { ok:'#1c6b3d', error:'#a61c1c', info:'#22366f' };
+        const iconos  = { ok:'bi-check-circle-fill', error:'bi-exclamation-triangle', info:'bi-hourglass-split' };
+        el.innerHTML = `<span style="color:${colores[tipo]};"><i class="bi ${iconos[tipo]}"></i> ${html}</span>`;
+    }
+
+    // CSS spinner.
+    if (!document.getElementById('spinner-css')) {
+        const s = document.createElement('style');
+        s.id = 'spinner-css';
+        s.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+        document.head.appendChild(s);
+    }
+
+    // Inicializar: mostrar la primera fila sin botón quitar.
+    actualizarBotonesQuitar();
 
     // Inicializar subtipos de filas ya existentes.
     document.querySelectorAll('.seg-mat-cat').forEach(sel => {

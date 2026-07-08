@@ -104,3 +104,11 @@ if (APP_DEBUG) {
     ini_set('display_errors', 0);
     error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 }
+
+// ── API de Anthropic (IA para cálculo de materiales en seguimiento) ──────────
+// Si tiene una API key de Anthropic, colóquela aquí para activar el cálculo
+// inteligente de materiales. Sin la key, el sistema usa tablas COVENIN locales.
+// Obtenga su key en: https://console.anthropic.com/
+if (!defined('ANTHROPIC_API_KEY')) {
+    define('ANTHROPIC_API_KEY', getenv('ANTHROPIC_API_KEY') ?: '');
+}
