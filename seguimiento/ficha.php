@@ -45,6 +45,19 @@ $fases       = segFasesFoto();
 $decisiones  = catalogoDecisionFinal();
 $decMeta     = $decisiones[$insp['decision_final']] ?? ['color' => '#767c94', 'corto' => $insp['decision_final']];
 $tiempo      = segTiempoRestante($obra['fecha_fin_estimada'] ?? null, $obra['estado_obra'] ?? 'Sin iniciar');
+// Plan de acción — materiales y reportes de inventario.
+$materiales        = $obraId ? segMaterialesDe($obraId) : [];
+$reportesInv       = $obraId ? segReportesObra($obraId) : [];
+$catMateriales     = segCatalogoMateriales();
+$tiposConstruccion = segTiposConstruccion();
+$unidadesMat       = segUnidadesMateriales();
+// Permisos para seguimiento: crear = elabora el plan; ver = reporta inventario.
+// "Editar" no aplica en seguimiento (se omite).
+$puedeCrearPlan    = puede('seguimiento', 'crear');
+$puedeReportar     = puede('seguimiento', 'ver') || $puedeCrearPlan;
+$puedeEliminar     = puede('seguimiento', 'eliminar');
+$puedeEditar       = $puedeCrearPlan; // alias para compatibilidad con el resto de la ficha
+
 
 // Responsables posibles: usuarios que pueden cargar seguimiento (mismo estado si aplica).
 $respStmt = db()->prepare(
@@ -67,6 +80,34 @@ include __DIR__ . '/../includes/header.php';
 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline btn-sm" style="margin-bottom:12px;">
     <i class="bi bi-arrow-left"></i> Volver al listado
 </a>
+<?php if ($puedeEliminar && usuarioEsMaster()): ?>
+<button type="button" class="btn btn-danger btn-sm" style="margin-bottom:12px;float:right;" onclick="confirmarEliminarFicha()">
+    <i class="bi bi-trash-fill"></i> Eliminar ficha de seguimiento
+</button>
+<div id="modal-eliminar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.25);">
+        <h3 style="margin:0 0 8px;color:#a61c1c;"><i class="bi bi-exclamation-triangle-fill"></i> Eliminar ficha de seguimiento</h3>
+        <p style="font-size:14px;margin:0 0 16px;">Esta acción eliminará permanentemente el plan de acción, materiales, reportes de inventario, fotos y bitácora de seguimiento de <strong><?= e($insp['nombre_edificio']) ?></strong>. La inspección original no se afecta.</p>
+        <p style="font-size:14px;margin:0 0 16px;color:#a61c1c;">Esta operación solo puede realizarla el superadministrador y no puede deshacerse.</p>
+        <form method="post" action="<?= APP_URL_BASE ?>seguimiento/eliminar_ficha.php">
+            <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+            <input type="hidden" name="inspeccion_id" value="<?= $inspeccionId ?>">
+            <div class="field" style="margin-bottom:14px;">
+                <label>Motivo de la eliminación (requerido)</label>
+                <textarea name="motivo" class="form-control" rows="2" required placeholder="Explique por qué se elimina esta ficha…"></textarea>
+            </div>
+            <div class="flex gap-8">
+                <button type="submit" class="btn btn-danger"><i class="bi bi-trash-fill"></i> Confirmar eliminación</button>
+                <button type="button" class="btn btn-outline" onclick="cerrarModalEliminar()">Cancelar</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function confirmarEliminarFicha() { document.getElementById('modal-eliminar').style.display='flex'; }
+function cerrarModalEliminar() { document.getElementById('modal-eliminar').style.display='none'; }
+</script>
+<?php endif; ?>
 
 <!-- Cabecera de la ficha -->
 <div class="card seg-ficha-head" style="margin-bottom:14px;">
@@ -109,15 +150,24 @@ include __DIR__ . '/../includes/header.php';
     <!-- Columna izquierda: datos de planificación + recursos -->
     <div class="seg-ficha-col">
 
-        <!-- Panel de planificación / ente / tiempos -->
+        <!-- =====================================================================
+             PLAN DE ACCIÓN UNIFICADO
+             Quien CREA: llena todos los campos (datos generales + materiales).
+             Quien VE: solo lectura de lo llenado.
+             ===================================================================== -->
         <div class="card">
             <div class="card-header"><h2><i class="bi bi-clipboard-check"></i> Plan de acción</h2></div>
             <div class="card-body">
-                <?php if ($puedeEditar): ?>
-                <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_obra.php" id="form-plan">
-                    <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
-                    <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
 
+            <?php if ($puedeCrearPlan): ?>
+            <!-- FORMULARIO COMPLETO para quien crea el plan -->
+            <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_plan.php" id="form-plan-completo">
+                <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+                <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
+
+                <!-- Sección: Datos generales -->
+                <div class="section-title" style="margin-bottom:10px;"><i class="bi bi-info-circle"></i> Datos generales</div>
+                <div class="form-grid cols-2" style="margin-bottom:14px;">
                     <div class="field">
                         <label><i class="bi bi-building"></i> Ente asignado</label>
                         <select name="ente_id" class="form-control">
@@ -128,13 +178,9 @@ include __DIR__ . '/../includes/header.php';
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <div class="text-sm text-muted" style="margin-top:3px;">
-                            ¿No aparece? <a href="<?= APP_URL_BASE ?>seguimiento/entes.php">Registrar un ente</a>.
-                        </div>
                     </div>
-
                     <div class="field">
-                        <label><i class="bi bi-person-badge"></i> Responsable de carga</label>
+                        <label><i class="bi bi-person-badge"></i> Responsable</label>
                         <select name="responsable_id" class="form-control">
                             <option value="">— Sin responsable —</option>
                             <?php foreach ($posiblesResponsables as $u): ?>
@@ -142,125 +188,266 @@ include __DIR__ . '/../includes/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-
-                    <div class="form-grid cols-2">
-                        <div class="field">
-                            <label>Fecha de inicio</label>
-                            <input type="date" name="fecha_inicio" id="f-inicio" class="form-control" value="<?= e($obra['fecha_inicio']) ?>">
-                        </div>
-                        <div class="field">
-                            <label>Tiempo de acción (días)</label>
-                            <input type="number" min="0" name="tiempo_accion_dias" id="f-dias" class="form-control" value="<?= e($obra['tiempo_accion_dias']) ?>"
-                                   placeholder="Duración estimada">
-                        </div>
-                        <div class="field">
-                            <label>Fecha fin estimada</label>
-                            <input type="date" name="fecha_fin_estimada" id="f-fin" class="form-control" value="<?= e($obra['fecha_fin_estimada']) ?>">
-                            <div class="text-sm text-muted" id="f-fin-auto" style="margin-top:3px;"></div>
-                        </div>
-                        <div class="field">
-                            <label>Fecha fin real</label>
-                            <input type="date" name="fecha_fin_real" class="form-control" value="<?= e($obra['fecha_fin_real']) ?>">
-                        </div>
+                    <div class="field">
+                        <label>Estado de obra</label>
+                        <select name="estado_obra" class="form-control">
+                            <?php foreach (array_keys($estadosObra) as $eo): ?>
+                                <option value="<?= e($eo) ?>" <?= $obra['estado_obra'] === $eo ? 'selected' : '' ?>><?= e($eo) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-
-                    <div class="form-grid cols-2">
-                        <div class="field">
-                            <label>Estado de obra</label>
-                            <select name="estado_obra" class="form-control">
-                                <?php foreach (array_keys($estadosObra) as $eo): ?>
-                                    <option value="<?= e($eo) ?>" <?= $obra['estado_obra'] === $eo ? 'selected' : '' ?>><?= e($eo) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label>Prioridad</label>
-                            <select name="prioridad" class="form-control">
-                                <?php foreach (['Alta', 'Media', 'Baja'] as $pr): ?>
-                                    <option value="<?= $pr ?>" <?= ($obra['prioridad'] ?? 'Media') === $pr ? 'selected' : '' ?>><?= $pr ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label>Avance (%)</label>
-                            <input type="range" min="0" max="100" step="5" name="avance_pct" id="f-avance-range" value="<?= (int)$obra['avance_pct'] ?>"
-                                   oninput="document.getElementById('f-avance-val').textContent=this.value+'%'">
-                            <div class="text-sm" style="text-align:center;font-weight:600;" id="f-avance-val"><?= (int)$obra['avance_pct'] ?>%</div>
-                        </div>
-                        <div class="field">
-                            <label>Presupuesto estimado</label>
-                            <input type="number" min="0" step="0.01" name="presupuesto_estimado" class="form-control" value="<?= e($obra['presupuesto_estimado']) ?>" placeholder="Bs. / USD">
-                        </div>
+                    <div class="field">
+                        <label>Prioridad</label>
+                        <select name="prioridad" class="form-control">
+                            <?php foreach (['Alta', 'Media', 'Baja'] as $pr): ?>
+                                <option value="<?= $pr ?>" <?= ($obra['prioridad'] ?? 'Media') === $pr ? 'selected' : '' ?>><?= $pr ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-
+                    <div class="field">
+                        <label>Fecha de inicio</label>
+                        <input type="date" name="fecha_inicio" id="f-inicio" class="form-control" value="<?= e($obra['fecha_inicio']) ?>">
+                    </div>
+                    <div class="field">
+                        <label>Días de duración estimada</label>
+                        <input type="number" min="0" name="tiempo_accion_dias" id="f-dias" class="form-control" value="<?= e($obra['tiempo_accion_dias']) ?>" placeholder="Días">
+                    </div>
+                    <div class="field">
+                        <label>Fecha fin estimada</label>
+                        <input type="date" name="fecha_fin_estimada" id="f-fin" class="form-control" value="<?= e($obra['fecha_fin_estimada']) ?>">
+                        <div class="text-sm text-muted" id="f-fin-auto" style="margin-top:3px;"></div>
+                    </div>
+                    <div class="field">
+                        <label>Fecha fin real</label>
+                        <input type="date" name="fecha_fin_real" class="form-control" value="<?= e($obra['fecha_fin_real']) ?>">
+                    </div>
+                    <div class="field">
+                        <label>Presupuesto estimado</label>
+                        <input type="number" min="0" step="0.01" name="presupuesto_estimado" class="form-control" value="<?= e($obra['presupuesto_estimado']) ?>" placeholder="Bs. / USD">
+                    </div>
                     <div class="field">
                         <label>Observaciones</label>
                         <textarea name="observaciones" class="form-control" rows="2"><?= e($obra['observaciones']) ?></textarea>
                     </div>
+                </div>
 
-                    <button class="btn btn-primary w-full" style="justify-content:center;"><i class="bi bi-save-fill"></i> Guardar plan de acción</button>
-                </form>
-                <?php else: ?>
-                    <div class="text-muted text-sm">No tiene permisos para editar el plan de acción. Consulta de solo lectura.</div>
-                    <dl class="seg-datos">
-                        <div><dt>Ente</dt><dd><?= e($insp['ente_nombre'] ?? 'Sin asignar') ?></dd></div>
-                        <div><dt>Estado</dt><dd><?= e($obra['estado_obra']) ?></dd></div>
-                        <div><dt>Inicio</dt><dd><?= e($obra['fecha_inicio'] ?? '—') ?></dd></div>
-                        <div><dt>Fin estimado</dt><dd><?= e($obra['fecha_fin_estimada'] ?? '—') ?></dd></div>
-                    </dl>
+                <!-- Sección: Tipo de construcción y metraje -->
+                <div class="section-title" style="margin-bottom:10px;"><i class="bi bi-hammer"></i> Tipo de intervención</div>
+                <div class="form-grid cols-2" style="margin-bottom:14px;">
+                    <div class="field">
+                        <label>Tipo de construcción</label>
+                        <select name="tipo_construccion" class="form-control">
+                            <option value="">— Seleccione —</option>
+                            <?php foreach ($tiposConstruccion as $k => $v): ?>
+                                <option value="<?= e($k) ?>" <?= ($obra['tipo_construccion'] ?? '') === $k ? 'selected' : '' ?>><?= e($v) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>Metraje total del proyecto</label>
+                        <div class="flex gap-8">
+                            <input type="number" step="0.01" min="0" name="metraje_total" class="form-control"
+                                   placeholder="Ej: 45.00" value="<?= e($obra['metraje_total'] ?? '') ?>">
+                            <select name="metraje_unidad" class="form-control" style="max-width:80px;">
+                                <?php foreach (segUnidadesMateriales() as $u => $ul): ?>
+                                    <option value="<?= e($u) ?>" <?= ($obra['metraje_unidad'] ?? 'm²') === $u ? 'selected' : '' ?>><?= e($u) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Avance calculado (si hay datos) -->
+                <?php if ($obraId && ((float)($obra['avance_material_pct'] ?? 0) > 0 || (float)($obra['avance_metraje_pct'] ?? 0) > 0)): ?>
+                <div class="flex gap-10" style="margin-bottom:14px;flex-wrap:wrap;">
+                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
+                        <div class="icon" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-box-seam"></i></div>
+                        <div><div class="num"><?= round((float)($obra['avance_material_pct'] ?? 0)) ?>%</div><div class="lbl">Por materiales</div></div>
+                    </div>
+                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
+                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;"><i class="bi bi-rulers"></i></div>
+                        <div><div class="num"><?= round((float)($obra['avance_metraje_pct'] ?? 0)) ?>%</div><div class="lbl">Por metraje</div></div>
+                    </div>
+                    <div class="tv-kpi-card" style="flex:1;min-width:120px;">
+                        <div class="icon" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-graph-up-arrow"></i></div>
+                        <div><div class="num"><?= round((float)($obra['avance_pct'] ?? 0)) ?>%</div><div class="lbl">Avance global</div></div>
+                    </div>
+                </div>
                 <?php endif; ?>
-            </div>
-        </div>
 
-        <!-- Recursos para la recuperación -->
-        <div class="card">
-            <div class="card-header"><h2><i class="bi bi-box-seam"></i> Recursos para la recuperación</h2></div>
+                <!-- Sección: Materiales del plan -->
+                <div class="section-title" style="margin-bottom:8px;"><i class="bi bi-box-seam"></i> Materiales del plan</div>
+                <div id="tabla-materiales">
+                    <?php if ($materiales): foreach ($materiales as $mat): ?>
+                    <div class="seg-material-row" style="display:grid;grid-template-columns:1fr 1.2fr 80px 110px auto;gap:6px;align-items:center;margin-bottom:6px;">
+                        <input type="hidden" name="mat_id[]" value="<?= (int)$mat['id'] ?>">
+                        <select name="mat_categoria[]" class="form-control form-control-sm seg-mat-cat" onchange="actualizarSubtipos(this)">
+                            <option value="">— Categoría —</option>
+                            <?php foreach ($catMateriales as $cat => $subs): ?>
+                                <option value="<?= e($cat) ?>" <?= $mat['categoria'] === $cat ? 'selected' : '' ?>><?= e($cat) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <select name="mat_subtipo[]" class="form-control form-control-sm seg-mat-sub">
+                            <option value="">— Subtipo —</option>
+                            <?php $subActual = $mat['subtipo'] ?? ''; $catActual = $mat['categoria'] ?? ''; ?>
+                            <?php foreach ($catMateriales[$catActual] ?? [] as $s): ?>
+                                <option value="<?= e($s) ?>" <?= $subActual === $s ? 'selected' : '' ?>><?= e($s) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <select name="mat_unidad[]" class="form-control form-control-sm">
+                            <?php foreach (segUnidadesMateriales() as $u => $ul): ?>
+                                <option value="<?= e($u) ?>" <?= ($mat['unidad'] ?? 'und') === $u ? 'selected' : '' ?>><?= e($u) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="number" step="0.01" min="0" name="mat_cantidad[]" class="form-control form-control-sm"
+                               placeholder="Cantidad" value="<?= e(rtrim(rtrim(number_format((float)$mat['cantidad_asignada'],2),'0'),'.')) ?>">
+                        <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.seg-material-row').remove()"><i class="bi bi-trash"></i></button>
+                    </div>
+                    <?php endforeach; endif; ?>
+                </div>
+                <button type="button" id="btn-add-material" class="btn btn-outline btn-sm" style="margin-top:6px;">
+                    <i class="bi bi-plus-lg"></i> Agregar material
+                </button>
+
+                <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--gris-200);">
+                    <button class="btn btn-primary"><i class="bi bi-save-fill"></i> Guardar plan de acción</button>
+                </div>
+            </form>
+
+            <?php else: ?>
+            <!-- VISTA SOLO LECTURA para quien tiene permiso VER -->
+            <dl class="seg-datos">
+                <div><dt>Ente</dt><dd><?= e($insp['ente_nombre'] ?? '—') ?></dd></div>
+                <div><dt>Estado</dt><dd><?= e($obra['estado_obra'] ?? '—') ?></dd></div>
+                <div><dt>Prioridad</dt><dd><?= e($obra['prioridad'] ?? '—') ?></dd></div>
+                <div><dt>Tipo construcción</dt><dd><?= e($obra['tipo_construccion'] ?? '—') ?></dd></div>
+                <div><dt>Metraje</dt><dd><?= e($obra['metraje_total'] ?? '—') ?> <?= e($obra['metraje_unidad'] ?? '') ?></dd></div>
+                <div><dt>Inicio</dt><dd><?= e($obra['fecha_inicio'] ?? '—') ?></dd></div>
+                <div><dt>Fin estimado</dt><dd><?= e($obra['fecha_fin_estimada'] ?? '—') ?></dd></div>
+                <div><dt>Avance</dt><dd><?= round((float)($obra['avance_pct'] ?? 0)) ?>%</dd></div>
+            </dl>
+            <?php if ($materiales): ?>
+            <div class="section-title" style="margin-top:10px;"><i class="bi bi-box-seam"></i> Materiales</div>
+            <div class="table-wrap"><table class="data-table" style="font-size:13px;">
+                <thead><tr><th>Material</th><th>Subtipo</th><th>Asignado</th><th>Stock actual</th></tr></thead>
+                <tbody>
+                <?php foreach ($materiales as $mat): ?>
+                <tr>
+                    <td><?= e($mat['categoria']) ?></td>
+                    <td class="text-sm text-muted"><?= e($mat['subtipo'] ?? '—') ?></td>
+                    <td><?= e(rtrim(rtrim(number_format((float)$mat['cantidad_asignada'],2),'0'),'.')) ?> <?= e($mat['unidad']) ?></td>
+                    <td><?= e(rtrim(rtrim(number_format((float)$mat['cantidad_actual'],2),'0'),'.')) ?> <?= e($mat['unidad']) ?></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+            <?php endif; ?>
+            <?php endif; ?>
+
+            </div>
+        <!-- REPORTE DE INVENTARIO (quien ve = responsable en campo) -->
+        <?php if ($puedeReportar && $materiales): ?>
+        <div class="card" style="margin-top:16px;">
+            <div class="card-header">
+                <h2><i class="bi bi-clipboard2-data-fill"></i> Reportar inventario</h2>
+                <span class="text-sm text-muted">Actualice el stock restante de cada material</span>
+            </div>
             <div class="card-body">
-                <div class="text-sm text-muted" style="margin-bottom:8px;">
-                    Los recursos marcados <span class="badge badge-gris">Inspección</span> se cargaron automáticamente desde los datos de la inspección (m² de losas, muros a reconstruir).
-                </div>
-                <div class="table-wrap">
-                    <table class="data-table seg-recursos-table">
-                        <thead><tr><th>Recurso</th><th>Unidad</th><th>Estimado</th><th>Usado</th><th>Origen</th><?php if ($puedeEditar): ?><th></th><?php endif; ?></tr></thead>
-                        <tbody>
-                        <?php if (!$recursos): ?>
-                            <tr><td colspan="6" class="text-muted text-sm">Aún no hay recursos registrados.</td></tr>
-                        <?php else: foreach ($recursos as $rec): ?>
-                            <tr>
-                                <td><?= e($rec['recurso']) ?></td>
-                                <td class="text-sm"><?= e($rec['unidad'] ?? '—') ?></td>
-                                <td><?= $rec['cantidad_estimada'] !== null ? e(rtrim(rtrim(number_format((float)$rec['cantidad_estimada'], 2), '0'), '.')) : '—' ?></td>
-                                <td><?= e(rtrim(rtrim(number_format((float)$rec['cantidad_utilizada'], 2), '0'), '.')) ?></td>
-                                <td><span class="badge <?= $rec['origen'] === 'Inspección' ? 'badge-gris' : 'badge-verde' ?>"><?= e($rec['origen']) ?></span></td>
-                                <?php if ($puedeEditar): ?>
-                                <td>
-                                    <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_recurso.php" onsubmit="return confirm('¿Eliminar este recurso?');" style="display:inline;">
-                                        <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
-                                        <input type="hidden" name="accion" value="eliminar">
-                                        <input type="hidden" name="recurso_id" value="<?= (int)$rec['id'] ?>">
-                                        <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
-                                        <button class="btn btn-danger btn-sm"><i class="bi bi-trash"></i></button>
-                                    </form>
-                                </td>
-                                <?php endif; ?>
-                            </tr>
-                        <?php endforeach; endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php if ($puedeEditar): ?>
-                <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_recurso.php" class="seg-add-recurso">
+                <form method="post" action="<?= APP_URL_BASE ?>seguimiento/guardar_inventario.php">
                     <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
-                    <input type="hidden" name="accion" value="agregar">
-                    <input type="hidden" name="inspeccion_id" value="<?= (int)$inspeccionId ?>">
-                    <input type="text" name="recurso" class="form-control" placeholder="Recurso (ej. Cemento)" required>
-                    <input type="text" name="unidad" class="form-control" placeholder="Unidad" style="max-width:90px;">
-                    <input type="number" step="0.01" name="cantidad_estimada" class="form-control" placeholder="Cantidad" style="max-width:110px;">
-                    <button class="btn btn-outline btn-sm"><i class="bi bi-plus-lg"></i> Agregar</button>
+                    <input type="hidden" name="inspeccion_id" value="<?= $inspeccionId ?>">
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead><tr><th>Material</th><th>Asignado</th><th>Stock actual</th><th>Restante a reportar</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($materiales as $mat):
+                                $usadoPct = $mat['cantidad_asignada'] > 0
+                                    ? min(100, round((($mat['cantidad_asignada']-$mat['cantidad_actual'])/$mat['cantidad_asignada'])*100)) : 0;
+                            ?>
+                            <tr>
+                                <td>
+                                    <input type="hidden" name="inv_mat_id[]" value="<?= (int)$mat['id'] ?>">
+                                    <strong><?= e($mat['categoria']) ?></strong>
+                                    <?php if ($mat['subtipo']): ?><div class="text-sm text-muted"><?= e($mat['subtipo']) ?></div><?php endif; ?>
+                                </td>
+                                <td><?= e(rtrim(rtrim(number_format((float)$mat['cantidad_asignada'],2),'0'),'.')) ?> <?= e($mat['unidad']) ?></td>
+                                <td>
+                                    <?= e(rtrim(rtrim(number_format((float)$mat['cantidad_actual'],2),'0'),'.')) ?> <?= e($mat['unidad']) ?>
+                                    <div class="seg-progress-wrap" style="margin-top:4px;">
+                                        <div class="seg-progress-bar" style="width:<?= $usadoPct ?>%;background:<?= $usadoPct>=80?'#1c6b3d':($usadoPct>=50?'#C9A227':'#2d4488') ?>;height:4px;border-radius:2px;"></div>
+                                    </div>
+                                    <div class="text-sm text-muted"><?= $usadoPct ?>% usado</div>
+                                </td>
+                                <td>
+                                    <input type="number" step="0.01" min="0" name="inv_restante[]"
+                                           class="form-control form-control-sm"
+                                           placeholder="Cantidad restante"
+                                           value="<?= e(rtrim(rtrim(number_format((float)$mat['cantidad_actual'],2),'0'),'.')) ?>">
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="form-grid cols-2" style="margin-top:10px;">
+                        <div class="field">
+                            <label>Metraje completado hasta ahora (<?= e($obra['metraje_unidad'] ?? 'm²') ?>)</label>
+                            <input type="number" step="0.01" min="0" name="inv_metraje" class="form-control"
+                                   placeholder="Ej: 12.5"
+                                   max="<?= e($obra['metraje_total'] ?? '') ?>">
+                        </div>
+                        <div class="field">
+                            <label>Nota del reporte (opcional)</label>
+                            <input type="text" name="inv_nota" class="form-control" placeholder="Observaciones del día…">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:8px;"><i class="bi bi-clipboard2-check-fill"></i> Registrar reporte</button>
                 </form>
-                <?php endif; ?>
             </div>
         </div>
+        <?php endif; ?>
+
+        <!-- BITÁCORA DE INVENTARIO (historial compacto) -->
+        <?php if ($reportesInv): ?>
+        <div class="card" style="margin-top:16px;">
+            <div class="card-header"><h2><i class="bi bi-journal-bookmark-fill"></i> Historial de reportes</h2></div>
+            <div class="card-body" style="padding:0;">
+                <?php
+                $reportesPorFecha = [];
+                foreach ($reportesInv as $r) {
+                    $fecha = substr($r['reportado_en'], 0, 10);
+                    $reportesPorFecha[$fecha][] = $r;
+                }
+                ?>
+                <?php foreach ($reportesPorFecha as $fecha => $rows): ?>
+                <details style="border-bottom:1px solid var(--gris-200);" <?= $fecha === array_key_first($reportesPorFecha) ? 'open' : '' ?>>
+                    <summary style="padding:10px 16px;cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;justify-content:space-between;align-items:center;">
+                        <span><i class="bi bi-calendar3" style="margin-right:6px;"></i><?= date('d/m/Y', strtotime($fecha)) ?></span>
+                        <span class="text-sm text-muted"><?= count($rows) ?> material(es) · <?= e($rows[0]['reportado_nombre'] ?? 'Sistema') ?></span>
+                    </summary>
+                    <div class="table-wrap" style="padding:0 12px 12px;">
+                        <table class="data-table" style="font-size:12px;">
+                            <thead><tr><th>Material</th><th>Asignado</th><th>Restante</th><th>Usado</th><th>Metraje</th><th>Nota</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($rows as $r): ?>
+                            <tr>
+                                <td><?= e($r['categoria']) ?><?= $r['subtipo'] ? '<div class="text-sm text-muted">'.e($r['subtipo']).'</div>' : '' ?></td>
+                                <td><?= e(rtrim(rtrim(number_format((float)$r['cantidad_asignada'],2),'0'),'.')) ?> <?= e($r['unidad']) ?></td>
+                                <td><?= e(rtrim(rtrim(number_format((float)$r['cantidad_restante'],2),'0'),'.')) ?></td>
+                                <td><?= $r['cantidad_usada'] !== null ? e(rtrim(rtrim(number_format((float)$r['cantidad_usada'],2),'0'),'.')) : '—' ?></td>
+                                <td><?= $r['metraje_avance'] !== null ? e(rtrim(rtrim(number_format((float)$r['metraje_avance'],2),'0'),'.')) : '—' ?></td>
+                                <td class="text-sm text-muted"><?= e($r['nota'] ?? '—') ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
     </div>
 
     <!-- Columna derecha: registro fotográfico + bitácora -->
@@ -386,6 +573,54 @@ include __DIR__ . '/../includes/header.php';
     fInicio.addEventListener('change', calcular);
     fDias.addEventListener('input', calcular);
     fFin.addEventListener('change', () => { fFin.dataset.auto = '0'; if (fFinAuto) fFinAuto.textContent = ''; });
+})();
+</script>
+
+<script>
+// ---- Plan de materiales: agregar filas y subtipos dinámicos ----
+(function () {
+    const CATALOGO = <?= json_encode(segCatalogoMateriales(), JSON_UNESCAPED_UNICODE) ?>;
+    const UNIDADES = <?= json_encode(array_keys(segUnidadesMateriales()), JSON_UNESCAPED_UNICODE) ?>;
+
+    function crearFilaMaterial() {
+        const div = document.createElement('div');
+        div.className = 'seg-material-row';
+        div.style.cssText = 'display:grid;grid-template-columns:1fr 1.2fr 80px 110px auto;gap:6px;align-items:center;margin-bottom:6px;';
+        div.innerHTML = `
+            <input type="hidden" name="mat_id[]" value="0">
+            <select name="mat_categoria[]" class="form-control form-control-sm seg-mat-cat">
+                <option value="">— Categoría —</option>
+                ${Object.keys(CATALOGO).map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+            <select name="mat_subtipo[]" class="form-control form-control-sm seg-mat-sub">
+                <option value="">— Subtipo —</option>
+            </select>
+            <select name="mat_unidad[]" class="form-control form-control-sm">
+                ${UNIDADES.map(u=>`<option value="${u}">${u}</option>`).join('')}
+            </select>
+            <input type="number" step="0.01" min="0" name="mat_cantidad[]" class="form-control form-control-sm" placeholder="Cantidad">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.seg-material-row').remove()"><i class="bi bi-trash"></i></button>`;
+        div.querySelector('.seg-mat-cat').addEventListener('change', function () {
+            actualizarSubtipos(this);
+        });
+        return div;
+    }
+
+    window.actualizarSubtipos = function (sel) {
+        const sub = sel.closest('.seg-material-row').querySelector('.seg-mat-sub');
+        const subs = CATALOGO[sel.value] || [];
+        sub.innerHTML = '<option value="">— Subtipo —</option>' +
+            subs.map(s => `<option value="${s}">${s}</option>`).join('');
+    };
+
+    document.getElementById('btn-add-material')?.addEventListener('click', function () {
+        document.getElementById('tabla-materiales').appendChild(crearFilaMaterial());
+    });
+
+    // Inicializar subtipos de filas ya existentes.
+    document.querySelectorAll('.seg-mat-cat').forEach(sel => {
+        sel.addEventListener('change', function () { actualizarSubtipos(this); });
+    });
 })();
 </script>
 

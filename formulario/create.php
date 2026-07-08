@@ -240,6 +240,24 @@ include __DIR__ . '/../includes/header.php';
 
     <label class="req" style="margin-top:6px;"><i class="bi bi-geo-fill"></i> Ubicación en el mapa</label>
     <p class="help-text" style="margin-top:-2px;margin-bottom:8px;">Toque o haga clic sobre el mapa para colocar el marcador en la edificación (obligatorio). Puede arrastrarlo para ajustar la posición.</p>
+
+    <!-- Buscador de dirección (tipo Google Maps): solo mueve la vista del mapa
+         para ayudar a encontrar la ubicación. NO altera las coordenadas guardadas
+         ni se envía a la base de datos. -->
+    <div class="mapa-buscador-wrap" style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="position:relative;flex:1;">
+            <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gris-500);pointer-events:none;"></i>
+            <input type="text" id="mapa-buscador-input" class="form-control"
+                   style="padding-left:32px;"
+                   placeholder="Buscar dirección o lugar para centrar el mapa…"
+                   autocomplete="off" autocorrect="off" spellcheck="false">
+            <div id="mapa-buscador-resultados" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:9999;background:#fff;border:1px solid var(--gris-300);border-top:none;border-radius:0 0 8px 8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;"></div>
+        </div>
+        <button type="button" id="mapa-buscador-btn" class="btn btn-outline btn-sm" title="Buscar">
+            <i class="bi bi-search"></i>
+        </button>
+    </div>
+
     <div class="mapa-selector" id="mapa-ubicacion">
         <div class="mapa-selector-hint"><i class="bi bi-cursor-fill"></i> Clic / toque para marcar la ubicación exacta</div>
     </div>
@@ -856,6 +874,66 @@ include __DIR__ . '/../includes/header.php';
             fijarCoordenadas(lat, lng);
         });
     }
+
+    // ---- Buscador de dirección (Nominatim / OSM) ----
+    // Mueve la vista del mapa para ayudar a encontrar la ubicación.
+    // NO altera las coordenadas seleccionadas ni se guarda en la BD.
+    (function () {
+        const inp = document.getElementById('mapa-buscador-input');
+        const btn = document.getElementById('mapa-buscador-btn');
+        const lista = document.getElementById('mapa-buscador-resultados');
+        if (!inp) return;
+        let timer = null;
+
+        function cerrarLista() { lista.style.display = 'none'; lista.innerHTML = ''; }
+
+        function irA(lat, lon, label) {
+            if (!mapaUbicacion) initMapaUbicacion();
+            mapaUbicacion.setView([lat, lon], 17);
+            inp.value = label;
+            cerrarLista();
+            // OJO: NO se llama a fijarCoordenadas(). El buscador solo mueve
+            // la vista — las coordenadas guardadas no cambian hasta que el
+            // usuario haga clic/arrastre el marcador.
+        }
+
+        async function buscar(q) {
+            if (!q.trim()) { cerrarLista(); return; }
+            try {
+                const url = 'https://nominatim.openstreetmap.org/search?format=json&q='
+                    + encodeURIComponent(q) + '&limit=5&accept-language=es&countrycodes=ve';
+                const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+                const data = await res.json();
+                lista.innerHTML = '';
+                if (!data.length) {
+                    lista.innerHTML = '<div style="padding:10px 14px;color:var(--gris-500);font-size:13px;">Sin resultados</div>';
+                    lista.style.display = '';
+                    return;
+                }
+                data.forEach(r => {
+                    const d = document.createElement('div');
+                    d.style.cssText = 'padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--gris-200);line-height:1.3;';
+                    d.textContent = r.display_name;
+                    d.addEventListener('mouseenter', () => d.style.background = 'var(--azul-50)');
+                    d.addEventListener('mouseleave', () => d.style.background = '');
+                    d.addEventListener('click', () => irA(+r.lat, +r.lon, r.display_name));
+                    lista.appendChild(d);
+                });
+                lista.style.display = '';
+            } catch(e) { cerrarLista(); }
+        }
+
+        inp.addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => buscar(inp.value), 400);
+        });
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); buscar(inp.value); }
+            if (e.key === 'Escape') cerrarLista();
+        });
+        btn.addEventListener('click', () => { clearTimeout(timer); buscar(inp.value); });
+        document.addEventListener('click', e => { if (!e.target.closest('.mapa-buscador-wrap')) cerrarLista(); });
+    })();
 
     document.getElementById('btn-geo')?.addEventListener('click', () => {
         if (!navigator.geolocation) return;

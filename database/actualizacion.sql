@@ -92,3 +92,52 @@ INSERT IGNORE INTO `profesiones` (`nombre`)
 --    corrige el estado en el que solo se veía el mapa.
 -- =====================================================================
 DELETE FROM `panel_config` WHERE `clave` = 'dashboard_widgets';
+
+-- =====================================================================
+-- 8) Plan de acción en Seguimiento y Control
+--    - seguimiento_obras: tipo de construcción, metraje y avance calculado.
+--    - seguimiento_materiales: materiales del plan (catálogo estructurado).
+--    - seguimiento_inventario_reportes: historial de reportes de stock.
+-- =====================================================================
+
+-- 8a) Columnas nuevas en seguimiento_obras
+ALTER TABLE `seguimiento_obras`
+  ADD COLUMN IF NOT EXISTS `tipo_construccion` VARCHAR(80)   DEFAULT NULL COMMENT 'Tipo de trabajo: Pared, Piso, Techo, etc.' AFTER `prioridad`,
+  ADD COLUMN IF NOT EXISTS `metraje_total`     DECIMAL(10,2) DEFAULT NULL COMMENT 'Metraje total del proyecto (m²/ml)' AFTER `tipo_construccion`,
+  ADD COLUMN IF NOT EXISTS `metraje_unidad`    VARCHAR(20)   DEFAULT 'm²' COMMENT 'Unidad del metraje' AFTER `metraje_total`,
+  ADD COLUMN IF NOT EXISTS `avance_metraje_pct` DECIMAL(5,2) DEFAULT 0 COMMENT 'Avance por metraje completado' AFTER `metraje_unidad`,
+  ADD COLUMN IF NOT EXISTS `avance_material_pct` DECIMAL(5,2) DEFAULT 0 COMMENT 'Avance por materiales usados vs asignados' AFTER `avance_metraje_pct`;
+
+-- 8b) Materiales del plan de acción (catálogo de lo que se necesita)
+CREATE TABLE IF NOT EXISTS `seguimiento_materiales` (
+  `id`                INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `obra_id`           INT(10) UNSIGNED NOT NULL,
+  `categoria`         VARCHAR(60)      NOT NULL COMMENT 'Ej: Bloques, Cemento, Arena, Cabillas...',
+  `subtipo`           VARCHAR(120)     DEFAULT NULL COMMENT 'Ej: Bloque hueco 10x20, Cabilla 3/8...',
+  `unidad`            VARCHAR(30)      NOT NULL COMMENT 'und, m³, kg, saco, ml...',
+  `cantidad_asignada` DECIMAL(14,2)    NOT NULL DEFAULT 0 COMMENT 'Cantidad total del plan',
+  `cantidad_actual`   DECIMAL(14,2)    NOT NULL DEFAULT 0 COMMENT 'Stock actual según último reporte',
+  `creado_por`        INT(10) UNSIGNED DEFAULT NULL,
+  `creado_en`         DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `actualizado_en`    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_sm_obra` (`obra_id`),
+  CONSTRAINT `fk_sm_obra` FOREIGN KEY (`obra_id`) REFERENCES `seguimiento_obras`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8c) Historial de reportes de inventario (bitácora de stock)
+CREATE TABLE IF NOT EXISTS `seguimiento_inventario_reportes` (
+  `id`               INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `material_id`      INT(10) UNSIGNED NOT NULL,
+  `obra_id`          INT(10) UNSIGNED NOT NULL,
+  `cantidad_restante` DECIMAL(14,2)   NOT NULL COMMENT 'Stock restante en este reporte',
+  `cantidad_usada`    DECIMAL(14,2)   DEFAULT NULL COMMENT 'Calculado: asignada - restante acumulado',
+  `metraje_avance`   DECIMAL(10,2)    DEFAULT NULL COMMENT 'Metraje completado hasta este reporte',
+  `nota`             VARCHAR(400)     DEFAULT NULL,
+  `reportado_por`    INT(10) UNSIGNED DEFAULT NULL,
+  `reportado_en`     DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_sir_material` (`material_id`),
+  KEY `idx_sir_obra`     (`obra_id`),
+  CONSTRAINT `fk_sir_material` FOREIGN KEY (`material_id`) REFERENCES `seguimiento_materiales`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

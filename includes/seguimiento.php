@@ -319,3 +319,217 @@ function segKpis(): array
     $stmt->execute($params);
     return $stmt->fetch();
 }
+
+// =====================================================================
+// PLAN DE ACCIÓN — tipos de construcción, materiales, inventario, avance
+// =====================================================================
+
+/** Catálogo de tipos de construcción para el plan de acción. */
+function segTiposConstruccion(): array
+{
+    return [
+        'Pared'             => 'Pared',
+        'Piso'              => 'Piso',
+        'Techo'             => 'Techo',
+        'Viga'              => 'Viga',
+        'Columna'           => 'Columna',
+        'Fundación'         => 'Fundación',
+        'Escalera'          => 'Escalera',
+        'Fachada'           => 'Fachada',
+        'Instalación eléctrica'   => 'Instalación eléctrica',
+        'Instalación sanitaria'   => 'Instalación sanitaria',
+        'Cielo raso'        => 'Cielo raso',
+        'Estructura general' => 'Estructura general',
+        'Otro'              => 'Otro',
+    ];
+}
+
+/** Catálogo de categorías de materiales con sus subtipos. */
+function segCatalogoMateriales(): array
+{
+    return [
+        'Bloques' => [
+            'Bloque hueco 10x20x40 cm',
+            'Bloque hueco 15x20x40 cm',
+            'Bloque hueco 20x20x40 cm',
+            'Bloque macizo 10x20x40 cm',
+            'Bloque de arcilla (ladrillo)',
+            'Bloque de concreto celular',
+            'Bloque ornamental',
+        ],
+        'Cemento' => [
+            'Cemento Portland tipo I (saco 42.5 kg)',
+            'Cemento Portland tipo II',
+            'Cemento blanco',
+            'Mortero premezclado',
+        ],
+        'Arena y Agregados' => [
+            'Arena lavada (m³)',
+            'Arena gruesa (m³)',
+            'Gravilla / piedra picada (m³)',
+            'Tosca / relleno compactado (m³)',
+        ],
+        'Acero / Cabillas' => [
+            'Cabilla corrugada 1/4" (6 mm)',
+            'Cabilla corrugada 3/8" (10 mm)',
+            'Cabilla corrugada 1/2" (12 mm)',
+            'Cabilla corrugada 5/8" (16 mm)',
+            'Cabilla corrugada 3/4" (19 mm)',
+            'Malla electrosoldada 15x15 cm',
+            'Malla electrosoldada 10x10 cm',
+            'Perfil metálico (ml)',
+        ],
+        'Cables eléctricos' => [
+            'Cable THHN #12 AWG',
+            'Cable THHN #10 AWG',
+            'Cable THHN #8 AWG',
+            'Cable THHN #6 AWG',
+            'Cable vulcanizado 2x12',
+            'Cable vulcanizado 3x12',
+            'Tubería conduit PVC 1/2"',
+            'Tubería conduit PVC 3/4"',
+        ],
+        'Tuberías y plomería' => [
+            'Tubería PVC presión 1/2"',
+            'Tubería PVC presión 3/4"',
+            'Tubería PVC sanitaria 4"',
+            'Tubería PVC sanitaria 6"',
+            'Tubería CPVC 1/2"',
+            'Codo PVC 90°',
+        ],
+        'Madera y encofrado' => [
+            'Tabla de madera 1"x10"',
+            'Machimbre (m²)',
+            'Bastidor de madera 2"x4"',
+            'Lámina de fórmica',
+            'Madera rolliza (ml)',
+        ],
+        'Impermeabilizantes' => [
+            'Impermeabilizante líquido (lt)',
+            'Membrana asfáltica (m²)',
+            'Sika cemento (kg)',
+        ],
+        'Pintura y acabados' => [
+            'Pintura de caucho (galón)',
+            'Pintura anticorrosiva (galón)',
+            'Estuco (saco)',
+            'Cerámica / porcelanato (m²)',
+        ],
+        'Otros materiales' => [
+            'Otro — especificar',
+        ],
+    ];
+}
+
+/** Unidades de medida comunes por categoría. */
+function segUnidadesMateriales(): array
+{
+    return ['und' => 'unidades', 'saco' => 'sacos', 'm²' => 'm²', 'm³' => 'm³',
+            'ml' => 'metros lineales', 'kg' => 'kilogramos', 'lt' => 'litros',
+            'galón' => 'galones', 'rollo' => 'rollos'];
+}
+
+/** Devuelve todos los materiales del plan de una obra. */
+function segMateriales(int $obraId): array
+{
+    try {
+        return db()->prepare('SELECT * FROM seguimiento_materiales WHERE obra_id = :o ORDER BY categoria, subtipo')
+                   ->execute(['o' => $obraId]) ? db()->prepare('SELECT * FROM seguimiento_materiales WHERE obra_id = :o ORDER BY categoria, subtipo')
+                   ->execute(['o' => $obraId]) && ($r = db()->prepare('SELECT * FROM seguimiento_materiales WHERE obra_id = :o ORDER BY categoria, subtipo')) && $r->execute(['o' => $obraId]) ? $r->fetchAll() : [] : [];
+    } catch (Throwable $e) { return []; }
+}
+
+/** Devuelve todos los materiales de una obra (versión correcta). */
+function segMaterialesDe(int $obraId): array
+{
+    try {
+        $st = db()->prepare('SELECT * FROM seguimiento_materiales WHERE obra_id = :o ORDER BY categoria, subtipo, id');
+        $st->execute(['o' => $obraId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+/** Reportes de inventario de un material (del más reciente al más antiguo). */
+function segReportesMaterial(int $materialId): array
+{
+    try {
+        $st = db()->prepare(
+            'SELECT r.*, u.nombre_completo AS reportado_nombre
+             FROM seguimiento_inventario_reportes r
+             LEFT JOIN usuarios u ON u.id = r.reportado_por
+             WHERE r.material_id = :m
+             ORDER BY r.reportado_en DESC'
+        );
+        $st->execute(['m' => $materialId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+/** Todos los reportes de inventario de una obra, ordenados del más reciente. */
+function segReportesObra(int $obraId): array
+{
+    try {
+        $st = db()->prepare(
+            'SELECT r.*, m.categoria, m.subtipo, m.unidad, m.cantidad_asignada,
+                    u.nombre_completo AS reportado_nombre
+             FROM seguimiento_inventario_reportes r
+             JOIN seguimiento_materiales m ON m.id = r.material_id
+             LEFT JOIN usuarios u ON u.id = r.reportado_por
+             WHERE r.obra_id = :o
+             ORDER BY r.reportado_en DESC'
+        );
+        $st->execute(['o' => $obraId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Recalcula y guarda el avance de la obra a partir de los materiales
+ * (avance_material_pct) y el metraje reportado (avance_metraje_pct).
+ * El avance_pct final es el MENOR de los dos (el cuello de botella).
+ */
+function segRecalcularAvance(int $obraId): void
+{
+    try {
+        $pdo = db();
+        // Avance por materiales: promedio de (asignada - actual) / asignada
+        // por cada material donde cantidad_asignada > 0.
+        $st = $pdo->prepare(
+            'SELECT COALESCE(
+               AVG(GREATEST(0, LEAST(100,
+                 ((cantidad_asignada - cantidad_actual) / cantidad_asignada) * 100
+               ))), 0
+             ) AS pct
+             FROM seguimiento_materiales
+             WHERE obra_id = :o AND cantidad_asignada > 0'
+        );
+        $st->execute(['o' => $obraId]);
+        $pctMat = (float)($st->fetchColumn() ?: 0);
+
+        // Avance por metraje: viene del último reporte que tenga metraje_avance.
+        $st2 = $pdo->prepare(
+            'SELECT r.metraje_avance, o.metraje_total
+             FROM seguimiento_inventario_reportes r
+             JOIN seguimiento_obras o ON o.id = r.obra_id
+             WHERE r.obra_id = :o AND r.metraje_avance IS NOT NULL
+             ORDER BY r.reportado_en DESC LIMIT 1'
+        );
+        $st2->execute(['o' => $obraId]);
+        $rowM = $st2->fetch();
+        $pctMet = 0;
+        if ($rowM && $rowM['metraje_total'] > 0) {
+            $pctMet = min(100, ($rowM['metraje_avance'] / $rowM['metraje_total']) * 100);
+        }
+
+        // El avance global es el mínimo (cuello de botella).
+        $pctFinal = ($pctMat > 0 || $pctMet > 0)
+            ? ($pctMet > 0 ? min($pctMat, $pctMet) : $pctMat)
+            : 0;
+
+        $pdo->prepare(
+            'UPDATE seguimiento_obras
+             SET avance_material_pct = :mat, avance_metraje_pct = :met, avance_pct = :final
+             WHERE id = :o'
+        )->execute(['mat' => round($pctMat,2), 'met' => round($pctMet,2), 'final' => round($pctFinal,2), 'o' => $obraId]);
+    } catch (Throwable $e) { /* silencioso */ }
+}

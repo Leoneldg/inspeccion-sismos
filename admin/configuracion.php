@@ -29,6 +29,21 @@ $seccionesEstado = obtenerConfigFormulario();
 $widgets        = obtenerConfigDashboard();
 $camposKpi      = catalogoCamposKpi();
 $kpisCustom     = obtenerConfigKpisCustom();
+$mapaConfig     = obtenerConfigMapa();
+
+// Para el modo personalizado: lista de inspecciones con nombre y código.
+$listaInspecciones = [];
+$listaSeguimiento  = [];
+try {
+    $listaInspecciones = db()->query(
+        'SELECT id, codigo, nombre_edificio, parroquia, municipio, estado
+         FROM inspecciones ORDER BY estado, municipio, nombre_edificio LIMIT 2000'
+    )->fetchAll();
+} catch (Throwable $e) {}
+try {
+    require_once __DIR__ . '/../includes/seguimiento.php';
+    $listaSeguimiento = segListaEdificios([]);
+} catch (Throwable $e) {}
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -315,5 +330,158 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<!-- ================================================================
+     CONFIGURACIÓN DEL MAPA DEL DASHBOARD
+     ================================================================ -->
+<div class="card" style="margin-top:20px;">
+    <div class="card-header"><h2><i class="bi bi-map-fill"></i> Modo del mapa en el dashboard</h2></div>
+    <?php if (!$puedeEditar): ?>
+        <div class="card-body text-muted">No tiene permisos para editar la configuración.</div>
+    <?php else: ?>
+    <div class="card-body">
+        <form method="post" action="<?= APP_URL_BASE ?>admin/guardar_configuracion.php" id="form-mapa-config">
+            <input type="hidden" name="accion" value="guardar_mapa">
+            <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+
+            <!-- Modo -->
+            <div class="field" style="margin-bottom:16px;">
+                <label style="font-weight:600;">Modo del mapa</label>
+                <div class="text-sm text-muted" style="margin-bottom:8px;">Define qué puntos geográficos se muestran en el mapa principal del dashboard.</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+                    <?php
+                    $modos = [
+                        'normal'       => ['icono'=>'bi-layers-fill','titulo'=>'Normal','desc'=>'Muestra puntos de inspección y de seguimiento simultáneamente'],
+                        'inspeccion'   => ['icono'=>'bi-clipboard-check-fill','titulo'=>'Solo inspecciones','desc'=>'Muestra únicamente las fichas de inspección'],
+                        'seguimiento'  => ['icono'=>'bi-tools','titulo'=>'Solo seguimiento','desc'=>'Muestra únicamente las fichas de seguimiento y control'],
+                        'personalizado'=> ['icono'=>'bi-pin-map-fill','titulo'=>'Personalizado','desc'=>'Usted elige qué puntos específicos aparecen en el mapa'],
+                    ];
+                    foreach ($modos as $val => $m): ?>
+                    <label class="card" style="cursor:pointer;padding:12px;border:2px solid <?= $mapaConfig['modo']===$val?'#22366f':'var(--border)' ?>;border-radius:10px;user-select:none;" id="modo-card-<?= $val ?>">
+                        <div class="flex items-center gap-8" style="margin-bottom:4px;">
+                            <input type="radio" name="mapa_modo" value="<?= $val ?>" <?= $mapaConfig['modo']===$val?'checked':'' ?> style="accent-color:#22366f;">
+                            <i class="bi <?= $m['icono'] ?>" style="color:#22366f;font-size:18px;"></i>
+                            <strong><?= $m['titulo'] ?></strong>
+                        </div>
+                        <div class="text-sm text-muted"><?= $m['desc'] ?></div>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <!-- Panel del modo personalizado -->
+            <div id="panel-personalizado" style="<?= $mapaConfig['modo']==='personalizado'?'':'display:none;' ?>border:1px solid var(--border);border-radius:10px;padding:16px;background:var(--fondo-panel,#f8fafc);margin-bottom:16px;">
+                <div class="flex gap-16 align-start" style="flex-wrap:wrap;">
+                    <!-- Inspecciones -->
+                    <div style="flex:1;min-width:280px;">
+                        <div style="font-weight:600;margin-bottom:6px;"><i class="bi bi-clipboard-check"></i> Fichas de inspección</div>
+                        <input type="text" id="filtro-insp-mapa" class="form-control form-control-sm" placeholder="Filtrar por nombre, código o parroquia…" style="margin-bottom:8px;">
+                        <div style="max-height:280px;overflow-y:auto;border:1px solid var(--gris-300);border-radius:6px;background:#fff;">
+                        <?php foreach ($listaInspecciones as $insp): ?>
+                            <label class="insp-mapa-item" style="display:flex;align-items:flex-start;gap:8px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--gris-100);"
+                                   data-search="<?= e(strtolower(($insp['codigo']??'').' '.($insp['nombre_edificio']??'').' '.($insp['parroquia']??'').' '.($insp['municipio']??''))) ?>">
+                                <input type="checkbox" name="mapa_insp_ids[]" value="<?= (int)$insp['id'] ?>"
+                                       style="margin-top:2px;accent-color:#22366f;"
+                                       <?= in_array((int)$insp['id'], $mapaConfig['insp_ids']) ? 'checked' : '' ?>>
+                                <div>
+                                    <div style="font-size:13px;font-weight:600;"><?= e($insp['nombre_edificio'] ?: $insp['codigo']) ?></div>
+                                    <div class="text-sm text-muted"><?= e($insp['parroquia']??'') ?> · <?= e($insp['municipio']??'') ?> · <?= e($insp['estado']??'') ?></div>
+                                </div>
+                            </label>
+                        <?php endforeach; ?>
+                        <?php if (!$listaInspecciones): ?><div class="text-sm text-muted" style="padding:12px;">Sin inspecciones registradas.</div><?php endif; ?>
+                        </div>
+                        <div class="text-sm text-muted" style="margin-top:4px;" id="cnt-insp-sel">
+                            <?= count($mapaConfig['insp_ids']) ?> seleccionada(s)
+                        </div>
+                    </div>
+                    <!-- Seguimiento -->
+                    <div style="flex:1;min-width:280px;">
+                        <div style="font-weight:600;margin-bottom:6px;"><i class="bi bi-tools"></i> Fichas de seguimiento</div>
+                        <input type="text" id="filtro-seg-mapa" class="form-control form-control-sm" placeholder="Filtrar por nombre, estado de obra…" style="margin-bottom:8px;">
+                        <div style="max-height:280px;overflow-y:auto;border:1px solid var(--gris-300);border-radius:6px;background:#fff;">
+                        <?php foreach ($listaSeguimiento as $seg): ?>
+                            <label class="seg-mapa-item" style="display:flex;align-items:flex-start;gap:8px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--gris-100);"
+                                   data-search="<?= e(strtolower(($seg['nombre_edificio']??'').' '.($seg['estado_obra']??'').' '.($seg['parroquia']??''))) ?>">
+                                <input type="checkbox" name="mapa_seg_ids[]" value="<?= (int)$seg['id'] ?>"
+                                       style="margin-top:2px;accent-color:#f0a63a;"
+                                       <?= in_array((int)$seg['id'], $mapaConfig['seg_ids']) ? 'checked' : '' ?>>
+                                <div>
+                                    <div style="font-size:13px;font-weight:600;"><?= e($seg['nombre_edificio']) ?></div>
+                                    <div class="text-sm" style="margin-top:2px;">
+                                        <span class="badge badge-gris"><?= e($seg['estado_obra'] ?? 'Sin iniciar') ?></span>
+                                        <span class="text-muted" style="margin-left:4px;"><?= e($seg['parroquia']??'') ?></span>
+                                    </div>
+                                </div>
+                            </label>
+                        <?php endforeach; ?>
+                        <?php if (!$listaSeguimiento): ?><div class="text-sm text-muted" style="padding:12px;">Sin edificaciones en seguimiento.</div><?php endif; ?>
+                        </div>
+                        <div class="text-sm text-muted" style="margin-top:4px;" id="cnt-seg-sel">
+                            <?= count($mapaConfig['seg_ids']) ?> seleccionada(s)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nota sobre los colores -->
+            <div class="alert alert-info" style="margin-bottom:16px;">
+                <i class="bi bi-info-circle"></i>
+                <div>Los puntos de <strong>inspección</strong> mantienen automáticamente su color de semáforo (verde/amarillo/rojo según la decisión). Los puntos de <strong>seguimiento</strong> se muestran con un ícono de herramienta <i class="bi bi-tools"></i> para indicar que están en fase 2 de intervención.</div>
+            </div>
+
+            <button class="btn btn-primary"><i class="bi bi-save-fill"></i> Guardar configuración del mapa</button>
+        </form>
+    </div>
+    <?php endif; ?>
+</div>
+
+<script>
+(function () {
+    // Mostrar/ocultar panel personalizado y resaltar la tarjeta seleccionada.
+    const radios = document.querySelectorAll('input[name="mapa_modo"]');
+    const panel  = document.getElementById('panel-personalizado');
+    const cards  = document.querySelectorAll('[id^="modo-card-"]');
+
+    function actualizarModo() {
+        const sel = document.querySelector('input[name="mapa_modo"]:checked')?.value;
+        panel.style.display = sel === 'personalizado' ? '' : 'none';
+        cards.forEach(c => {
+            const activo = c.id === 'modo-card-' + sel;
+            c.style.borderColor = activo ? '#22366f' : 'var(--border)';
+        });
+    }
+    radios.forEach(r => r.addEventListener('change', actualizarModo));
+    actualizarModo();
+
+    // Filtro de inspecciones.
+    const filtroInsp = document.getElementById('filtro-insp-mapa');
+    filtroInsp?.addEventListener('input', function () {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.insp-mapa-item').forEach(el => {
+            el.style.display = !q || el.dataset.search.includes(q) ? '' : 'none';
+        });
+    });
+    // Filtro de seguimiento.
+    const filtroSeg = document.getElementById('filtro-seg-mapa');
+    filtroSeg?.addEventListener('input', function () {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.seg-mapa-item').forEach(el => {
+            el.style.display = !q || el.dataset.search.includes(q) ? '' : 'none';
+        });
+    });
+    // Contadores.
+    function actualizarContadores() {
+        const cntI = document.querySelectorAll('input[name="mapa_insp_ids[]"]:checked').length;
+        const cntS = document.querySelectorAll('input[name="mapa_seg_ids[]"]:checked').length;
+        const elI = document.getElementById('cnt-insp-sel');
+        const elS = document.getElementById('cnt-seg-sel');
+        if (elI) elI.textContent = cntI + ' seleccionada(s)';
+        if (elS) elS.textContent = cntS + ' seleccionada(s)';
+    }
+    document.querySelectorAll('input[name="mapa_insp_ids[]"], input[name="mapa_seg_ids[]"]')
+        .forEach(cb => cb.addEventListener('change', actualizarContadores));
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

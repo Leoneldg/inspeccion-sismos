@@ -163,40 +163,115 @@ try {
         }
     }
 
+    // ---- Configuración del modo del mapa ----
+    $mapaOpc    = obtenerConfigMapa();
+    $modoMapa   = $mapaOpc['modo'] ?? 'normal';
+    $colorInsp  = $mapaOpc['color_inspeccion'] ?? '#22366f';
+    $colorSeg   = $mapaOpc['color_seguimiento'] ?? '#f0a63a';
+    $inspIdsOk  = array_filter(array_map('intval', $mapaOpc['insp_ids'] ?? []));
+    $segIdsOk   = array_filter(array_map('intval', $mapaOpc['seg_ids']  ?? []));
+
     // ---- ¿Existe la tabla de fotos? (compatibilidad con instalaciones que
     // aún no ejecutaron database/actualizacion_v2.sql) ----
     $tieneFotos = tablaFotosExiste();
 
-    // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta ambos filtros) ----
+    // ---- Puntos individuales para el mapa ----
     $puntos = [];
     $condPuntos = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
-    $sqlPuntos = $tieneFotos
-        ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
-                  (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
-                  (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
-           FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos"
-        : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
-                  0 AS cantidad_fotos, NULL AS foto_portada
-           FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos";
-    $stmt = $pdo->prepare($sqlPuntos);
-    $stmt->execute($paramsFiltro);
-    foreach ($stmt->fetchAll() as $row) {
-        $meta = $catalogo[$row['decision_final']] ?? ['color' => '#767c94', 'corto' => $row['decision_final']];
-        $puntos[] = [
-            'id'        => (int)$row['id'],
-            'codigo'    => $row['codigo'],
-            'nombre'    => $row['nombre_edificio'],
-            'parroquia' => $row['parroquia'],
-            'decision'  => $meta['corto'],
-            'decision_color' => $meta['color'],
-            'lat'       => (float)$row['latitud'],
-            'lng'       => (float)$row['longitud'],
-            'fecha'     => $row['fecha_inspeccion'],
-            'fotos'     => (int)$row['cantidad_fotos'],
-            'portada'   => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,
-        ];
+
+    // Puntos de INSPECCIÓN (según modo)
+    $mostrarInsp = in_array($modoMapa, ['normal','inspeccion','personalizado']);
+    if ($mostrarInsp) {
+        $filtroIdInsp = '';
+        $paramsInsp   = $paramsFiltro;
+        if ($modoMapa === 'personalizado' && $inspIdsOk) {
+            $ph = implode(',', array_fill(0, count($inspIdsOk), '?'));
+            $filtroIdInsp = " AND i.id IN ($ph)";
+            $paramsInsp   = array_merge(array_values($paramsFiltro), array_values($inspIdsOk));
+        } elseif ($modoMapa === 'personalizado') {
+            $mostrarInsp = false; // sin ids seleccionados, nada
+        }
+        if ($mostrarInsp) {
+            $sqlPuntos = $tieneFotos
+                ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+                          (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
+                          (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
+                   FROM inspecciones i
+                   WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$filtroIdInsp"
+                : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+                          0 AS cantidad_fotos, NULL AS foto_portada
+                   FROM inspecciones i
+                   WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$filtroIdInsp";
+            $stmt = $pdo->prepare($sqlPuntos);
+            $stmt->execute($paramsInsp);
+            foreach ($stmt->fetchAll() as $row) {
+                $meta = $catalogo[$row['decision_final']] ?? ['color' => $colorInsp, 'corto' => $row['decision_final']];
+                $puntos[] = [
+                    'id'             => (int)$row['id'],
+                    'tipo'           => 'inspeccion',
+                    'codigo'         => $row['codigo'],
+                    'nombre'         => $row['nombre_edificio'],
+                    'parroquia'      => $row['parroquia'],
+                    'decision'       => $meta['corto'],
+                    'decision_color' => $meta['color'],
+                    'etiqueta'       => $row['decision_final'] ?? '',
+                    'lat'            => (float)$row['latitud'],
+                    'lng'            => (float)$row['longitud'],
+                    'fecha'          => $row['fecha_inspeccion'],
+                    'fotos'          => (int)$row['cantidad_fotos'],
+                    'portada'        => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,
+                    'marker_color'   => $meta['color'],
+                ];
+            }
+        }
+    }
+
+    // Puntos de SEGUIMIENTO (según modo, usando coordenadas de la inspección original)
+    $mostrarSeg = in_array($modoMapa, ['normal','seguimiento','personalizado']);
+    if ($mostrarSeg) {
+        try {
+            require_once __DIR__ . '/../includes/seguimiento.php';
+            $filtroIdSeg = '';
+            $paramsSeg   = array_values($paramsFiltro);
+            $condSeg     = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
+            if ($modoMapa === 'personalizado' && $segIdsOk) {
+                $ph = implode(',', array_fill(0, count($segIdsOk), '?'));
+                $filtroIdSeg = " AND so.id IN ($ph)";
+                $paramsSeg   = array_merge(array_values($paramsFiltro), array_values($segIdsOk));
+            } elseif ($modoMapa === 'personalizado') {
+                $mostrarSeg = false;
+            }
+            if ($mostrarSeg) {
+                $stSeg = $pdo->prepare(
+                    "SELECT so.id AS seg_id, so.estado_obra, so.avance_pct,
+                            i.id AS insp_id, i.nombre_edificio, i.parroquia, i.latitud, i.longitud
+                     FROM seguimiento_obras so
+                     JOIN inspecciones i ON i.id = so.inspeccion_id
+                     WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condSeg$filtroIdSeg"
+                );
+                $stSeg->execute($paramsSeg);
+                foreach ($stSeg->fetchAll() as $row) {
+                    $puntos[] = [
+                        'id'             => (int)$row['seg_id'],
+                        'insp_id'        => (int)$row['insp_id'],
+                        'tipo'           => 'seguimiento',
+                        'codigo'         => 'SEG-' . $row['seg_id'],
+                        'nombre'         => $row['nombre_edificio'],
+                        'parroquia'      => $row['parroquia'],
+                        'decision'       => $row['estado_obra'],
+                        'decision_color' => $colorSeg,
+                        'etiqueta'       => $row['estado_obra'],
+                        'avance'         => (float)($row['avance_pct'] ?? 0),
+                        'lat'            => (float)$row['latitud'],
+                        'lng'            => (float)$row['longitud'],
+                        'fecha'          => null,
+                        'fotos'          => 0,
+                        'portada'        => null,
+                        'marker_color'   => $colorSeg,
+                    ];
+                }
+            }
+        } catch (Throwable $e) { /* seguimiento no disponible */ }
     }
 
     $inspecciones = [];
@@ -353,6 +428,13 @@ try {
         }
     }
 
+    // KPIs de seguimiento y control (sección adicional del dashboard).
+    $kpisSeg = ['total_edificios'=>0,'sin_seguimiento'=>0,'en_ejecucion'=>0,'culminadas'=>0,'avance_promedio'=>0];
+    try {
+        require_once __DIR__ . '/../includes/seguimiento.php';
+        $kpisSeg = segKpis();
+    } catch (Throwable $e) {}
+
     echo json_encode([
         'totales'         => $totales,
         'decision'        => $decision,
@@ -363,6 +445,7 @@ try {
         'secciones_geo'   => $porParroquia,
         'por_estado'      => $porEstado,
         'kpis_custom'     => $kpisCustom,
+        'kpis_seguimiento'=> $kpisSeg,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
         'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
         // Contexto de navegación nacional para el frontend

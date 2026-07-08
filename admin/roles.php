@@ -84,15 +84,22 @@ include __DIR__ . '/../includes/header.php';
                 <?php foreach ($modulos as $mod):
                     $p = $matriz[$rol['id']][$mod['id']] ?? ['ver'=>0,'crear'=>0,'editar'=>0,'eliminar'=>0];
                     $disabled = puede('usuarios', 'editar') ? '' : 'disabled';
+                    // El módulo de seguimiento solo usa ver/crear/eliminar (editar no aplica).
+                    $esSeguimiento = ($mod['nombre'] === 'Seguimiento y Control');
                 ?>
                     <tr>
                         <td><i class="bi <?= e($mod['icono']) ?>"></i> <?= e($mod['nombre']) ?></td>
                         <?php foreach (['ver','crear','editar','eliminar'] as $accion): ?>
                         <td style="text-align:center;">
+                            <?php if ($accion === 'editar' && $esSeguimiento): ?>
+                                <span class="text-muted" title="No aplica en seguimiento" style="font-size:11px;">—</span>
+                                <input type="hidden" name="permisos[<?= (int)$mod['id'] ?>][editar]" value="0">
+                            <?php else: ?>
                             <input type="checkbox" <?= $disabled ?>
                                 name="permisos[<?= (int)$mod['id'] ?>][<?= $accion ?>]" value="1"
                                 <?= $p[$accion] ? 'checked' : '' ?>
                                 style="width:17px;height:17px;accent-color:var(--azul-700);">
+                            <?php endif; ?>
                         </td>
                         <?php endforeach; ?>
                     </tr>

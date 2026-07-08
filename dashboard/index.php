@@ -166,6 +166,40 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
+        <!-- ── Seguimiento y Control ── -->
+        <?php if (puede('seguimiento', 'ver')): ?>
+        <div class="card" id="dash-seg-kpis" style="order:50;">
+            <div class="card-header" style="border-bottom:3px solid var(--naranja, #f0a63a);">
+                <h2 class="tv-section-title"><i class="bi bi-tools"></i> Seguimiento y Control</h2>
+                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i> Ver módulo</a>
+            </div>
+            <div class="card-body" style="padding:12px;">
+                <div class="tv-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">
+                    <div class="tv-kpi-card">
+                        <div class="icon"><i class="bi bi-buildings-fill"></i></div>
+                        <div><div class="num" id="seg-total-ed">—</div><div class="lbl">Edificaciones</div></div>
+                    </div>
+                    <div class="tv-kpi-card">
+                        <div class="icon"><i class="bi bi-clock-history"></i></div>
+                        <div><div class="num" id="seg-sin-seg">—</div><div class="lbl">Sin seguimiento</div></div>
+                    </div>
+                    <div class="tv-kpi-card" style="border-top:3px solid #C9A227;">
+                        <div class="icon" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hammer"></i></div>
+                        <div><div class="num" id="seg-en-ejec">—</div><div class="lbl">En ejecución</div></div>
+                    </div>
+                    <div class="tv-kpi-card" style="border-top:3px solid #1c6b3d;">
+                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;"><i class="bi bi-check-circle-fill"></i></div>
+                        <div><div class="num" id="seg-culminadas">—</div><div class="lbl">Culminadas</div></div>
+                    </div>
+                    <div class="tv-kpi-card" style="border-top:3px solid var(--azul-700, #22366f);">
+                        <div class="icon"><i class="bi bi-graph-up-arrow"></i></div>
+                        <div><div class="num" id="seg-avance">—</div><div class="lbl">Avance prom.</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <?php if (visibleDash($wcfg, 'chart_decision') || visibleDash($wcfg, 'chart_parroquia')): ?>
         <div class="split-grid cols-11" style="order:<?= ordenFila($wcfg, ['chart_decision','chart_parroquia']) ?>;">
             <?php if (visibleDash($wcfg, 'chart_decision')): ?>
@@ -224,6 +258,12 @@ include __DIR__ . '/../includes/header.php';
                 <div class="item"><span class="dot" style="background:#2E7D32;"></span> Acceso Permitido</div>
                 <div class="item"><span class="dot" style="background:#C9A227;"></span> Precaución al Entrar</div>
                 <div class="item"><span class="dot" style="background:#A61C1C;"></span> Acceso No Permitido</div>
+                <?php $mc = obtenerConfigMapa(); if (in_array($mc['modo'] ?? 'normal', ['normal','seguimiento','personalizado'])): ?>
+                <div class="item" style="margin-top:6px;border-top:1px solid rgba(255,255,255,.2);padding-top:6px;">
+                    <span style="display:inline-block;width:12px;height:12px;background:<?= e($mc['color_seguimiento']??'#f0a63a') ?>;transform:rotate(45deg);border-radius:2px;margin-right:4px;"></span>
+                    Seguimiento
+                </div>
+                <?php endif; ?>
                 <div class="item text-muted" id="nota-limites" style="font-size:10.5px;max-width:220px;"></div>
             </div>
             <div id="lista-edificios" class="mapa-lista"></div>
@@ -650,6 +690,15 @@ async function cargarDashboard() {
     if (data.kpis_custom) {
         Object.keys(data.kpis_custom).forEach(id => setTxt('kpi-custom-' + id, formatNum(data.kpis_custom[id])));
     }
+    // KPIs de seguimiento y control.
+    if (data.kpis_seguimiento) {
+        const ks = data.kpis_seguimiento;
+        setTxt('seg-total-ed',   formatNum(ks.total_edificios));
+        setTxt('seg-sin-seg',    formatNum(ks.sin_seguimiento));
+        setTxt('seg-en-ejec',    formatNum(ks.en_ejecucion));
+        setTxt('seg-culminadas', formatNum(ks.culminadas));
+        setTxt('seg-avance',     parseFloat(ks.avance_promedio || 0).toFixed(1) + '%');
+    }
 
     try {
         window.DashboardNacional.sincronizar(data);
@@ -845,18 +894,43 @@ async function cargarDashboard() {
         (data.puntos || []).forEach(p => {
             const lat = p.lat, lng = p.lng;
             if (lat == null || lng == null) return;
-            const marcador = L.circleMarker([lat, lng], {
-                radius: 7,
-                weight: 1.5,
-                color: '#1f2937',
-                fillColor: p.decision_color,
-                fillOpacity: 0.9,
-            });
-            marcador.bindTooltip(
-                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}`,
-                { direction: 'top', offset: [0, -8] }
-            );
-            marcador.on('click', () => abrirFicha(p.id));
+            let marcador;
+            if (p.tipo === 'seguimiento') {
+                // Punto de seguimiento: mismo color que su estado de obra pero
+                // con un ícono de herramienta (🔧) para indicar fase 2.
+                const color = p.marker_color || '#f0a63a';
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="width:30px;height:30px;background:${color};border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+                               <i class="bi bi-tools" style="font-size:13px;color:#fff;"></i>
+                           </div>`,
+                    iconSize: [30, 30], iconAnchor: [15, 15],
+                });
+                marcador = L.marker([lat, lng], { icon });
+                marcador.bindTooltip(
+                    `<strong>${p.nombre}</strong><br>${p.parroquia || ''}<br>` +
+                    `<span style="font-size:11px;">⚙ Seguimiento · ${p.etiqueta || p.decision}</span>` +
+                    (p.avance != null ? `<br>Avance: ${Math.round(p.avance)}%` : ''),
+                    { direction: 'top', offset: [0, -15] }
+                );
+                marcador.on('click', () => {
+                    window.location.href = '<?= APP_URL_BASE ?>seguimiento/ficha.php?inspeccion=' + p.insp_id;
+                });
+            } else {
+                // Punto de inspección: círculo con el color de semáforo (sin cambios).
+                marcador = L.circleMarker([lat, lng], {
+                    radius: 7,
+                    weight: 1.5,
+                    color: '#1f2937',
+                    fillColor: p.decision_color,
+                    fillOpacity: 0.9,
+                });
+                marcador.bindTooltip(
+                    `<strong>${p.nombre}</strong><br>${p.parroquia || ''}<br>${p.etiqueta || p.decision}`,
+                    { direction: 'top', offset: [0, -8] }
+                );
+                marcador.on('click', () => abrirFicha(p.id));
+            }
             clusterLayer.addLayer(marcador);
         });
     }

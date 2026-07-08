@@ -120,6 +120,18 @@ if ($accion === 'guardar_formulario') {
     guardarConfigValor('dashboard_kpis_custom', $lista, $_SESSION['user_id']);
     registrarLog($_SESSION['user_id'], 'config_kpi_eliminado', $kpiId);
     flash('success', 'KPI eliminado del dashboard.');
+} elseif ($accion === 'guardar_mapa') {
+    $modo     = in_array($_POST['mapa_modo'] ?? '', ['normal','inspeccion','seguimiento','personalizado'])
+                ? $_POST['mapa_modo'] : 'normal';
+    $inspIds  = array_map('intval', (array)($_POST['mapa_insp_ids'] ?? []));
+    $segIds   = array_map('intval', (array)($_POST['mapa_seg_ids']  ?? []));
+    $colorI   = preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['mapa_color_insp'] ?? '') ? $_POST['mapa_color_insp'] : '#22366f';
+    $colorS   = preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['mapa_color_seg']  ?? '') ? $_POST['mapa_color_seg']  : '#f0a63a';
+    $mapaOpc  = ['modo'=>$modo,'insp_ids'=>$inspIds,'seg_ids'=>$segIds,
+                 'color_inspeccion'=>$colorI,'color_seguimiento'=>$colorS];
+    guardarConfigValor('mapa_opciones', $mapaOpc, $_SESSION['user_id']);
+    registrarLog($_SESSION['user_id'], 'config_mapa_actualizada', "modo=$modo ids_insp=".count($inspIds)." ids_seg=".count($segIds));
+    flash('success', 'Configuración del mapa guardada.');
 } else {
     flash('error', 'Acción de configuración no reconocida.');
 }

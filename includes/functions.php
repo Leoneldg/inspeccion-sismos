@@ -1134,3 +1134,34 @@ function estiloWidgetDashboard(array $widget): string
     }
     return 'background:' . $bg . ';color:#fff;';
 }
+
+// =====================================================================
+// CONFIGURACIÓN DEL MAPA DEL DASHBOARD
+// =====================================================================
+
+/**
+ * Modos del mapa del dashboard.
+ * normal       → muestra puntos de inspección Y de seguimiento.
+ * inspeccion   → solo puntos de inspección.
+ * seguimiento  → solo puntos de seguimiento/control.
+ * personalizado→ solo los ids seleccionados manualmente.
+ */
+function obtenerConfigMapa(): array
+{
+    $defaults = [
+        'modo'                => 'normal', // normal | inspeccion | seguimiento | personalizado
+        'insp_ids'            => [],       // ids de inspecciones en modo personalizado
+        'seg_ids'             => [],       // ids de seguimiento en modo personalizado
+        'color_inspeccion'    => '#22366f',
+        'color_seguimiento'   => '#f0a63a',
+        'mostrar_etiqueta'    => true,     // mostrar nombre/código en popup
+    ];
+    $guardado = obtenerConfigValor('mapa_opciones');
+    if (is_array($guardado)) {
+        $defaults = array_merge($defaults, $guardado);
+        // Asegurar que los ids sean arrays.
+        $defaults['insp_ids'] = array_map('intval', (array)($defaults['insp_ids'] ?? []));
+        $defaults['seg_ids']  = array_map('intval', (array)($defaults['seg_ids']  ?? []));
+    }
+    return $defaults;
+}
