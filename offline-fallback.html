@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sin conexión · Inspección Post-Sismo</title>
+<style>
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: linear-gradient(135deg,#22366f,#2d4488); color:#fff; min-height:100vh;
+         display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; }
+  .caja { max-width:420px; }
+  .icono { width:96px; height:96px; margin:0 auto 20px; }
+  h1 { font-size:22px; margin:0 0 10px; }
+  p { font-size:15px; line-height:1.5; color:#dfe6fb; margin:0 0 18px; }
+  .barra { height:4px; width:60px; background:#f0a63a; border-radius:2px; margin:0 auto 22px; }
+  button { background:#f0a63a; color:#22366f; border:none; padding:12px 22px; border-radius:10px;
+           font-size:15px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="caja">
+    <img class="icono" src="assets/pwa/icon-192.png" alt="">
+    <div class="barra"></div>
+    <h1>Sin conexión a internet</h1>
+    <p>No pudimos cargar esta página porque no hay señal. Puedes seguir llenando el
+       formulario de inspección: lo que registres se guarda en el teléfono y se
+       subirá automáticamente cuando vuelva la conexión.</p>
+    <button onclick="location.href='formulario/create.php?pwa=1'">Ir al formulario</button>
+  </div>
+</body>
+</html>

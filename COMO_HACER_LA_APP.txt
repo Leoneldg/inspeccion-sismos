@@ -1,0 +1,117 @@
+========================================================================
+ CÓMO CONVERTIR EL SISTEMA EN UNA APP (APK) — Guía paso a paso
+========================================================================
+
+Tu sistema ahora es una PWA (aplicación web instalable). Ya funciona sin
+conexión: el formulario guarda las inspecciones en el teléfono y las sube
+solo cuando vuelve el internet.
+
+Esta guía explica cómo:
+  A) Probar que la PWA quedó bien.
+  B) Generar el archivo .apk para compartir por WhatsApp o subir a Play Store.
+
+
+------------------------------------------------------------------------
+ REQUISITOS PREVIOS
+------------------------------------------------------------------------
+1. El sistema debe estar publicado en tu dominio con HTTPS (candado verde).
+   Ejemplo: https://inspecciones.tudominio.gob.ve
+   -> La PWA y el APK NO funcionan con http:// sin candado.
+
+2. Sube al servidor los archivos nuevos que se agregaron (ya vienen en el
+   proyecto):
+     - manifest.json                 (en la raíz del sistema)
+     - service-worker.js             (en la raíz del sistema)
+     - offline-fallback.html         (en la raíz del sistema)
+     - assets/pwa/  (carpeta con los íconos)
+   Súbelos igual que subes el resto de archivos (FTP, cPanel, etc.),
+   respetando las mismas carpetas.
+
+
+------------------------------------------------------------------------
+ A) PROBAR LA PWA (antes de hacer el APK)
+------------------------------------------------------------------------
+1. En un teléfono Android, abre Chrome y entra a tu sistema:
+     https://tudominio/login.php
+2. Chrome mostrará abajo un aviso "Agregar a pantalla de inicio" o un
+   menú (⋮) -> "Instalar aplicación".
+3. Instálala. Aparecerá el ícono azul con el edificio en tu pantalla.
+4. Ábrela: se ve a pantalla completa, como una app.
+5. Prueba offline: activa el modo avión, entra al formulario, llena una
+   inspección y guárdala. Debe quedar guardada en el teléfono.
+6. Quita el modo avión: la inspección se sube sola al servidor.
+
+Si esto funciona, la PWA está lista para empaquetarse como APK.
+
+
+------------------------------------------------------------------------
+ B) GENERAR EL .APK  (opción recomendada: PWABuilder — sin programar)
+------------------------------------------------------------------------
+PWABuilder es una herramienta gratuita de Microsoft.
+
+1. En una computadora, entra a:  https://www.pwabuilder.com
+2. Escribe la URL de tu sistema (la del formulario o el login) y pulsa
+   "Start".
+   Ejemplo:  https://inspecciones.tudominio.gob.ve/login.php
+3. PWABuilder analizará tu sitio. Debe detectar el manifest y el service
+   worker (por eso los subiste antes). Si marca algo en rojo, suele ser un
+   detalle del manifest; avísame y lo ajusto.
+4. Pulsa "Package for stores" -> pestaña "Android".
+5. Opciones recomendadas:
+     - Package ID:  algo único como  ve.gob.inspeccionsismos
+       (se escribe al revés del dominio; no lleva espacios)
+     - App name:    Inspección Post-Sismo
+     - Signing key: "Create new" (la primera vez). GUARDA el archivo de
+       firma (.keystore) y su contraseña en un lugar seguro: lo necesitarás
+       para publicar futuras actualizaciones.
+6. Pulsa "Generate" y descarga el ZIP. Adentro trae:
+     - el archivo .apk           (para instalar/compartir directo)
+     - el archivo .aab           (para subir a Google Play)
+     - assetlinks.json           (archivo de verificación, ver paso C)
+     - instrucciones
+
+
+------------------------------------------------------------------------
+ C) QUITAR LA BARRA DEL NAVEGADOR (verificación de dominio)
+------------------------------------------------------------------------
+Para que la app se vea a pantalla completa (sin la barra de dirección):
+
+1. En el ZIP que descargaste, busca el archivo  assetlinks.json.
+2. Súbelo a tu servidor en esta ruta EXACTA:
+     https://tudominio/.well-known/assetlinks.json
+   (crea la carpeta ".well-known" en la raíz si no existe)
+3. Listo. La próxima vez que abras la app, ya no mostrará la barra del
+   navegador.
+
+
+------------------------------------------------------------------------
+ D) COMPARTIR / PUBLICAR
+------------------------------------------------------------------------
+- Por WhatsApp / directo: comparte el archivo .apk. Al instalarlo, Android
+  pedirá permitir "instalar apps de orígenes desconocidos" (normal).
+- En Google Play: sube el archivo .aab en Google Play Console (requiere una
+  cuenta de desarrollador, pago único de 25 USD).
+
+
+------------------------------------------------------------------------
+ CÓMO SE ACTUALIZA LA APP
+------------------------------------------------------------------------
+Como la app carga tu sistema web, CUALQUIER cambio que hagas en el servidor
+(nuevos campos, correcciones, etc.) aparece automáticamente en la app la
+próxima vez que tenga internet. NO hay que reinstalar el APK por cada cambio.
+
+Solo necesitas generar un APK nuevo si cambias el ícono, el nombre de la app
+o el dominio.
+
+
+------------------------------------------------------------------------
+ RESUMEN DEL FUNCIONAMIENTO OFFLINE
+------------------------------------------------------------------------
+- El inspector inicia sesión UNA vez (con internet).
+- Después puede llenar inspecciones sin señal: se guardan en el teléfono
+  (buzón de pendientes).
+- Cuando vuelve el internet, todo lo pendiente se sube solo a tu base de
+  datos, en orden, con sus fotos.
+- El inspector puede ver sus inspecciones guardadas en el buzón.
+
+Cualquier duda con PWABuilder o con el assetlinks.json, avísame y te guío.

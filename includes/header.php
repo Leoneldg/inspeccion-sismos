@@ -20,6 +20,25 @@ $flashes = obtenerFlashes();
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="<?= APP_URL_BASE ?>assets/css/style.css?v=<?= ASSET_VERSION ?>">
+
+<!-- PWA: app instalable con soporte offline -->
+<link rel="manifest" href="<?= APP_URL_BASE ?>manifest.json">
+<meta name="theme-color" content="#22366f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Inspección">
+<link rel="apple-touch-icon" href="<?= APP_URL_BASE ?>assets/pwa/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="<?= APP_URL_BASE ?>assets/pwa/icon-192.png">
+<script>
+  // Registrar el service worker (permite que la app funcione sin conexión).
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('<?= APP_URL_BASE ?>service-worker.js')
+        .catch(function (e) { console.warn('No se pudo registrar el service worker:', e); });
+    });
+  }
+</script>
 </head>
 <body<?= $activeModule === 'dashboard' ? ' class="modo-tv"' : '' ?>>
 <div class="offline-banner">
