@@ -296,7 +296,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
     <label style="margin-top:10px;">Materiales presentes</label>
-    <div class="form-grid cols-4">
+    <div class="form-grid cols-4-mob2">
         <?php if ($seccionesActivas['materiales_extendidos']): ?>
         <div class="check-row"><input type="checkbox" name="material_concreto" id="m0" value="1" <?= val($row,'material_concreto')?'checked':'' ?>><label for="m0">Concreto</label></div>
         <?php endif; ?>
@@ -396,11 +396,66 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="field"><label class="req">Piso crítico</label><input name="piso_critico" required placeholder="Ej: Piso 3" class="form-control" value="<?= e(val($row,'piso_critico')) ?>"></div>
     </div>
-    <label style="margin-top:10px;">N° de elementos con daño Severo/Completo (N), por tipo de elemento en el piso crítico</label>
-    <div class="form-grid cols-4">
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         ASISTENTE UNIFICADO POR PISO
+         Un solo acordeón por planta con:
+         1) Nivel de daño I-V por elemento estructural (→ máximo de todos los pisos)
+         2) Conteo numérico de elementos dañados (→ suma de todos los pisos)
+         No altera la BD. Solo totaliza y vuelca a los campos reales.
+         ══════════════════════════════════════════════════════════════════ -->
+    <details id="asistente-pisos-unico" style="margin:12px 0 16px;border:1.5px solid #c7d7f9;border-radius:12px;overflow:hidden;">
+        <summary style="padding:12px 16px;background:linear-gradient(90deg,#22366f,#3c58ad);color:#fff;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;user-select:none;">
+            <i class="bi bi-layers-fill" style="font-size:17px;color:#f0a63a;"></i>
+            Asistente: registrar daños piso por piso
+            <span style="font-size:12px;font-weight:400;margin-left:auto;opacity:.85;">Opcional — llene piso a piso y el sistema totaliza automáticamente</span>
+            <i class="bi bi-chevron-down" id="asistente-unico-chevron" style="font-size:14px;"></i>
+        </summary>
+        <div style="padding:14px 16px;background:#f4f6fd;">
+            <p style="font-size:13px;color:#22366f;margin:0 0 12px;">
+                <i class="bi bi-info-circle"></i>
+                Para cada planta complete el <strong>nivel de daño</strong> (I–V) de cada elemento y el <strong>conteo numérico</strong> de cuántos están afectados. Al pulsar <strong>Aplicar</strong>, el sistema totaliza todo y carga los datos en el formulario.
+            </p>
+            <div id="asistente-unico-plantas"></div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+                <button type="button" id="btn-unico-aplicar" class="btn btn-primary btn-sm">
+                    <i class="bi bi-check2-circle"></i> Aplicar al formulario
+                </button>
+                <button type="button" id="btn-unico-limpiar" class="btn btn-outline btn-sm">
+                    <i class="bi bi-arrow-counterclockwise"></i> Limpiar todo
+                </button>
+                <span id="unico-msg" style="font-size:13px;"></span>
+            </div>
+        </div>
+    </details>
+
+    <label style="margin-top:4px;">N° de elementos con daño Severo/Completo (N), por tipo de elemento en el piso crítico</label>
+    <!-- Campos ocultos: el asistente los llena. El inspector no los edita directamente. -->
+    <div style="display:none;">
+    <table>
+        <tbody>
         <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
-        <div class="field"><label class="req"><?= e($label) ?></label><input type="number" min="0" name="elementos_piso_critico[severo][<?= $key ?>]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['severo'][$key] ?? '') ?>"></div>
+        <tr>
+            <td><input type="number" min="0" id="severo-<?= $key ?>" name="elementos_piso_critico[severo][<?= $key ?>]" value="<?= e($pisoCriticoData['severo'][$key] ?? 0) ?>"></td>
+        </tr>
         <?php endforeach; ?>
+        </tbody>
+    </table>
+    </div>
+    <!-- Resumen de conteos (solo lectura, visible tras aplicar el asistente) -->
+    <div id="resumen-severo" class="table-wrap" style="margin-bottom:4px;">
+        <table class="data-table" style="min-width:320px;">
+            <thead><tr><th>Elemento</th><th style="text-align:center;">N° con daño Severo/Completo</th></tr></thead>
+            <tbody>
+            <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
+            <tr>
+                <td style="font-weight:500;"><?= e($label) ?></td>
+                <td id="vis-severo-<?= $key ?>" style="text-align:center;font-weight:700;color:#a61c1c;"><?= e($pisoCriticoData['severo'][$key] ?? 0) ?></td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p class="help-text" style="margin-top:4px;"><i class="bi bi-info-circle"></i> Completado por el asistente. Abra el asistente para modificar.</p>
     </div>
     <div class="field" style="margin-top:8px;">
         <label>Riesgo Estructural por daño Severo/Completo</label>
@@ -416,17 +471,44 @@ include __DIR__ . '/../includes/header.php';
 
     <?php if ($seccionesActivas['dano_moderado_piso_critico']): ?>
     <div class="section-title"><i class="bi bi-table"></i> Elementos estructurales con daño Moderado en el piso crítico</div>
-    <div class="form-grid cols-4" style="margin-bottom:4px;">
-        <div></div><div class="text-sm text-muted">Sin daño/Menor</div><div class="text-sm text-muted">Moderado</div><div class="text-sm text-muted">N° examinados</div>
+    <!-- Campos ocultos: el asistente los llena -->
+    <div style="display:none;">
+    <table>
+        <tbody>
+        <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
+        <tr>
+            <td><input type="number" min="0" id="mod-sin-<?= $key ?>" name="elementos_piso_critico[moderado][<?= $key ?>][sin_dano]"   value="<?= e($pisoCriticoData['moderado'][$key]['sin_dano']   ?? 0) ?>"></td>
+            <td><input type="number" min="0" id="mod-mod-<?= $key ?>" name="elementos_piso_critico[moderado][<?= $key ?>][moderado]"    value="<?= e($pisoCriticoData['moderado'][$key]['moderado']    ?? 0) ?>"></td>
+            <td><input type="number" min="0" id="mod-exa-<?= $key ?>" name="elementos_piso_critico[moderado][<?= $key ?>][examinados]"  value="<?= e($pisoCriticoData['moderado'][$key]['examinados']  ?? 0) ?>"></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
     </div>
-    <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
-    <div class="form-grid cols-4" style="margin-bottom:6px;">
-        <div class="field"><label><?= e($label) ?></label></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][sin_dano]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['sin_dano'] ?? '') ?>"></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][moderado]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['moderado'] ?? '') ?>"></div>
-        <div class="field"><input type="number" min="0" name="elementos_piso_critico[moderado][<?= $key ?>][examinados]" class="form-control" required placeholder="0" value="<?= e($pisoCriticoData['moderado'][$key]['examinados'] ?? '') ?>"></div>
+    <!-- Resumen visible (solo lectura) -->
+    <div id="resumen-moderado" class="table-wrap" style="margin-bottom:4px;">
+        <table class="data-table" style="min-width:420px;">
+            <thead>
+                <tr>
+                    <th style="width:40%;">Elemento</th>
+                    <th style="text-align:center;">Sin daño/Menor</th>
+                    <th style="text-align:center;">Moderado</th>
+                    <th style="text-align:center;">N° examinados</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach (catalogoElementosPisoCritico() as $key => $label): ?>
+            <tr>
+                <td style="font-weight:500;"><?= e($label) ?></td>
+                <td id="vis-sin-<?= $key ?>"   style="text-align:center;font-weight:700;"><?= e($pisoCriticoData['moderado'][$key]['sin_dano']   ?? 0) ?></td>
+                <td id="vis-mod-<?= $key ?>"   style="text-align:center;font-weight:700;color:#b45309;"><?= e($pisoCriticoData['moderado'][$key]['moderado']    ?? 0) ?></td>
+                <td id="vis-exa-<?= $key ?>"   style="text-align:center;font-weight:700;"><?= e($pisoCriticoData['moderado'][$key]['examinados']  ?? 0) ?></td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p class="help-text" style="margin-top:4px;"><i class="bi bi-info-circle"></i> Completado por el asistente. Abra el asistente para modificar.</p>
     </div>
-    <?php endforeach; ?>
     <div class="field" style="margin-top:8px;">
         <label>Riesgo Estructural por Daño Moderado</label>
         <select required name="riesgo_estructural_moderado" class="form-control">
@@ -439,22 +521,329 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-bricks"></i> Daño en elementos estructurales</div>
+    <!-- Selects ocultos: el asistente los llena con el nivel máximo por elemento -->
+    <div style="display:none;">
+        <?php foreach ($elementosEstruct as $key => $label): ?>
+        <select name="danos_estructurales[<?= $key ?>]" id="dano-<?= $key ?>">
+            <option value="">Sin evaluar</option>
+            <?php foreach ($nivelesDano as $k => $v): ?>
+                <option value="<?= $k ?>" <?= ($danosEst[$key] ?? '')===$k?'selected':'' ?>><?= e($v) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endforeach; ?>
+    </div>
+    <!-- Resumen visible (solo lectura) -->
+    <div id="resumen-nivel-dano" style="margin-bottom:8px;">
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Elemento estructural</th><th style="text-align:center;">Nivel de daño</th></tr></thead>
+            <tbody>
+            <?php foreach ($elementosEstruct as $key => $label): ?>
+            <tr>
+                <td style="font-weight:500;"><?= e($label) ?></td>
+                <td id="vis-dano-<?= $key ?>" style="text-align:center;font-weight:700;">
+                    <?php
+                    $nv = $danosEst[$key] ?? '';
+                    echo $nv ? e($nv . ' – ' . ($nivelesDano[$nv] ?? $nv)) : '<span style="color:#9ca3af;">Sin evaluar</span>';
+                    ?>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p class="help-text" style="margin-top:4px;"><i class="bi bi-info-circle"></i> Completado por el asistente. Abra el asistente para modificar.</p>
+        </div>
+    </div>
+    <!-- Fotos por elemento (siguen siendo accesibles) -->
     <div class="form-grid cols-2">
         <?php foreach ($elementosEstruct as $key => $label): ?>
         <div class="field">
             <label><?= e($label) ?></label>
-            <select name="danos_estructurales[<?= $key ?>]" class="form-control">
-                <option value="">Sin evaluar</option>
-                <?php foreach ($nivelesDano as $k => $v): ?>
-                    <option value="<?= $k ?>" <?= ($danosEst[$key] ?? '')===$k?'selected':'' ?>><?= e($v) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <div style="margin-top:8px;">
-                <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes, true, 'environment', 'Fotografíe el daño de cerca (que se vea la grieta/deformación) y también con contexto (que se vea dónde está ubicado dentro del edificio).'); ?>
-            </div>
+            <?php bloqueFotos($key, 'Fotos de ' . $label, $fotosExistentes, true, 'environment', 'Fotografíe el daño de cerca (que se vea la grieta/deformación) y también con contexto.'); ?>
         </div>
         <?php endforeach; ?>
     </div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ── Catálogos (inyectados desde PHP) ──────────────────────────────────────
+    // Elementos del piso crítico (conteo numérico)
+    const ELEM_CONTEO = <?= json_encode(catalogoElementosPisoCritico(), JSON_UNESCAPED_UNICODE) ?>;
+    // Elementos estructurales (niveles I-V)
+    const ELEM_NIVEL  = <?= json_encode($elementosEstruct, JSON_UNESCAPED_UNICODE) ?>;
+    const NIVELES     = ['I','II','III','IV','V'];
+    const ETIQ_NIVEL  = { I:'I – Sin daño', II:'II – Leve', III:'III – Moderado', IV:'IV – Severo', V:'V – Completo' };
+
+    // ── Estado interno por planta ─────────────────────────────────────────────
+    // { pid: { nivel: {columna:'II',...}, conteo: {columna_union:{severo:0,...},...} } }
+    const estado = {};
+
+    function leerCampo(name) {
+        return parseInt(document.querySelector('[name="' + name + '"]')?.value) || 0;
+    }
+
+    function generarPlantas() {
+        const sot  = leerCampo('num_sotanos');
+        const semi = leerCampo('num_semisotanos');
+        const pis  = leerCampo('num_pisos');
+        const lista = [];
+        for (let i = sot;  i >= 1; i--) lista.push({ id: 'sot_' + i,  label: 'Sótano ' + i });
+        for (let i = semi; i >= 1; i--) lista.push({ id: 'sem_' + i,  label: 'Semisótano ' + i });
+        if (pis >= 1) lista.push({ id: 'pb', label: 'Planta Baja' });
+        for (let i = 2; i <= pis; i++) lista.push({ id: 'p_' + i, label: 'Piso ' + (i - 1) });
+        return lista;
+    }
+
+    function initEstado(pid) {
+        if (estado[pid]) return;
+        estado[pid] = {
+            nivel:  Object.fromEntries(Object.keys(ELEM_NIVEL).map(k => [k, ''])),
+            conteo: Object.fromEntries(Object.keys(ELEM_CONTEO).map(k => [k, { severo:'', sin_dano:'', moderado:'', examinados:'' }])),
+        };
+    }
+
+    // ── Render principal ──────────────────────────────────────────────────────
+    function render() {
+        const cont   = document.getElementById('asistente-unico-plantas');
+        const plantas = generarPlantas();
+        if (!plantas.length) {
+            cont.innerHTML = '<p style="color:#a61c1c;font-size:13px;"><i class="bi bi-exclamation-circle"></i> Complete primero el N° de pisos en el Paso 2.</p>';
+            return;
+        }
+        cont.innerHTML = '';
+        plantas.forEach(planta => {
+            initEstado(planta.id);
+            const det  = document.createElement('details');
+            det.style.cssText = 'border:1px solid #c7d7f9;border-radius:8px;margin-bottom:8px;background:#fff;overflow:hidden;';
+
+            // Cabecera del acordeón
+            const summ = document.createElement('summary');
+            summ.style.cssText = 'padding:9px 14px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;background:#eaf0ff;user-select:none;';
+            summ.innerHTML = '<i class="bi bi-building" style="color:#22366f;"></i> ' + planta.label
+                + '<span class="unico-resumen" data-pid="' + planta.id + '" style="font-size:11px;font-weight:400;color:#6b7280;margin-left:auto;"></span>';
+
+            const body = document.createElement('div');
+            body.style.cssText = 'padding:14px;';
+
+            // ── Sección 1: Nivel de daño I-V ──────────────────────────────
+            const tit1 = document.createElement('div');
+            tit1.style.cssText = 'font-weight:700;font-size:12px;color:#22366f;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;border-bottom:2px solid #c7d7f9;padding-bottom:4px;';
+            tit1.innerHTML = '<i class="bi bi-bar-chart-fill"></i> Nivel de daño por elemento estructural';
+            body.appendChild(tit1);
+
+            const gridNivel = document.createElement('div');
+            gridNivel.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px;margin-bottom:16px;';
+            Object.entries(ELEM_NIVEL).forEach(([key, label]) => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+                const lbl = document.createElement('label');
+                lbl.style.cssText = 'font-size:12px;font-weight:600;color:#374151;margin:0;';
+                lbl.textContent = label;
+                const sel = document.createElement('select');
+                sel.className = 'form-control form-control-sm';
+                sel.innerHTML = '<option value="">Sin evaluar</option>'
+                    + NIVELES.map(n => '<option value="' + n + '"'
+                        + (estado[planta.id].nivel[key] === n ? ' selected' : '')
+                        + '>' + ETIQ_NIVEL[n] + '</option>').join('');
+                sel.addEventListener('change', function () {
+                    estado[planta.id].nivel[key] = this.value;
+                    actualizarResumen(planta.id);
+                });
+                wrap.appendChild(lbl);
+                wrap.appendChild(sel);
+                gridNivel.appendChild(wrap);
+            });
+            body.appendChild(gridNivel);
+
+            // ── Sección 2: Conteo numérico ────────────────────────────────
+            const tit2 = document.createElement('div');
+            tit2.style.cssText = 'font-weight:700;font-size:12px;color:#22366f;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;border-bottom:2px solid #c7d7f9;padding-bottom:4px;';
+            tit2.innerHTML = '<i class="bi bi-123"></i> Conteo de elementos por tipo de daño';
+            body.appendChild(tit2);
+
+            const tblWrap = document.createElement('div');
+            tblWrap.style.cssText = 'overflow-x:auto;';
+            const tbl = document.createElement('table');
+            tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12.5px;min-width:480px;';
+            tbl.innerHTML =
+                '<thead><tr style="background:#eaf0ff;font-size:11px;font-weight:700;color:#374151;">' +
+                '<th style="padding:6px 10px;text-align:left;">Elemento</th>' +
+                '<th style="padding:6px 8px;text-align:center;color:#a61c1c;">Severo/Completo</th>' +
+                '<th style="padding:6px 8px;text-align:center;color:#1c6b3d;">Sin daño/Menor</th>' +
+                '<th style="padding:6px 8px;text-align:center;color:#b45309;">Moderado</th>' +
+                '<th style="padding:6px 8px;text-align:center;color:#374151;">N° Examinados</th>' +
+                '</tr></thead><tbody></tbody>';
+            const tbody = tbl.querySelector('tbody');
+            Object.entries(ELEM_CONTEO).forEach(([key, label], idx) => {
+                const tr = document.createElement('tr');
+                tr.style.background = idx % 2 === 0 ? '#f9fafb' : '#fff';
+                const tdLbl = document.createElement('td');
+                tdLbl.style.cssText = 'padding:5px 10px;font-weight:500;';
+                tdLbl.textContent = label;
+                tr.appendChild(tdLbl);
+                ['severo','sin_dano','moderado','examinados'].forEach(campo => {
+                    const td = document.createElement('td');
+                    td.style.cssText = 'padding:4px 6px;text-align:center;';
+                    const inp = document.createElement('input');
+                    inp.type = 'number'; inp.min = '0';
+                    inp.className = 'form-control form-control-sm';
+                    inp.style.textAlign = 'center';
+                    inp.placeholder = '0';
+                    inp.value = estado[planta.id].conteo[key][campo] ?? '';
+                    inp.addEventListener('input', function () {
+                        estado[planta.id].conteo[key][campo] = this.value === '' ? '' : (parseInt(this.value) || 0);
+                        actualizarResumen(planta.id);
+                    });
+                    td.appendChild(inp);
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            tblWrap.appendChild(tbl);
+            body.appendChild(tblWrap);
+
+            det.appendChild(summ);
+            det.appendChild(body);
+            cont.appendChild(det);
+            actualizarResumen(planta.id);
+        });
+    }
+
+    // ── Resumen en la cabecera de cada planta ─────────────────────────────────
+    function actualizarResumen(pid) {
+        const span = document.querySelector('.unico-resumen[data-pid="' + pid + '"]');
+        if (!span || !estado[pid]) return;
+        const partes = [];
+        // Nivel más severo
+        const nivelesActivos = Object.values(estado[pid].nivel).filter(v => v);
+        if (nivelesActivos.length) {
+            const max = nivelesActivos.reduce((a, b) => NIVELES.indexOf(b) > NIVELES.indexOf(a) ? b : a, 'I');
+            if (max !== 'I') partes.push('Nivel máx: ' + max);
+        }
+        // Totales de conteo
+        let totalSev = 0, totalMod = 0;
+        Object.values(estado[pid].conteo).forEach(c => {
+            totalSev += parseInt(c.severo)   || 0;
+            totalMod += parseInt(c.moderado) || 0;
+        });
+        if (totalSev) partes.push(totalSev + ' severo' + (totalSev > 1 ? 's' : ''));
+        if (totalMod) partes.push(totalMod + ' moderado' + (totalMod > 1 ? 's' : ''));
+
+        if (!partes.length) {
+            span.textContent = 'Sin datos';
+            span.style.color = '#9ca3af';
+        } else {
+            span.textContent = partes.join(' · ');
+            span.style.color = totalSev > 0 ? '#a61c1c' : (totalMod > 0 ? '#b45309' : '#1c6b3d');
+        }
+    }
+
+    // ── Aplicar: totalizar y volcar a los campos reales ───────────────────────
+    function aplicar() {
+        const plantas = generarPlantas();
+        if (!plantas.length) { msg('⚠ Complete N° de pisos primero.', '#a61c1c'); return; }
+
+        // 1) Nivel de daño: tomar el MÁXIMO de todos los pisos por elemento
+        const maxNivel = Object.fromEntries(Object.keys(ELEM_NIVEL).map(k => [k, '']));
+        plantas.forEach(planta => {
+            if (!estado[planta.id]) return;
+            Object.keys(ELEM_NIVEL).forEach(k => {
+                const v = estado[planta.id].nivel[k];
+                if (!v) return;
+                const actual = maxNivel[k];
+                if (!actual || NIVELES.indexOf(v) > NIVELES.indexOf(actual)) maxNivel[k] = v;
+            });
+        });
+
+        // 2) Conteo numérico: SUMAR todos los pisos por elemento y campo
+        const totalConteo = Object.fromEntries(
+            Object.keys(ELEM_CONTEO).map(k => [k, { severo: 0, sin_dano: 0, moderado: 0, examinados: 0 }])
+        );
+        plantas.forEach(planta => {
+            if (!estado[planta.id]) return;
+            Object.keys(ELEM_CONTEO).forEach(k => {
+                const d = estado[planta.id].conteo[k];
+                totalConteo[k].severo     += parseInt(d.severo)     || 0;
+                totalConteo[k].sin_dano   += parseInt(d.sin_dano)   || 0;
+                totalConteo[k].moderado   += parseInt(d.moderado)   || 0;
+                totalConteo[k].examinados += parseInt(d.examinados) || 0;
+            });
+        });
+
+        // Volcar niveles a los selects ocultos de daños estructurales
+        // y actualizar la tabla de resumen visible
+        let n1 = 0;
+        const ETIQ = { I:'I – Sin daño', II:'II – Leve', III:'III – Moderado', IV:'IV – Severo', V:'V – Completo' };
+        Object.entries(maxNivel).forEach(([k, v]) => {
+            const sel = document.getElementById('dano-' + k);
+            if (sel) { sel.value = v; n1++; }
+            const vis = document.getElementById('vis-dano-' + k);
+            if (vis) {
+                vis.innerHTML = v
+                    ? '<span style="color:' + (v==='IV'||v==='V'?'#a61c1c':v==='III'?'#b45309':'#1c6b3d') + '">' + (ETIQ[v]||v) + '</span>'
+                    : '<span style="color:#9ca3af">Sin evaluar</span>';
+            }
+        });
+
+        // Volcar conteos a los inputs ocultos y actualizar los resúmenes visibles
+        let n2 = 0;
+        Object.keys(ELEM_CONTEO).forEach(k => {
+            const elSev = document.getElementById('severo-' + k);
+            const elSin = document.getElementById('mod-sin-' + k);
+            const elMod = document.getElementById('mod-mod-' + k);
+            const elExa = document.getElementById('mod-exa-' + k);
+            if (elSev) { elSev.value = totalConteo[k].severo;     n2++; }
+            if (elSin)   elSin.value = totalConteo[k].sin_dano;
+            if (elMod)   elMod.value = totalConteo[k].moderado;
+            if (elExa)   elExa.value = totalConteo[k].examinados;
+            // Actualizar celdas visibles del resumen
+            const vSev = document.getElementById('vis-severo-' + k);
+            const vSin = document.getElementById('vis-sin-' + k);
+            const vMod = document.getElementById('vis-mod-' + k);
+            const vExa = document.getElementById('vis-exa-' + k);
+            if (vSev) vSev.textContent = totalConteo[k].severo;
+            if (vSin) vSin.textContent = totalConteo[k].sin_dano;
+            if (vMod) vMod.textContent = totalConteo[k].moderado;
+            if (vExa) vExa.textContent = totalConteo[k].examinados;
+        });
+
+        const total = n1 + n2;
+        msg('✔ ' + total + ' campo' + (total > 1 ? 's' : '') + ' actualizados: ' + n1 + ' nivel(es) y ' + n2 + ' conteo(s).', '#1c6b3d');
+    }
+
+    function limpiar() {
+        Object.keys(estado).forEach(pid => delete estado[pid]);
+        render();
+        msg('Asistente limpiado.', '#6b7280');
+    }
+
+    function msg(txt, color) {
+        const el = document.getElementById('unico-msg');
+        if (!el) return;
+        el.textContent = txt; el.style.color = color;
+        setTimeout(() => { el.textContent = ''; }, 5000);
+    }
+
+    // ── Inicializar ───────────────────────────────────────────────────────────
+    const det = document.getElementById('asistente-pisos-unico');
+    det?.addEventListener('toggle', function () {
+        document.getElementById('asistente-unico-chevron').className =
+            this.open ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+        if (this.open) render();
+    });
+    document.getElementById('btn-unico-aplicar')?.addEventListener('click', aplicar);
+    document.getElementById('btn-unico-limpiar')?.addEventListener('click', limpiar);
+    ['num_pisos','num_sotanos','num_semisotanos'].forEach(n => {
+        document.querySelector('[name="' + n + '"]')?.addEventListener('change', () => {
+            if (det?.open) render();
+        });
+    });
+})();
+</script>
+
+
 
     <div class="section-title"><i class="bi bi-tools"></i> Intervención y porcentaje de daño</div>
     <div class="form-grid">
@@ -505,7 +894,7 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 
     <div class="section-title"><i class="bi bi-droplet-half"></i> Servicios y elementos complementarios</div>
-    <div class="form-grid cols-4">
+    <div class="form-grid cols-4-mob2">
         <div class="check-row"><input type="checkbox" name="extra_ascensores" id="ex1" value="1" <?= !empty($extra['ascensores'])?'checked':'' ?>><label for="ex1">Ascensores</label></div>
         <div class="check-row"><input type="checkbox" name="extra_fuga_gas" id="ex2" value="1" <?= !empty($extra['fuga_gas'])?'checked':'' ?>><label for="ex2">Fuga de gas</label></div>
         <div class="check-row"><input type="checkbox" name="extra_fallas_electricas" id="ex3" value="1" <?= !empty($extra['fallas_electricas'])?'checked':'' ?>><label for="ex3">Fallas eléctricas</label></div>
@@ -527,7 +916,7 @@ include __DIR__ . '/../includes/header.php';
 <!-- PASO 7 -->
 <div class="wizard-pane" data-pane="7">
     <div class="section-title"><i class="bi bi-people-fill"></i> Personas y animales afectados</div>
-    <div class="form-grid cols-4">
+    <div class="form-grid cols-4-mob2">
         <div class="field"><label class="req">Familias</label><input type="number" min="0" name="familias" required placeholder="Ej: 3 (escriba 0 si no hay familias residiendo)" class="form-control" value="<?= e(val($row,'familias', 0)) ?>"></div>
         <div class="field"><label class="req">Hombres</label><input type="number" min="0" name="hombres" required placeholder="Ej: 4 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'hombres', 0)) ?>"></div>
         <div class="field"><label class="req">Mujeres</label><input type="number" min="0" name="mujeres" required placeholder="Ej: 5 (escriba 0 si no hay)" class="form-control" value="<?= e(val($row,'mujeres', 0)) ?>"></div>
@@ -539,7 +928,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 
     <div class="section-title"><i class="bi bi-hammer"></i> Recursos requeridos para intervención</div>
-    <div class="form-grid cols-4">
+    <div class="form-grid cols-4-mob2">
         <div class="field"><label class="req">Tiempo de acción (días)</label><input type="number" min="0" name="extra_tiempo_accion" required placeholder="Ej: 3 (días estimados)" class="form-control" value="<?= e($extra['tiempo_accion'] ?? '') ?>"></div>
         <div class="field"><label class="req">Mano de obra requerida</label><input name="extra_mano_obra" required placeholder="Ej: Albañil, Electricista, Plomero" class="form-control" value="<?= e($extra['mano_obra'] ?? '') ?>"></div>
         <div class="field"><label class="req">Herramientas requeridas</label><input name="extra_herramientas" required placeholder="Ej: Puntales, mazos, carretillas" class="form-control" value="<?= e($extra['herramientas'] ?? '') ?>"></div>
@@ -573,13 +962,13 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($seccionesActivas['acciones_recomendadas']): ?>
     <div class="section-title"><i class="bi bi-list-check"></i> Acciones recomendadas</div>
     <label>Inspección Detallada</label>
-    <div class="form-grid cols-4" style="margin-bottom:10px;">
+    <div class="form-grid cols-4-mob2" style="margin-bottom:10px;">
         <?php foreach (catalogoInspeccionDetallada() as $key => $label): $chk = !empty($accionesData['inspeccion_detallada'][$key]); ?>
         <div class="check-row"><input type="checkbox" name="inspeccion_detallada[<?= $key ?>]" id="idet_<?= $key ?>" value="1" <?= $chk?'checked':'' ?>><label for="idet_<?= $key ?>"><?= e($label) ?></label></div>
         <?php endforeach; ?>
     </div>
     <label>Medidas de Prevención</label>
-    <div class="form-grid cols-4">
+    <div class="form-grid cols-4-mob2">
         <?php foreach (catalogoMedidasPrevencion() as $key => $label): $chk = !empty($accionesData['medidas_prevencion'][$key]); ?>
         <div class="check-row"><input type="checkbox" name="medidas_prevencion[<?= $key ?>]" id="mprev_<?= $key ?>" value="1" <?= $chk?'checked':'' ?>><label for="mprev_<?= $key ?>"><?= e($label) ?></label></div>
         <?php endforeach; ?>

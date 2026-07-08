@@ -178,18 +178,43 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if ($totalPaginas > 1): ?>
-<div class="flex wrap-on-small gap-8 contenido-online" style="margin-top:16px;justify-content:center;">
-    <?php for ($p = 1; $p <= $totalPaginas; $p++): ?>
+<div class="flex wrap-on-small gap-8 contenido-online" style="margin-top:16px;justify-content:center;align-items:center;">
+    <?php
+    // Paginación resumida: siempre muestra primera, última, actual y 2 vecinas.
+    // Entre bloques no contiguos inserta "…"
+    $url = fn($p) => '?pagina=' . $p . '&q=' . urlencode($q) . '&parroquia=' . urlencode($parroquia) . '&estado=' . urlencode($estadoFiltroList);
+    $mostrar = [];
+    for ($p = 1; $p <= $totalPaginas; $p++) {
+        if ($p === 1 || $p === $totalPaginas                  // primera y última siempre
+            || abs($p - $pagina) <= 2) {                       // ±2 de la actual
+            $mostrar[] = $p;
+        }
+    }
+    $mostrar = array_unique($mostrar);
+    sort($mostrar);
+    // botón anterior
+    if ($pagina > 1): ?>
+        <a class="btn btn-sm btn-outline" href="<?= $url($pagina - 1) ?>"><i class="bi bi-chevron-left"></i></a>
+    <?php endif;
+    $prev = null;
+    foreach ($mostrar as $p):
+        if ($prev !== null && $p - $prev > 1): ?>
+            <span style="padding:0 4px;color:var(--gris-400);">…</span>
+        <?php endif; ?>
         <a class="btn btn-sm <?= $p === $pagina ? 'btn-primary' : 'btn-outline' ?>"
-           href="?pagina=<?= $p ?>&q=<?= urlencode($q) ?>&parroquia=<?= urlencode($parroquia) ?>&estado=<?= urlencode($estadoFiltroList) ?>"><?= $p ?></a>
-    <?php endfor; ?>
+           href="<?= $url($p) ?>"><?= $p ?></a>
+    <?php $prev = $p; endforeach;
+    // botón siguiente
+    if ($pagina < $totalPaginas): ?>
+        <a class="btn btn-sm btn-outline" href="<?= $url($pagina + 1) ?>"><i class="bi bi-chevron-right"></i></a>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 
 <!-- =====================================================================
      PANEL OFFLINE: inspecciones pendientes de subir
      ===================================================================== -->
-<div id="panel-offline-pendientes" class="panel-offline-modo" style="margin-top:0;">
+<div id="panel-offline-pendientes" style="display:none;margin-top:0;">
     <div class="card" style="border-top:4px solid var(--azul-700,#22366f);">
         <div class="card-header" style="background:var(--azul-900,#101b42);color:#fff;border-radius:0;">
             <div>
@@ -446,31 +471,47 @@ include __DIR__ . '/../includes/header.php';
     });
 
     // ── Cambiar vista según conexión ──────────────────────────────────────────
-    function actualizarVista() {
-        document.body.classList.toggle('sin-conexion', !navigator.onLine);
-        if (!navigator.onLine) {
+    async function actualizarVista() {
+        var hayInternet = navigator.onLine;
+        var pendientes  = [];
+        try { if (offline()) pendientes = await offline().listarPendientes(); } catch(e) {}
+
+        // Panel sin conexión: SOLO cuando no hay internet Y hay pendientes
+        var panelOffline = document.getElementById('panel-offline-pendientes');
+        if (!hayInternet && pendientes.length > 0) {
+            document.body.classList.add('sin-conexion');
+            if (panelOffline) panelOffline.style.display = '';
             renderPanelOffline();
         } else {
+            document.body.classList.remove('sin-conexion');
+            if (panelOffline) panelOffline.style.display = 'none';
+        }
+
+        // Botón flotante: solo con internet y pendientes
+        if (hayInternet) {
             actualizarBotónFlotante();
+        } else {
+            var btn = document.getElementById('btn-flotante-pendientes');
+            if (btn) btn.style.display = 'none';
         }
     }
 
     window.SismosOfflinePanel = { abrir: abrirModal, cerrar: cerrarModal, render: renderModal };
 
-    window.addEventListener('online',  actualizarVista);
-    window.addEventListener('offline', actualizarVista);
-    document.addEventListener('DOMContentLoaded', function() {
-        actualizarVista();
-        setInterval(function() { if (navigator.onLine) actualizarBotónFlotante(); }, 20000);
-    });
+    window.addEventListener('online',  function() { actualizarVista(); });
+    window.addEventListener('offline', function() { actualizarVista(); });
 
-    // CSS: mostrar/ocultar el contenido según el modo
+    // Ejecutar después de que el browser pinte el HTML inicial.
+    // El panel ya tiene display:none en el HTML — esto lo muestra
+    // SOLO si no hay internet Y hay pendientes reales.
+    setTimeout(function() { actualizarVista(); }, 50);
+    setInterval(function() { if (navigator.onLine) actualizarBotónFlotante(); }, 20000);
+
+    // CSS para animación offline y ocultar contenido online sin conexión
     var style = document.createElement('style');
     style.textContent =
         '.sin-conexion .contenido-online { display: none !important; }'
-        +'.sin-conexion #panel-offline-pendientes { display: block !important; }'
-        +'#panel-offline-pendientes { display: none; }'
-        +'@keyframes progresoBarra { 0%{width:0%;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }';
+        + '@keyframes progresoBarra { 0%{width:0%;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }';
     document.head.appendChild(style);
 })();
 </script>

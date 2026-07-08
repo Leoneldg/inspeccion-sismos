@@ -1743,3 +1743,12 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
     .form-grid { gap: 12px; }
 }
 
+
+/* Grid de 4 columnas que en móvil pasa a 2 (no a 1):
+   para checkboxes, personas, recursos donde 2 cols es más legible que 1. */
+.form-grid.cols-4-mob2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+@media (max-width: 900px) {
+    .form-grid.cols-4-mob2 { grid-template-columns: repeat(2, 1fr) !important; }
+    .form-grid.cols-4-mob2 .field,
+    .form-grid.cols-4-mob2 .check-row { grid-column: auto !important; }
+}

@@ -156,7 +156,12 @@
      * error) se tomaba como "ya se procesó" y se borraba de la cola sin
      * avisar a nadie — así se perdían inspecciones/fotos en silencio.
      */
-    function envioFueExitoso(resp) {
+    // ── Detección de éxito: acepta tanto redirección a view.php (legacy)
+    //    como respuesta JSON { ok: true } (nuevo, para sync offline)
+    function envioFueExitoso(resp, jsonData) {
+        if (jsonData && typeof jsonData === 'object') {
+            return jsonData.ok === true;
+        }
         return resp.ok && /\/formulario\/view\.php(\?|$)/.test(resp.url);
     }
 
@@ -187,21 +192,60 @@
                     await actualizarPendiente(p);
                     await actualizarBadge();
 
+                    // ── Obtener CSRF token fresco del servidor ────────────────
+                    // El token guardado en IndexedDB puede ser de horas o días
+                    // atrás, o de otra sesión. Pedimos uno nuevo antes de enviar.
+                    let csrfFresco = null;
+                    try {
+                        const csrfResp = await fetch(
+                            (window._APP_URL_BASE || '/') + 'api/csrf_token.php',
+                            { credentials: 'same-origin', cache: 'no-store' }
+                        );
+                        if (csrfResp.status === 401) {
+                            p.subiendo = false;
+                            p.intentos = MAX_INTENTOS_SYNC; // no reintentar automáticamente
+                            p.ultimoError = 'Sesión cerrada. Inicie sesión y reintente manualmente.';
+                            await actualizarPendiente(p);
+                            mostrarToast('<i class="bi bi-exclamation-triangle-fill"></i> Sesión cerrada. Inicie sesión para reenviar las inspecciones pendientes.', 'error');
+                            break; // parar toda la sincronización
+                        }
+                        const csrfData = await csrfResp.json();
+                        if (csrfData.ok) csrfFresco = csrfData.token;
+                    } catch (e) {
+                        // Sin acceso al endpoint de CSRF = sin red real
+                        p.subiendo = false;
+                        break;
+                    }
+
+                    // Reconstruir FormData con el CSRF fresco
+                    const fd = reconstruirFormData(p.campos);
+                    if (csrfFresco) {
+                        fd.set('csrf', csrfFresco); // sobreescribir el token viejo
+                    }
+                    // Añadir marcador para que save.php responda JSON
+                    fd.set('_offline_sync', '1');
+
                     const ctrl = new AbortController();
                     const tid  = setTimeout(() => ctrl.abort(), 60000); // 60s máximo
-                    let resp;
+                    let resp, jsonData = null;
                     try {
                         resp = await fetch(p.url, {
                             method: 'POST',
-                            body: reconstruirFormData(p.campos),
+                            body: fd,
                             credentials: 'same-origin',
                             signal: ctrl.signal,
+                            headers: { 'X-Offline-Sync': '1' },
                         });
+                        // Intentar leer JSON (nuevo) o dejar jsonData en null (legacy)
+                        const ct = resp.headers.get('content-type') || '';
+                        if (ct.includes('application/json')) {
+                            try { jsonData = await resp.json(); } catch(e) {}
+                        }
                     } finally { clearTimeout(tid); }
 
                     p.subiendo = false;
 
-                    if (envioFueExitoso(resp)) {
+                    if (envioFueExitoso(resp, jsonData)) {
                         await eliminarPendiente(p.id);
                         mostrarToast('<i class="bi bi-check-circle-fill"></i> Inspección ' + nom + ' subida correctamente.', 'success');
                         continue;
@@ -209,7 +253,9 @@
 
                     // No fue exitoso — guardar error legible
                     p.intentos = (p.intentos || 0) + 1;
-                    if (/\/login\.php(\?|$)/.test(resp.url)) {
+                    if (jsonData && jsonData.mensaje) {
+                        p.ultimoError = jsonData.mensaje;
+                    } else if (/\/login\.php(\?|$)/.test(resp.url)) {
                         p.ultimoError = 'Sesión cerrada. Inicie sesión y reintente.';
                     } else if (resp.status === 403) {
                         p.ultimoError = 'Error de seguridad. Recargue la página y reintente.';
@@ -269,9 +315,9 @@
             const pendientes = await listarPendientes();
             const p = pendientes.find((x) => x.id === id);
             if (!p) throw new Error('No encontrado');
-            p.intentos = 0;
+            p.intentos   = 0;
             p.ultimoError = null;
-            p.subiendo = false;
+            p.subiendo    = false;
             await actualizarPendiente(p);
             await sincronizarPendientes();
             await actualizarBadge();

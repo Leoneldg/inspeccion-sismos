@@ -11,9 +11,24 @@ require_once __DIR__ . '/../includes/functions.php';
 // navegador, ver más abajo.
 @set_time_limit(120);
 
+// ── Detectar si viene del sincronizador offline ───────────────────────────────
+// El JS offline añade el header X-Offline-Sync: 1 en cada reenvío.
+// Esto permite que save.php devuelva JSON en vez de redirigir,
+// lo cual permite que offline.js detecte el resultado correctamente.
+$esOffline = ($_SERVER['HTTP_X_OFFLINE_SYNC'] ?? '') === '1'
+          || ($_POST['_offline_sync'] ?? '') === '1';
+
+function salirOffline(bool $ok, string $mensaje, int $status = 200): never {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => $ok, 'mensaje' => $mensaje]);
+    exit;
+}
+
 requireLogin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if ($esOffline) salirOffline(false, 'Método no permitido.', 405);
     header('Location: ' . APP_URL_BASE . 'formulario/index.php');
     exit;
 }
@@ -28,12 +43,14 @@ if (empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 
         . ' bytes — se superó post_max_size (actual: ' . ini_get('post_max_size')
         . ') o upload_max_filesize (actual: ' . ini_get('upload_max_filesize')
         . '). El request se descartó completo, incluyendo los datos del formulario, no solo la foto.');
+    if ($esOffline) salirOffline(false, 'La foto es demasiado pesada para el límite del servidor (post_max_size: ' . ini_get('post_max_size') . '). Elimine las fotos grandes y reintente.');
     flash('error', 'La foto es demasiado pesada para el límite actual del servidor. Contacte al administrador.');
     header('Location: ' . APP_URL_BASE . 'formulario/index.php');
     exit;
 }
 
 if (!csrfValidar($_POST['csrf'] ?? null)) {
+    if ($esOffline) salirOffline(false, 'Token de seguridad inválido. Sesión posiblemente cerrada — vuelva a iniciar sesión.', 403);
     flash('error', 'La sesión del formulario expiró, intente nuevamente.');
     header('Location: ' . APP_URL_BASE . 'formulario/index.php');
     exit;
@@ -315,6 +332,20 @@ try {
 
     $destino = APP_URL_BASE . 'formulario/view.php?id=' . $id . ($esNuevo ? '&nuevo=1' : '');
 
+    // Si viene del sincronizador offline, responder con JSON en vez de redirigir.
+    // El JS detecta { ok: true } y elimina la inspección del IndexedDB.
+    if ($esOffline) {
+        if ($fotoIdsPendientesDeComprimir && function_exists('fastcgi_finish_request')) {
+            session_write_close();
+            salirOffline(true, 'Inspección guardada correctamente. ID: ' . $id);
+            fastcgi_finish_request();
+            foreach ($fotoIdsPendientesDeComprimir as $fotoId) { comprimirFotoPorId($fotoId); }
+            exit;
+        }
+        foreach ($fotoIdsPendientesDeComprimir as $fotoId) { comprimirFotoPorId($fotoId); }
+        salirOffline(true, 'Inspección guardada correctamente. ID: ' . $id);
+    }
+
     // Si el servidor corre bajo PHP-FPM (lo normal en producción), podemos
     // enviarle la respuesta al navegador YA MISMO y seguir ejecutando en
     // segundo plano para comprimir las fotos. El usuario ve el guardado
@@ -344,7 +375,9 @@ try {
 
 } catch (Throwable $e) {
     progresoActualizar($clientSubmissionId, 'ficha', 'error', 'Ocurrió un error al guardar');
-    flash('error', APP_DEBUG ? $e->getMessage() : 'Ocurrió un error al guardar la inspección. Verifique los datos e intente nuevamente.');
+    $mensajeError = APP_DEBUG ? $e->getMessage() : 'Ocurrió un error al guardar la inspección. Verifique los datos e intente nuevamente.';
+    if ($esOffline) salirOffline(false, $mensajeError, 500);
+    flash('error', $mensajeError);
     header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));
     exit;
 }
