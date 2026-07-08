@@ -117,7 +117,7 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
-<div class="card">
+<div class="card contenido-online">
     <?php if (!$inspecciones): ?>
         <div class="empty-state">
             <i class="bi bi-clipboard2-x"></i>
@@ -178,12 +178,311 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if ($totalPaginas > 1): ?>
-<div class="flex wrap-on-small gap-8" style="margin-top:16px;justify-content:center;">
+<div class="flex wrap-on-small gap-8 contenido-online" style="margin-top:16px;justify-content:center;">
     <?php for ($p = 1; $p <= $totalPaginas; $p++): ?>
         <a class="btn btn-sm <?= $p === $pagina ? 'btn-primary' : 'btn-outline' ?>"
            href="?pagina=<?= $p ?>&q=<?= urlencode($q) ?>&parroquia=<?= urlencode($parroquia) ?>&estado=<?= urlencode($estadoFiltroList) ?>"><?= $p ?></a>
     <?php endfor; ?>
 </div>
 <?php endif; ?>
+
+<!-- =====================================================================
+     PANEL OFFLINE: inspecciones pendientes de subir
+     ===================================================================== -->
+<div id="panel-offline-pendientes" class="panel-offline-modo" style="margin-top:0;">
+    <div class="card" style="border-top:4px solid var(--azul-700,#22366f);">
+        <div class="card-header" style="background:var(--azul-900,#101b42);color:#fff;border-radius:0;">
+            <div>
+                <h2 style="color:#fff;margin:0;"><i class="bi bi-cloud-slash-fill"></i> Sin conexión</h2>
+                <div style="font-size:13px;color:#aab4d8;margin-top:2px;">Inspecciones guardadas en este dispositivo</div>
+            </div>
+            <span id="offline-resumen" class="badge" style="background:#fff2;color:#fff;font-size:12px;">Cargando…</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+            <div id="offline-lista-pendientes" style="padding:16px;min-height:80px;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Botón flotante (con internet, cuando hay pendientes) -->
+<button id="btn-flotante-pendientes"
+    style="display:none;position:fixed;bottom:24px;right:24px;z-index:900;padding:12px 20px;background:var(--azul-700,#22366f);color:#fff;border:none;border-radius:50px;box-shadow:0 4px 18px rgba(0,0,0,.3);cursor:pointer;font-size:13px;font-weight:700;gap:8px;align-items:center;"
+    onclick="window.SismosOfflinePanel?.abrir()">
+    <i class="bi bi-cloud-arrow-up-fill"></i>
+    <span id="btn-flotante-label">Pendientes</span>
+</button>
+
+<!-- Modal (con internet) -->
+<div id="modal-pendientes-offline"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;align-items:flex-start;justify-content:center;padding:24px;overflow-y:auto;">
+    <div style="background:#fff;border-radius:16px;width:100%;max-width:680px;margin:auto;box-shadow:0 12px 48px rgba(0,0,0,.3);">
+        <!-- Cabecera modal -->
+        <div style="padding:18px 20px;border-bottom:1px solid var(--gris-200);display:flex;justify-content:space-between;align-items:center;border-radius:16px 16px 0 0;background:var(--azul-900,#101b42);">
+            <div>
+                <h3 style="margin:0;font-size:16px;color:#fff;"><i class="bi bi-cloud-arrow-up-fill"></i> Inspecciones pendientes de subir</h3>
+                <div id="buzon-resumen" style="font-size:12px;color:#aab4d8;margin-top:2px;"></div>
+            </div>
+            <button onclick="window.SismosOfflinePanel?.cerrar()" style="background:none;border:none;font-size:26px;cursor:pointer;color:#fff;line-height:1;">×</button>
+        </div>
+        <!-- Lista -->
+        <div id="buzon-offline-lista" style="padding:16px;max-height:60vh;overflow-y:auto;"></div>
+        <!-- Pie -->
+        <div style="padding:12px 20px;border-top:1px solid var(--gris-200);display:flex;gap:8px;justify-content:flex-end;border-radius:0 0 16px 16px;">
+            <button id="buzon-reintentar-todo" class="btn btn-primary btn-sm" disabled>
+                <i class="bi bi-arrow-repeat"></i> Reintentar todo
+            </button>
+            <button onclick="window.SismosOfflinePanel?.cerrar()" class="btn btn-outline btn-sm">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+    var offline = function () { return window.SismosOffline; };
+    var BASE    = window._APP_URL_BASE || '/';
+
+    // ── Render del panel sin conexión ─────────────────────────────────────────
+    async function renderPanelOffline() {
+        var cont    = document.getElementById('offline-lista-pendientes');
+        var resumen = document.getElementById('offline-resumen');
+        if (!cont || !offline()) return;
+
+        var pendientes = [];
+        try { pendientes = await offline().listarPendientes(); } catch(e) {
+            cont.innerHTML = '<p style="color:#b42318;padding:8px;"><i class="bi bi-exclamation-circle"></i> Error accediendo al almacenamiento local.</p>';
+            return;
+        }
+
+        var MAX = offline().MAX_INTENTOS_SYNC || 8;
+        if (resumen) resumen.textContent = pendientes.length + ' inspección(es)';
+
+        if (!pendientes.length) {
+            cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--gris-500);"><i class="bi bi-check2-circle" style="font-size:36px;color:#1a8a4a;display:block;margin-bottom:8px;"></i>No hay inspecciones pendientes.</div>';
+            return;
+        }
+
+        cont.innerHTML = renderItems(pendientes, MAX, false);
+        adjuntarEventos(cont, false);
+    }
+
+    // ── Render del modal (con internet) ───────────────────────────────────────
+    async function renderModal() {
+        var cont    = document.getElementById('buzon-offline-lista');
+        var resumen = document.getElementById('buzon-resumen');
+        if (!cont || !offline()) return;
+
+        var pendientes = [];
+        try { pendientes = await offline().listarPendientes(); } catch(e) {
+            cont.innerHTML = '<p style="color:#b42318;padding:8px;"><i class="bi bi-exclamation-circle"></i> Error accediendo al almacenamiento.</p>';
+            return;
+        }
+
+        var MAX = offline().MAX_INTENTOS_SYNC || 8;
+        var conError = pendientes.filter(function(p){ return (p.intentos||0)>=MAX; }).length;
+        if (resumen) resumen.textContent = pendientes.length + ' pendiente' + (pendientes.length===1?'':'s')
+            + (conError ? ' · ' + conError + ' con error' : '');
+
+        var btnTodo = document.getElementById('buzon-reintentar-todo');
+        if (btnTodo) btnTodo.disabled = !pendientes.length || !navigator.onLine;
+
+        if (!pendientes.length) {
+            cont.innerHTML = '<div style="text-align:center;padding:24px;color:var(--gris-500);"><i class="bi bi-check2-circle" style="font-size:36px;color:#1a8a4a;display:block;margin-bottom:8px;"></i>Todo sincronizado.</div>';
+            return;
+        }
+
+        cont.innerHTML = renderItems(pendientes, MAX, true);
+        adjuntarEventos(cont, true);
+    }
+
+    // ── Genera el HTML de las tarjetas ────────────────────────────────────────
+    function esc(s) { return String(s||'').replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+    function fmtFecha(ts) {
+        if (!ts) return '—';
+        var d = new Date(ts);
+        return d.toLocaleDateString('es-VE') + ' ' + d.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+    }
+
+    function renderItems(pendientes, MAX, esModal) {
+        // Ordenar: con error primero, luego fecha descendente
+        pendientes = pendientes.slice().sort(function(a,b){
+            var ae=(a.intentos||0)>=MAX, be=(b.intentos||0)>=MAX;
+            return ae!==be?(be?1:-1):(b.creado||0)-(a.creado||0);
+        });
+        return pendientes.map(function(p) {
+            var meta      = p.meta||{};
+            var intentos  = p.intentos||0;
+            var agotado   = intentos>=MAX;
+            var subiendo  = !!p.subiendo;
+            var fotos     = Array.isArray(p.campos)?p.campos.filter(function(c){return c&&c.isFile;}).length:0;
+            var nombre    = meta.nombre_edificio||'(Sin nombre)';
+            var ubic      = [meta.parroquia,meta.municipio,meta.estado].filter(Boolean).join(', ');
+
+            var badge = subiendo
+                ? '<span class="badge badge-azul"><i class="bi bi-arrow-repeat girando"></i> Subiendo…</span>'
+                : agotado
+                ? '<span class="badge badge-rojo"><i class="bi bi-exclamation-circle"></i> Error</span>'
+                : intentos>0
+                ? '<span class="badge badge-amarillo"><i class="bi bi-clock-history"></i> '+intentos+'/'+MAX+' intentos</span>'
+                : '<span class="badge badge-gris">Pendiente</span>';
+
+            var errorMsg = p.ultimoError
+                ? '<div style="margin:8px 0;padding:8px 12px;background:#fff5f5;border:1px solid #fca5a5;border-radius:6px;font-size:12.5px;color:#b42318;">'
+                  + '<i class="bi bi-exclamation-triangle-fill"></i> ' + esc(p.ultimoError) + '</div>'
+                : '';
+
+            var barra = subiendo
+                ? '<div style="height:4px;background:#e5e7eb;border-radius:2px;margin:8px 0;overflow:hidden;"><div style="height:100%;background:var(--azul-700);border-radius:2px;animation:progresoBarra 1.5s ease-in-out infinite;"></div></div>'
+                : '';
+
+            var botones = '';
+            if (!subiendo) {
+                if (navigator.onLine || esModal) {
+                    botones += '<button type="button" class="btn btn-primary btn-sm btn-rein-off" data-id="'+p.id+'">'
+                        +'<i class="bi bi-arrow-repeat"></i> '+(agotado?'Reintentar':'Subir ahora')+'</button>';
+                }
+                botones += '<a href="'+BASE+'formulario/create.php?editar_offline='+p.id+'" class="btn btn-outline btn-sm">'
+                    +'<i class="bi bi-pencil"></i> Editar</a>';
+                botones += '<button type="button" class="btn btn-danger btn-sm btn-del-off" data-id="'+p.id+'">'
+                    +'<i class="bi bi-trash"></i> Eliminar</button>';
+            }
+
+            return '<div class="buzon-item'+(agotado?' buzon-item-error':subiendo?' buzon-item-subiendo':'')+'" data-id="'+p.id+'" '
+                +'style="border:1px solid var(--gris-200);border-radius:10px;padding:14px;margin-bottom:10px;background:#fff;">'
+                +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">'
+                    +'<div style="flex:1;min-width:0;">'
+                        +'<div style="font-weight:700;font-size:14px;margin-bottom:3px;"><i class="bi bi-building"></i> '+esc(nombre)+'</div>'
+                        +'<div style="font-size:12px;color:var(--gris-500);">'
+                            +(ubic?'<span><i class="bi bi-geo-alt"></i> '+esc(ubic)+'</span> ':'')
+                            +(meta.fecha_inspeccion?'<span><i class="bi bi-calendar3"></i> '+esc(meta.fecha_inspeccion)+'</span> ':'')
+                            +(fotos?'<span><i class="bi bi-camera"></i> '+fotos+' foto'+(fotos===1?'':'s')+'</span> ':'')
+                            +'<span><i class="bi bi-clock-history"></i> '+fmtFecha(p.creado)+'</span>'
+                        +'</div>'
+                    +'</div>'
+                    +'<div>'+badge+'</div>'
+                +'</div>'
+                +errorMsg+barra
+                +(botones?'<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">'+botones+'</div>':'')
+            +'</div>';
+        }).join('');
+    }
+
+    // ── Eventos de botones ────────────────────────────────────────────────────
+    function adjuntarEventos(cont, esModal) {
+        cont.querySelectorAll('.btn-rein-off').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var id = +btn.dataset.id;
+                if (!navigator.onLine) {
+                    alert('Sin conexión. Conéctese para reintentar.');
+                    return;
+                }
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat girando"></i> Reintentando…';
+                try {
+                    await offline().reintentarUno(id);
+                } catch(e) {
+                    window.SismosToast?.('<i class="bi bi-exclamation-triangle-fill"></i> Error: '+e.message, 'error');
+                }
+                if (esModal) await renderModal(); else await renderPanelOffline();
+                actualizarBotónFlotante();
+            });
+        });
+        cont.querySelectorAll('.btn-del-off').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var id  = +btn.dataset.id;
+                var fil = cont.querySelector('[data-id="'+id+'"]');
+                var nom = fil?.querySelector('[style*="font-weight:700"]')?.textContent?.trim()||'esta inspección';
+                if (!confirm('¿Eliminar '+nom+' del dispositivo?\n\nSi aún no se subió al servidor, los datos se perderán.')) return;
+                btn.disabled = true;
+                try {
+                    await offline().eliminarPendiente(id);
+                    await offline().actualizarBadge();
+                } catch(e) { alert('No se pudo eliminar: '+e.message); btn.disabled=false; return; }
+                if (esModal) await renderModal(); else await renderPanelOffline();
+                actualizarBotónFlotante();
+            });
+        });
+    }
+
+    // ── Botón flotante ────────────────────────────────────────────────────────
+    async function actualizarBotónFlotante() {
+        var btn = document.getElementById('btn-flotante-pendientes');
+        if (!btn || !offline()) return;
+        var pendientes = [];
+        try { pendientes = await offline().listarPendientes(); } catch(e) {}
+        if (pendientes.length > 0) {
+            btn.style.display = 'inline-flex';
+            document.getElementById('btn-flotante-label').textContent =
+                pendientes.length + ' pendiente'+(pendientes.length===1?'':'s');
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
+    // ── Abrir/cerrar modal ────────────────────────────────────────────────────
+    function abrirModal() {
+        var m = document.getElementById('modal-pendientes-offline');
+        if (!m) return;
+        m.style.display = 'flex';
+        renderModal();
+    }
+    function cerrarModal() {
+        var m = document.getElementById('modal-pendientes-offline');
+        if (m) m.style.display = 'none';
+        actualizarBotónFlotante();
+    }
+    document.getElementById('modal-pendientes-offline')?.addEventListener('click', function(e) {
+        if (e.target === this) cerrarModal();
+    });
+    document.getElementById('buzon-reintentar-todo')?.addEventListener('click', async function() {
+        if (!navigator.onLine) { alert('Sin conexión. Conéctese primero.'); return; }
+        this.disabled = true;
+        this.innerHTML = '<i class="bi bi-arrow-repeat girando"></i> Reintentando…';
+        try { await offline().reintentarFallidos(); } catch(e) {}
+        await renderModal();
+        this.disabled = false;
+        this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reintentar todo';
+        actualizarBotónFlotante();
+    });
+
+    // ── Cambiar vista según conexión ──────────────────────────────────────────
+    function actualizarVista() {
+        document.body.classList.toggle('sin-conexion', !navigator.onLine);
+        if (!navigator.onLine) {
+            renderPanelOffline();
+        } else {
+            actualizarBotónFlotante();
+        }
+    }
+
+    window.SismosOfflinePanel = { abrir: abrirModal, cerrar: cerrarModal, render: renderModal };
+
+    window.addEventListener('online',  actualizarVista);
+    window.addEventListener('offline', actualizarVista);
+    document.addEventListener('DOMContentLoaded', function() {
+        actualizarVista();
+        setInterval(function() { if (navigator.onLine) actualizarBotónFlotante(); }, 20000);
+    });
+
+    // CSS: mostrar/ocultar el contenido según el modo
+    var style = document.createElement('style');
+    style.textContent =
+        '.sin-conexion .contenido-online { display: none !important; }'
+        +'.sin-conexion #panel-offline-pendientes { display: block !important; }'
+        +'#panel-offline-pendientes { display: none; }'
+        +'@keyframes progresoBarra { 0%{width:0%;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }';
+    document.head.appendChild(style);
+})();
+</script>
+    <div class="card" style="margin-top:0;">
+        <div class="card-header" style="background:var(--azul-900,#101b42);color:#fff;border-radius:var(--radio) var(--radio) 0 0;">
+            <h2 style="color:#fff;"><i class="bi bi-cloud-slash-fill"></i> Sin conexión — Inspecciones pendientes de subir</h2>
+            <div id="offline-resumen" class="text-sm" style="color:#aab4d8;">Cargando…</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+            <div id="offline-lista-pendientes" style="padding:16px;"></div>
+        </div>
+    </div>
+</div>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

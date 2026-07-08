@@ -45,6 +45,7 @@ $jsPath  = __DIR__ . '/../assets/js/main.js';
 define('ASSET_VERSION', (string)max(
     file_exists($cssPath) ? filemtime($cssPath) : 0,
     file_exists($jsPath) ? filemtime($jsPath) : 0,
+    20260708, // mínimo: fuerza recarga si el filemtime del servidor es antiguo
     1
 ));
 
@@ -64,21 +65,13 @@ date_default_timezone_set(APP_TIMEZONE);
 // Sesión segura
 // ---------------------------------------------------------------------
 if (session_status() === PHP_SESSION_NONE) {
-    // Este sistema se usa en campo con el modo offline (assets/js/offline.js):
-    // un inspector puede llenar el formulario sin señal y que el navegador
-    // recién lo envíe horas después, al volver la conexión. Si la sesión
-    // expira antes de eso (el default de PHP son ~24 minutos de
-    // inactividad), ese envío se rechaza por sesión/CSRF inválido y el modo
-    // offline lo reintenta sin éxito. Le damos 12 horas de margen.
-    $vidaSesionSegundos = 12 * 60 * 60;
-    ini_set('session.gc_maxlifetime', (string)$vidaSesionSegundos);
+    // Sin timeout de sesión: la sesión dura mientras el navegador esté abierto.
+    // Esto evita que inspectores en campo pierdan su sesión al volver a conectarse
+    // después de trabajar offline, o simplemente al dejar el dispositivo un rato.
+    // Si el usuario cierra el navegador completamente, la sesión termina.
+    ini_set('session.gc_maxlifetime', '0');
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_strict_mode', 1);
-    // Detecta HTTPS también cuando el sitio corre detrás de un proxy inverso
-    // (Cloudflare, Nginx como proxy, balanceador de carga, etc.), donde
-    // $_SERVER['HTTPS'] a veces no llega seteado aunque el visitante sí esté
-    // en https -- si se fuerza cookie_secure sin que el navegador vea la
-    // conexión como segura, la sesión (y por lo tanto el login) no persiste.
     $esHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'
         || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
         || (($_SERVER['SERVER_PORT'] ?? '') == 443);
@@ -86,7 +79,8 @@ if (session_status() === PHP_SESSION_NONE) {
         ini_set('session.cookie_secure', 1);
     }
     session_name('inspsismo_sess');
-    session_set_cookie_params($vidaSesionSegundos);
+    // lifetime=0 en la cookie = sesión de navegador (se borra al cerrar el browser)
+    session_set_cookie_params(0);
     session_start();
 }
 

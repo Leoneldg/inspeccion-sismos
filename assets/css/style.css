@@ -94,30 +94,30 @@ body.sin-conexion .offline-banner { display: block; }
 .btn-reintentar-offline.oculto-offline { display: none; }
 
 .progreso-guardado {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 0 20px;
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height .25s ease, padding .25s ease;
+    display: none;
+    margin-top: 14px;
+    padding: 14px 18px;
+    background: var(--azul-50, #f4f6fd);
+    border: 1px solid var(--azul-100, #e7ecf9);
+    border-radius: 12px;
 }
-.progreso-guardado.activo {
-    max-height: 160px;
-    padding: 12px 20px;
-    border-top: 1px solid var(--gris-100);
-}
+.progreso-guardado.activo { display: block; }
+/* Barra de progreso con porcentaje */
+.progreso-barra-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.progreso-barra-titulo { font-size: 13px; font-weight: 600; color: var(--azul-700,#22366f); }
+.progreso-barra-pct { font-size: 13px; font-weight: 700; color: var(--azul-700,#22366f); }
+.progreso-barra-wrap { height: 8px; background: var(--azul-100,#e7ecf9); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+.progreso-barra-fill { height: 100%; background: linear-gradient(90deg,var(--azul-700,#22366f),var(--azul-500,#3c58ad)); border-radius: 4px; transition: width .4s ease; }
+.progreso-pasos { display: flex; flex-direction: column; gap: 3px; }
 .paso-progreso {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--gris-400);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--gris-400);
+    transition: color .2s;
 }
 .paso-progreso.en_progreso { color: var(--texto, #1f2933); font-weight: 600; }
 .paso-progreso.listo { color: #1a8a4a; }
 .paso-progreso.error { color: #b42318; font-weight: 600; }
-.paso-progreso i { font-size: 15px; }
+.paso-progreso i { font-size: 14px; }
 .paso-progreso .girando { animation: girar-progreso 0.9s linear infinite; }
 @keyframes girar-progreso { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -471,12 +471,51 @@ label { display: block; font-size: 12.5px; font-weight: 600; color: var(--gris-7
 }
 textarea.form-control { resize: vertical; min-height: 80px; }
 
-.form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.form-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.form-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.form-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.form-grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 .form-grid .field { min-width: 0; }
-@media (max-width: 900px) { .form-grid, .form-grid.cols-2, .form-grid.cols-4 { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .form-grid, .form-grid.cols-2, .form-grid.cols-4 { grid-template-columns: 1fr; } }
+/* Campo que siempre ocupa todo el ancho disponible */
+.form-grid .field-full { grid-column: 1 / -1; }
+/* Seguro adicional para pantallas pequeñas */
+@media (max-width: 900px) {
+    .form-grid,
+    .form-grid.cols-2,
+    .form-grid.cols-4 { grid-template-columns: 1fr !important; }
+    .form-grid .field,
+    .form-grid .field-full { grid-column: 1 !important; }
+}
+@media (max-width: 560px) {
+    .form-grid,
+    .form-grid.cols-2,
+    .form-grid.cols-4 { grid-template-columns: 1fr !important; }
+    .form-grid .field,
+    .form-grid .field-full { grid-column: 1 !important; }
+}
+
+/* ── Responsive para grids en seguimiento/ficha: intervenciones y materiales ── */
+.interv-row   { display: grid; grid-template-columns: 1.5fr 1fr 80px auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.seg-material-row { display: grid; grid-template-columns: 1fr 1.2fr 80px 110px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+@media (max-width: 700px) {
+    /* Intervenciones: tipo ocupa ancho completo, metraje+unidad en fila, botones juntos */
+    .interv-row { grid-template-columns: 1fr 1fr auto auto; grid-template-rows: auto auto; }
+    .interv-row .interv-tipo  { grid-column: 1 / -1; }
+    /* Materiales: categoría arriba, subtipo+unidad+cantidad abajo */
+    .seg-material-row { grid-template-columns: 1fr 80px 80px auto; grid-template-rows: auto auto; }
+    .seg-material-row .seg-mat-cat { grid-column: 1 / -1; }
+}
+@media (max-width: 480px) {
+    /* En teléfonos pequeños: todo en una columna */
+    .interv-row { grid-template-columns: 1fr; }
+    .interv-row > * { width: 100%; }
+    .seg-material-row { grid-template-columns: 1fr 1fr; }
+    .seg-material-row .seg-mat-cat { grid-column: 1 / -1; }
+    .seg-material-row .seg-mat-sub { grid-column: 1 / -1; }
+    /* El content tiene 26px padding a cada lado, reducirlo en móvil */
+    .content { padding: 12px; }
+    /* Separar mejor los pasos del wizard en móvil */
+    .wizard-steps { padding-bottom: 8px; }
+}
 
 .field { margin-bottom: 4px; }
 .help-text { font-size: 11.5px; color: var(--gris-500); margin-top: 4px; }

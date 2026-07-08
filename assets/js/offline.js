@@ -161,67 +161,76 @@
     }
 
     let sincronizando = false;
+    let sincronizandoDesde = 0;
+
     async function sincronizarPendientes() {
-        if (sincronizando || !navigator.onLine) return;
+        // Prevenir que quede atascado: si lleva más de 90s en "sincronizando", resetear.
+        if (sincronizando && (Date.now() - sincronizandoDesde) < 90000) return;
+        if (!navigator.onLine) return;
         sincronizando = true;
+        sincronizandoDesde = Date.now();
         try {
             const pendientes = await listarPendientes();
             const porSubir = pendientes.filter((p) => (p.intentos || 0) < MAX_INTENTOS_SYNC);
             if (porSubir.length > 0) {
                 mostrarToast(
-                    '<i class="bi bi-cloud-arrow-up"></i> Conexión detectada: subiendo '
-                    + porSubir.length + ' inspección' + (porSubir.length === 1 ? '' : 'es') + ' guardada'
-                    + (porSubir.length === 1 ? '' : 's') + ' en este dispositivo…',
+                    '<i class="bi bi-cloud-arrow-up"></i> Subiendo ' + porSubir.length
+                    + ' inspección' + (porSubir.length === 1 ? '' : 'es') + ' pendiente…',
                     'info'
                 );
             }
             for (const p of pendientes) {
-                if ((p.intentos || 0) >= MAX_INTENTOS_SYNC) {
-                    continue; // agotó reintentos: queda visible en el badge de error, no se reintenta solo
-                }
-                const nombreEdif = (p.meta && p.meta.nombre_edificio) ? ('"' + p.meta.nombre_edificio + '"') : 'guardada';
+                if ((p.intentos || 0) >= MAX_INTENTOS_SYNC) continue;
+                const nom = (p.meta && p.meta.nombre_edificio) ? ('"'  + p.meta.nombre_edificio + '"') : 'sin nombre';
                 try {
-                    const fd = reconstruirFormData(p.campos);
-                    const resp = await fetch(p.url, {
-                        method: 'POST',
-                        body: fd,
-                        credentials: 'same-origin',
-                    });
+                    p.subiendo = true;
+                    await actualizarPendiente(p);
+                    await actualizarBadge();
+
+                    const ctrl = new AbortController();
+                    const tid  = setTimeout(() => ctrl.abort(), 60000); // 60s máximo
+                    let resp;
+                    try {
+                        resp = await fetch(p.url, {
+                            method: 'POST',
+                            body: reconstruirFormData(p.campos),
+                            credentials: 'same-origin',
+                            signal: ctrl.signal,
+                        });
+                    } finally { clearTimeout(tid); }
+
+                    p.subiendo = false;
 
                     if (envioFueExitoso(resp)) {
                         await eliminarPendiente(p.id);
-                        mostrarToast('<i class="bi bi-check-circle-fill"></i> Se subió la inspección ' + nombreEdif + ' correctamente.', 'success');
+                        mostrarToast('<i class="bi bi-check-circle-fill"></i> Inspección ' + nom + ' subida correctamente.', 'success');
                         continue;
                     }
 
-                    // El servidor respondió pero no fue un guardado exitoso
-                    // (sesión/CSRF expirado, datos inválidos, sin permisos,
-                    // etc.). No lo borramos: sumamos un intento y seguimos
-                    // con el siguiente pendiente. Si ya se agotaron los
-                    // reintentos, lo dejamos quieto y lo señalamos en el
-                    // badge para que alguien lo revise manualmente — más
-                    // vale una foto atascada visible que una perdida en
-                    // silencio.
+                    // No fue exitoso — guardar error legible
                     p.intentos = (p.intentos || 0) + 1;
-                    p.ultimoError = resp.url;
+                    if (/\/login\.php(\?|$)/.test(resp.url)) {
+                        p.ultimoError = 'Sesión cerrada. Inicie sesión y reintente.';
+                    } else if (resp.status === 403) {
+                        p.ultimoError = 'Error de seguridad. Recargue la página y reintente.';
+                    } else if (!resp.ok) {
+                        p.ultimoError = 'Error ' + resp.status + ' del servidor.';
+                    } else {
+                        p.ultimoError = 'Datos incompletos o rechazados. Edite la inspección y reintente.';
+                    }
                     await actualizarPendiente(p);
-
                     if (p.intentos >= MAX_INTENTOS_SYNC) {
-                        const sesionVencida = /\/login\.php(\?|$)/.test(resp.url);
-                        mostrarToast(
-                            '<i class="bi bi-exclamation-triangle-fill"></i> No se pudo subir la inspección ' + nombreEdif + '. '
-                            + (sesionVencida
-                                ? 'Tu sesión expiró: inicia sesión de nuevo y luego toca "Reintentar" arriba.'
-                                : 'Revisa los datos e inténtalo de nuevo con el botón "Reintentar" arriba.'),
-                            'error'
-                        );
+                        mostrarToast('<i class="bi bi-exclamation-triangle-fill"></i> ' + nom + ': ' + p.ultimoError, 'error');
                     }
                 } catch (err) {
-                    // Esto sí es una falla de red real (fetch no llegó a
-                    // completarse): paramos aquí y reintentamos todo en el
-                    // próximo evento 'online', sin sumar intentos porque no
-                    // sabemos si el servidor llegó a recibir algo.
-                    break;
+                    p.subiendo = false;
+                    if (err.name === 'AbortError') {
+                        p.intentos = (p.intentos || 0) + 1;
+                        p.ultimoError = 'Tiempo agotado (60 s). Verifique la señal y reintente.';
+                        await actualizarPendiente(p);
+                        mostrarToast('<i class="bi bi-exclamation-triangle-fill"></i> ' + nom + ': tiempo agotado.', 'error');
+                    }
+                    break; // falla de red — esperar próxima reconexión
                 }
             }
         } finally {
@@ -249,9 +258,24 @@
     window.SismosOffline = {
         guardarPendiente,
         listarPendientes,
+        eliminarPendiente,
+        actualizarPendiente,
         sincronizarPendientes,
         actualizarBadge,
         reintentarFallidos,
+        MAX_INTENTOS_SYNC,
+        /** Reinicia intentos de UN pendiente y lo reenvía ahora. */
+        reintentarUno: async function (id) {
+            const pendientes = await listarPendientes();
+            const p = pendientes.find((x) => x.id === id);
+            if (!p) throw new Error('No encontrado');
+            p.intentos = 0;
+            p.ultimoError = null;
+            p.subiendo = false;
+            await actualizarPendiente(p);
+            await sincronizarPendientes();
+            await actualizarBadge();
+        },
     };
 
     window.addEventListener('online', function () {

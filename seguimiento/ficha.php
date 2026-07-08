@@ -239,7 +239,7 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
 
                 <!-- Filas de intervenciones (tipo + metraje + botón calcular IA) -->
                 <div id="lista-intervenciones" style="margin-bottom:8px;">
-                    <div class="interv-row" style="display:grid;grid-template-columns:1.5fr 1fr 80px auto auto;gap:6px;align-items:center;margin-bottom:6px;">
+                    <div class="interv-row">
                         <select class="form-control form-control-sm interv-tipo">
                             <option value="">— Tipo de construcción —</option>
                             <option value="Pared">Pared</option>
@@ -288,7 +288,7 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
                 <div id="tabla-materiales">
 
                     <?php if ($materiales): foreach ($materiales as $mat): ?>
-                    <div class="seg-material-row" style="display:grid;grid-template-columns:1fr 1.2fr 80px 110px auto;gap:6px;align-items:center;margin-bottom:6px;">
+                    <div class="seg-material-row">
                         <input type="hidden" name="mat_id[]" value="<?= (int)$mat['id'] ?>">
                         <select name="mat_categoria[]" class="form-control form-control-sm seg-mat-cat" onchange="actualizarSubtipos(this)">
                             <option value="">— Categoría —</option>
@@ -596,7 +596,7 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
     function crearFilaMaterial() {
         const div = document.createElement('div');
         div.className = 'seg-material-row';
-        div.style.cssText = 'display:grid;grid-template-columns:1fr 1.2fr 80px 110px auto;gap:6px;align-items:center;margin-bottom:6px;';
+        div.className = 'seg-material-row';
         div.innerHTML = `
             <input type="hidden" name="mat_id[]" value="0">
             <select name="mat_categoria[]" class="form-control form-control-sm seg-mat-cat">
@@ -640,7 +640,6 @@ function cerrarModalEliminar() { document.getElementById('modal-eliminar').style
     function crearFilaIntervencion() {
         const div = document.createElement('div');
         div.className = 'interv-row';
-        div.style.cssText = 'display:grid;grid-template-columns:1.5fr 1fr 80px auto auto;gap:6px;align-items:center;margin-bottom:6px;';
         div.innerHTML = `
             <select class="form-control form-control-sm interv-tipo">
                 <option value="">— Tipo de construcción —</option>

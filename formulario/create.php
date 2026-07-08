@@ -77,7 +77,7 @@ function bloqueFotos(string $categoria, string $etiqueta, array $fotosExistentes
 function selectorIngeniero(string $prefix, ?array $row, bool $requerido, array $ingenieros): void {
     $valorSeleccionado = val($row, $prefix . '_id');
     ?>
-    <div class="field" style="grid-column:1/-1;">
+    <div class="field field-full">
         <label <?= $requerido ? 'class="req"' : '' ?>>Profesional<?= $requerido ? '' : ' (segundo profesional)' ?></label>
         <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
             <div style="flex:1;min-width:220px;">
@@ -186,7 +186,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="2">
     <div class="section-title"><i class="bi bi-building"></i> Identificación de la edificación</div>
     <div class="form-grid">
-        <div class="field" style="grid-column:span 2;"><label class="req">Nombre de edificio o estructura</label><input required name="nombre_edificio" class="form-control" value="<?= e(val($row,'nombre_edificio')) ?>"></div>
+        <div class="field field-full"><label class="req">Nombre de edificio o estructura</label><input required name="nombre_edificio" class="form-control" value="<?= e(val($row,'nombre_edificio')) ?>"></div>
         <div class="field"><label class="req">Fecha de inspección</label><input required type="date" name="fecha_inspeccion" class="form-control" value="<?= e(val($row,'fecha_inspeccion', date('Y-m-d'))) ?>"></div>
         <div class="field"><label>Hora de inicio</label><input type="time" name="hora_inicio" class="form-control" value="<?= e(val($row,'hora_inicio')) ?>"></div>
         <div class="field"><label>Hora de culminación</label><input type="time" name="hora_culminacion" class="form-control" value="<?= e(val($row,'hora_culminacion')) ?>"></div>
@@ -551,7 +551,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="wizard-pane" data-pane="8">
     <div class="section-title"><i class="bi bi-check2-square"></i> Decisión final</div>
     <div class="form-grid cols-2">
-        <div class="field" style="grid-column:span 2;">
+        <div class="field field-full">
             <label class="req">Decisión final de la inspección</label>
             <select required name="decision_final" class="form-control">
                 <?php foreach ($decisiones as $k => $meta): ?>
@@ -1067,13 +1067,37 @@ include __DIR__ . '/../includes/header.php';
 
     function renderizarProgreso(pasos) {
         if (!pasos || !pasos.length) {
-            cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso">' + ICONOS_PASO.en_progreso + ' Enviando…</div>';
+            cajaProgreso.innerHTML =
+                '<div class="progreso-barra-header">' +
+                    '<span class="progreso-barra-titulo"><i class="bi bi-arrow-repeat girando"></i> Enviando…</span>' +
+                    '<span class="progreso-barra-pct">0%</span>' +
+                '</div>' +
+                '<div class="progreso-barra-wrap"><div class="progreso-barra-fill" style="width:5%"></div></div>' +
+                '<div class="progreso-pasos"></div>';
             return;
         }
-        cajaProgreso.innerHTML = pasos.map(function (p) {
-            const icono = ICONOS_PASO[p.estado] || ICONOS_PASO.pendiente;
-            return '<div class="paso-progreso ' + p.estado + '">' + icono + ' ' + p.texto + '</div>';
-        }).join('');
+        const listos = pasos.filter(function(p) { return p.estado === 'listo'; }).length;
+        const total  = pasos.length;
+        const pct    = total > 0 ? Math.round((listos / total) * 100) : 0;
+        const hayError = pasos.some(function(p) { return p.estado === 'error'; });
+        const barraColor = hayError ? '#b42318' : (pct === 100 ? '#1a8a4a' : undefined);
+        const barraStyle = barraColor ? 'width:' + pct + '%;background:' + barraColor : 'width:' + (Math.max(pct, 5)) + '%';
+        cajaProgreso.innerHTML =
+            '<div class="progreso-barra-header">' +
+                '<span class="progreso-barra-titulo">' +
+                    (pct === 100 && !hayError ? '<i class="bi bi-check-circle-fill" style="color:#1a8a4a"></i> ¡Guardado!' :
+                     hayError ? '<i class="bi bi-exclamation-circle-fill" style="color:#b42318"></i> Error al guardar' :
+                     '<i class="bi bi-arrow-repeat girando"></i> Guardando…') +
+                '</span>' +
+                '<span class="progreso-barra-pct">' + pct + '%</span>' +
+            '</div>' +
+            '<div class="progreso-barra-wrap"><div class="progreso-barra-fill" style="' + barraStyle + '"></div></div>' +
+            '<div class="progreso-pasos">' +
+            pasos.map(function (p) {
+                const icono = ICONOS_PASO[p.estado] || ICONOS_PASO.pendiente;
+                return '<div class="paso-progreso ' + p.estado + '">' + icono + ' ' + p.texto + '</div>';
+            }).join('') +
+            '</div>';
     }
 
     let pollingId = null;
