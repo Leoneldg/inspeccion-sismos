@@ -1606,11 +1606,46 @@ include __DIR__ . '/../includes/header.php';
         iniciarPollingProgreso(tokenEnvio);
         try {
             const formData = new FormData(form);
-            const resp = await fetch(form.action, { method: 'POST', body: formData, credentials: 'same-origin' });
+            formData.set('_fetch', '1'); // indicar a save.php que responda JSON
+            const resp = await fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'fetch' },
+            });
             detenerPollingProgreso();
-            window.location.href = resp.redirected ? resp.url : INDEX_URL;
+
+            // save.php ahora SIEMPRE devuelve JSON cuando recibe X-Requested-With: fetch
+            let resultado = null;
+            try { resultado = await resp.json(); } catch(e) {}
+
+            if (resultado && resultado.ok && resultado.url) {
+                // Guardado exitoso — navegar a la URL que el servidor indicó (view.php)
+                window.location.href = resultado.url;
+                return;
+            }
+
+            // Error del servidor con mensaje específico
+            const msgError = (resultado && resultado.error)
+                ? resultado.error
+                : ('Error del servidor (' + resp.status + '). Verifique los datos e intente nuevamente.');
+
+            btnGuardar.disabled = false;
+            btnGuardar.innerHTML = textoOriginalBtn;
+            cajaProgreso.classList.add('activo');
+            cajaProgreso.innerHTML =
+                '<div class="progreso-barra-header">' +
+                    '<span class="progreso-barra-titulo" style="color:#b42318"><i class="bi bi-exclamation-circle-fill"></i> Error al guardar</span>' +
+                '</div>' +
+                '<div style="padding:8px 0;font-size:13px;color:#b42318;">' + msgError + '</div>' +
+                '<div style="margin-top:8px;">' +
+                    '<button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById(\'btn-guardar\').click()">' +
+                        '<i class="bi bi-arrow-repeat"></i> Reintentar' +
+                    '</button>' +
+                '</div>';
+
         } catch (err) {
-            // La red falló justo al enviar (típico de señal intermitente): no se pierde nada.
+            // Red caída durante el upload — guardar offline
             detenerPollingProgreso();
             btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
             cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso"><i class="bi bi-cloud-arrow-up"></i> Sin conexión: guardando en este dispositivo…</div>';

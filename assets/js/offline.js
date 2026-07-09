@@ -234,12 +234,17 @@
                             body: fd,
                             credentials: 'same-origin',
                             signal: ctrl.signal,
-                            headers: { 'X-Offline-Sync': '1' },
+                            headers: { 'X-Offline-Sync': '1', 'X-Requested-With': 'fetch' },
                         });
                         // Intentar leer JSON (nuevo) o dejar jsonData en null (legacy)
+                        // save.php ahora siempre responde JSON — leerlo y parsearlo.
                         const ct = resp.headers.get('content-type') || '';
                         if (ct.includes('application/json')) {
                             try { jsonData = await resp.json(); } catch(e) {}
+                        }
+                        // Fallback por si el Content-Type no llega bien
+                        if (!jsonData) {
+                            try { const t = await resp.clone().text(); if (t.trim().startsWith('{')) jsonData = JSON.parse(t); } catch(e) {}
                         }
                     } finally { clearTimeout(tid); }
 

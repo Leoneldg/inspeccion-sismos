@@ -52,34 +52,11 @@ if ($columnaEnteUsuarios && !usuarioEsMaster() && enteDelUsuario() !== null) {
 }
 $whereUsuarios = $condUsuarios ? ('WHERE ' . implode(' AND ', $condUsuarios)) : '';
 
-// ---- Panel del administrador master: totales por ente ----
-// Solo lo ve el master. Muestra, por cada ente, cuántos usuarios, inspectores
-// e inspecciones tiene, más una fila "Global" con todo el sistema.
-$panelEntes = null;
+// ---- Panel de entes eliminado de este módulo ----
+// Los indicadores de bases de datos por ente están disponibles
+// en el módulo Sistema → Bases por ente (admin/entes_resumen.php).
+$panelEntes    = null;
 $globalTotales = null;
-if (usuarioEsMaster() && tablaEntesExiste()) {
-    try {
-        $sqlPanel = "
-            SELECT e.id, e.nombre, e.tipo, e.estado,
-                   (SELECT COUNT(*) FROM usuarios u WHERE u.ente_id = e.id) AS n_usuarios,
-                   (SELECT COUNT(*) FROM ingenieros g WHERE g.ente_id = e.id) AS n_inspectores,
-                   (SELECT COUNT(*) FROM inspecciones i WHERE i.ente_id = e.id) AS n_inspecciones
-            FROM entes e
-            ORDER BY e.nombre";
-        $panelEntes = $pdo->query($sqlPanel)->fetchAll();
-    } catch (Throwable $e) {
-        $panelEntes = null; // columnas ente_id aún no existen
-    }
-    // Totales globales del sistema.
-    try {
-        $globalTotales = [
-            'usuarios'     => (int)$pdo->query('SELECT COUNT(*) FROM usuarios')->fetchColumn(),
-            'inspectores'  => (int)$pdo->query('SELECT COUNT(*) FROM ingenieros')->fetchColumn(),
-            'inspecciones' => (int)$pdo->query('SELECT COUNT(*) FROM inspecciones')->fetchColumn(),
-            'entes'        => (int)$pdo->query('SELECT COUNT(*) FROM entes')->fetchColumn(),
-        ];
-    } catch (Throwable $e) { $globalTotales = null; }
-}
 
 $sqlUsuarios = 'SELECT u.*, r.nombre AS rol_nombre, e.nombre AS ente_nombre
                 FROM usuarios u
@@ -101,52 +78,7 @@ try {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?php if ($panelEntes !== null): ?>
-<!-- Panel del administrador master: bases de datos por ente -->
-<div class="card" style="margin-bottom:18px;">
-    <div class="card-header"><h2><i class="bi bi-diagram-3-fill"></i> Bases de datos por ente</h2></div>
-    <?php if ($globalTotales): ?>
-    <div style="display:flex;flex-wrap:wrap;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border,#e5e7eb);">
-        <div style="flex:1;min-width:130px;background:var(--azul,#22366f);color:#fff;border-radius:10px;padding:12px 14px;">
-            <div style="font-size:22px;font-weight:800;"><?= (int)$globalTotales['entes'] ?></div>
-            <div style="font-size:12px;opacity:.85;">Entes</div>
-        </div>
-        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
-            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['inspecciones'] ?></div>
-            <div style="font-size:12px;color:#6b7280;">Inspecciones (global)</div>
-        </div>
-        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
-            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['inspectores'] ?></div>
-            <div style="font-size:12px;color:#6b7280;">Inspectores (global)</div>
-        </div>
-        <div style="flex:1;min-width:130px;background:#f4f6fb;border-radius:10px;padding:12px 14px;">
-            <div style="font-size:22px;font-weight:800;color:var(--azul,#22366f);"><?= (int)$globalTotales['usuarios'] ?></div>
-            <div style="font-size:12px;color:#6b7280;">Usuarios (global)</div>
-        </div>
-    </div>
-    <?php endif; ?>
-    <div class="table-wrap">
-        <table class="data-table">
-            <thead><tr><th>Ente</th><th>Tipo</th><th>Estado</th><th>Inspecciones</th><th>Inspectores</th><th>Usuarios</th></tr></thead>
-            <tbody>
-            <?php if ($panelEntes): foreach ($panelEntes as $pe): ?>
-                <tr>
-                    <td><strong><?= e($pe['nombre']) ?></strong></td>
-                    <td><span class="text-sm text-muted"><?= e($pe['tipo'] ?: '—') ?></span></td>
-                    <td><span class="text-sm text-muted"><?= e($pe['estado'] ?: 'Nacional') ?></span></td>
-                    <td><span class="badge badge-azul"><?= (int)$pe['n_inspecciones'] ?></span></td>
-                    <td><span class="badge badge-gris"><?= (int)$pe['n_inspectores'] ?></span></td>
-                    <td><span class="badge badge-gris"><?= (int)$pe['n_usuarios'] ?></span></td>
-                </tr>
-            <?php endforeach; else: ?>
-                <tr><td colspan="6" class="text-center text-muted" style="padding:20px;">No hay entes registrados todavía.</td></tr>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-    <div class="text-sm text-muted" style="padding:10px 16px;">Cada ente funciona como una base de datos independiente: sus usuarios ven solo sus propios datos. Usted, como administrador master, ve el consolidado.</div>
-</div>
-<?php endif; ?>
+<?php // Panel de bases por ente eliminado — ver admin/entes_resumen.php ?>
 
 <div class="split-grid cols-sidebar align-start">
 

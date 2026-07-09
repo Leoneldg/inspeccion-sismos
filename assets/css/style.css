@@ -1752,3 +1752,47 @@ body.modo-tv .tv-section-title { font-size: clamp(17px, 1.3vw, 21px); }
     .form-grid.cols-4-mob2 .field,
     .form-grid.cols-4-mob2 .check-row { grid-column: auto !important; }
 }
+
+/* ── Sidebar: grupos colapsables ──────────────────────────────────────── */
+.sidebar .nav-group { margin-bottom: 2px; }
+
+.sidebar .nav-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 18px 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #5d6b9a;
+    cursor: pointer;
+    user-select: none;
+    transition: color .15s;
+}
+.sidebar .nav-group-header:hover { color: #8f9ac2; }
+.sidebar .nav-group-header i.group-icon { font-size: 13px; color: #5d6b9a; }
+.sidebar .nav-group-header .group-chevron {
+    margin-left: auto;
+    font-size: 10px;
+    color: #5d6b9a;
+    transition: transform .2s;
+}
+.sidebar .nav-group.open .group-chevron { transform: rotate(180deg); }
+
+.sidebar .nav-group-items {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height .25s ease;
+}
+.sidebar .nav-group.open .nav-group-items {
+    max-height: 400px; /* suficiente para cualquier grupo */
+}
+
+/* En sidebar colapsado: mostrar siempre los items (sin grupos) */
+body.sidebar-collapsed .sidebar .nav-group-header { display: none; }
+body.sidebar-collapsed .sidebar .nav-group-items { max-height: none !important; }
+
+/* Indicador visual activo en la cabecera del grupo */
+.sidebar .nav-group.tiene-activo .nav-group-header { color: #f0a63a; }
+.sidebar .nav-group.tiene-activo .group-icon { color: #f0a63a; }

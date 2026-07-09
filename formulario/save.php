@@ -4,61 +4,56 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-// Guardar/editar una inspección con varias fotos implica trabajo de CPU
-// (compresión de imágenes) que puede tardar más que el límite por defecto
-// de PHP en algunos servidores (30s). Le damos más margen aquí; el trabajo
-// pesado de verdad (comprimir) igual se hace después de responder al
-// navegador, ver más abajo.
 @set_time_limit(120);
 
-// ── Detectar si viene del sincronizador offline ───────────────────────────────
-// El JS offline añade el header X-Offline-Sync: 1 en cada reenvío.
-// Esto permite que save.php devuelva JSON en vez de redirigir,
-// lo cual permite que offline.js detecte el resultado correctamente.
+// ── ¿Viene de fetch() o del sincronizador offline? ───────────────────────────
+$esFetch   = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch'
+          || ($_POST['_fetch'] ?? '') === '1';     // fallback POST si el header no llega
 $esOffline = ($_SERVER['HTTP_X_OFFLINE_SYNC'] ?? '') === '1'
           || ($_POST['_offline_sync'] ?? '') === '1';
+$usarJson  = $esFetch || $esOffline;
 
-function salirOffline(bool $ok, string $mensaje, int $status = 200): never {
+function responderJson(bool $ok, string $url = '', string $error = '', int $status = 200): never {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => $ok, 'mensaje' => $mensaje]);
+    header('Cache-Control: no-store');
+    echo json_encode(compact('ok', 'url', 'error'));
     exit;
 }
 
 requireLogin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    if ($esOffline) salirOffline(false, 'Método no permitido.', 405);
-    header('Location: ' . APP_URL_BASE . 'formulario/index.php');
-    exit;
+    if ($usarJson) responderJson(false, '', 'Método no permitido.', 405);
+    header('Location: ' . APP_URL_BASE . 'formulario/index.php'); exit;
 }
 
-// Si el navegador mandó contenido (Content-Length > 0) pero PHP no recibió
-// NADA en $_POST ni $_FILES, es la huella clásica de que se superó
-// post_max_size o upload_max_filesize: PHP descarta TODO el request en
-// silencio (sin marcar error en ningún campo puntual). Sin este log, esto
-// se ve igual que "el usuario dejó campos vacíos".
+// POST vacío con Content-Length > 0 = se superó post_max_size
 if (empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
-    error_log('[save.php] POST y FILES vacíos con Content-Length=' . $_SERVER['CONTENT_LENGTH']
-        . ' bytes — se superó post_max_size (actual: ' . ini_get('post_max_size')
-        . ') o upload_max_filesize (actual: ' . ini_get('upload_max_filesize')
-        . '). El request se descartó completo, incluyendo los datos del formulario, no solo la foto.');
-    if ($esOffline) salirOffline(false, 'La foto es demasiado pesada para el límite del servidor (post_max_size: ' . ini_get('post_max_size') . '). Elimine las fotos grandes y reintente.');
-    flash('error', 'La foto es demasiado pesada para el límite actual del servidor. Contacte al administrador.');
-    header('Location: ' . APP_URL_BASE . 'formulario/index.php');
-    exit;
+    $limite = ini_get('post_max_size');
+    error_log('[save.php] POST vacío — post_max_size=' . $limite . ' superado. Content-Length=' . $_SERVER['CONTENT_LENGTH']);
+    $msg = "Las fotos son demasiado pesadas para el servidor (límite: $limite). Reduzca el tamaño o cantidad de fotos e intente nuevamente.";
+    if ($usarJson) responderJson(false, '', $msg, 413);
+    flash('error', $msg);
+    header('Location: ' . APP_URL_BASE . 'formulario/index.php'); exit;
 }
 
 if (!csrfValidar($_POST['csrf'] ?? null)) {
-    if ($esOffline) salirOffline(false, 'Token de seguridad inválido. Sesión posiblemente cerrada — vuelva a iniciar sesión.', 403);
-    flash('error', 'La sesión del formulario expiró, intente nuevamente.');
-    header('Location: ' . APP_URL_BASE . 'formulario/index.php');
-    exit;
+    $msg = 'La sesión expiró. Recargue la página e intente nuevamente.';
+    if ($usarJson) responderJson(false, '', $msg, 403);
+    flash('error', $msg);
+    header('Location: ' . APP_URL_BASE . 'formulario/index.php'); exit;
 }
 
-$id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
+$id      = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
 $esNuevo = $id === null;
-requierePermiso('formulario', $id ? 'editar' : 'crear');
+
+// Verificar permisos manualmente (no usar requierePermiso() porque redirige sin JSON)
+if (!puede('formulario', $id ? 'editar' : 'crear')) {
+    $msg = 'No tiene permiso para ' . ($id ? 'editar' : 'crear') . ' inspecciones.';
+    if ($usarJson) responderJson(false, '', $msg, 403);
+    http_response_code(403); include __DIR__ . '/../403.php'; exit;
+}
 
 // Deduplicación de envíos (modo offline / reintentos de red): si este mismo
 // envío ya se procesó antes -aunque el navegador haya interpretado esa vez
@@ -68,8 +63,9 @@ $clientSubmissionId = trim((string)($_POST['client_submission_id'] ?? '')) ?: nu
 if (!$id && $clientSubmissionId) {
     $idExistente = envioYaProcesado($clientSubmissionId);
     if ($idExistente) {
-        header('Location: ' . APP_URL_BASE . 'formulario/view.php?id=' . $idExistente);
-        exit;
+        $urlExistente = APP_URL_BASE . 'formulario/view.php?id=' . $idExistente;
+        if ($usarJson) responderJson(true, $urlExistente);
+        header('Location: ' . $urlExistente); exit;
     }
 }
 
@@ -115,10 +111,11 @@ if (empty($_POST['ing1_id'])) {
     $errores[] = 'Debe seleccionar un profesional responsable del directorio de ingenieros.';
 }
 if ($errores) {
-    progresoActualizar($clientSubmissionId, 'validando', 'error', implode(' ', $errores));
-    flash('error', implode(' ', $errores));
-    header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));
-    exit;
+    $msgErr = implode(' ', $errores);
+    progresoActualizar($clientSubmissionId, 'validando', 'error', $msgErr);
+    if ($usarJson) responderJson(false, '', $msgErr, 422);
+    flash('error', $msgErr);
+    header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php')); exit;
 }
 progresoActualizar($clientSubmissionId, 'validando', 'listo');
 progresoActualizar($clientSubmissionId, 'ficha', 'en_progreso');
@@ -337,46 +334,45 @@ try {
     if ($esOffline) {
         if ($fotoIdsPendientesDeComprimir && function_exists('fastcgi_finish_request')) {
             session_write_close();
-            salirOffline(true, 'Inspección guardada correctamente. ID: ' . $id);
+            responderJson(true, $destino);
             fastcgi_finish_request();
             foreach ($fotoIdsPendientesDeComprimir as $fotoId) { comprimirFotoPorId($fotoId); }
             exit;
         }
         foreach ($fotoIdsPendientesDeComprimir as $fotoId) { comprimirFotoPorId($fotoId); }
-        salirOffline(true, 'Inspección guardada correctamente. ID: ' . $id);
+        responderJson(true, $destino);
     }
 
     // Si el servidor corre bajo PHP-FPM (lo normal en producción), podemos
     // enviarle la respuesta al navegador YA MISMO y seguir ejecutando en
-    // segundo plano para comprimir las fotos. El usuario ve el guardado
-    // como instantáneo; la compresión (que solo aligera el archivo, la foto
-    // original ya quedó guardada y visible) termina segundos después sin
-    // que nadie tenga que esperarla.
+    // segundo plano para comprimir las fotos.
     if ($fotoIdsPendientesDeComprimir && function_exists('fastcgi_finish_request')) {
-        header('Location: ' . $destino);
-        // Cierra la conexión con el navegador; el script sigue corriendo.
+        if ($usarJson) {
+            responderJson(true, $destino);
+        } else {
+            header('Location: ' . $destino);
+        }
         session_write_close();
         fastcgi_finish_request();
-
         foreach ($fotoIdsPendientesDeComprimir as $fotoId) {
             comprimirFotoPorId($fotoId);
         }
         exit;
     }
 
-    // Sin PHP-FPM (p. ej. servidor de desarrollo con `php -S`, o mod_php):
-    // comprimimos de forma síncrona, como antes.
+    // Sin PHP-FPM: comprimir de forma síncrona.
     foreach ($fotoIdsPendientesDeComprimir as $fotoId) {
         comprimirFotoPorId($fotoId);
     }
 
+    if ($usarJson) responderJson(true, $destino);
     header('Location: ' . $destino);
     exit;
 
 } catch (Throwable $e) {
     progresoActualizar($clientSubmissionId, 'ficha', 'error', 'Ocurrió un error al guardar');
     $mensajeError = APP_DEBUG ? $e->getMessage() : 'Ocurrió un error al guardar la inspección. Verifique los datos e intente nuevamente.';
-    if ($esOffline) salirOffline(false, $mensajeError, 500);
+    if ($usarJson) responderJson(false, '', $mensajeError, 500);
     flash('error', $mensajeError);
     header('Location: ' . APP_URL_BASE . 'formulario/' . ($id ? "create.php?id=$id" : 'create.php'));
     exit;
