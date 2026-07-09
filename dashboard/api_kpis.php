@@ -247,7 +247,8 @@ try {
                             i.id AS insp_id, i.nombre_edificio, i.parroquia, i.latitud, i.longitud
                      FROM seguimiento_obras so
                      JOIN inspecciones i ON i.id = so.inspeccion_id
-                     WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condSeg$filtroIdSeg"
+                     WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL
+                       AND so.estado_obra = 'En ejecución'$condSeg$filtroIdSeg"
                 );
                 $stSeg->execute($paramsSeg);
                 foreach ($stSeg->fetchAll() as $row) {

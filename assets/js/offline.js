@@ -110,7 +110,7 @@
     }
     window.SismosToast = mostrarToast; // reutilizable desde otras páginas si hace falta
 
-    const MAX_INTENTOS_SYNC = 8;
+    const MAX_INTENTOS_SYNC = 3; // tras 3 fallos queda en error manual — más manejable
 
     function reconstruirFormData(campos) {
         const fd = new FormData();
@@ -258,16 +258,17 @@
 
                     // No fue exitoso — guardar error legible
                     p.intentos = (p.intentos || 0) + 1;
-                    if (jsonData && jsonData.mensaje) {
-                        p.ultimoError = jsonData.mensaje;
-                    } else if (/\/login\.php(\?|$)/.test(resp.url)) {
+                    // save.php devuelve { ok, url, error } — compatibilidad con campo 'mensaje' anterior
+                    if (jsonData && (jsonData.error || jsonData.mensaje)) {
+                        p.ultimoError = jsonData.error || jsonData.mensaje;
+                    } else if (resp && /\/login\.php(\?|$)/.test(resp.url)) {
                         p.ultimoError = 'Sesión cerrada. Inicie sesión y reintente.';
-                    } else if (resp.status === 403) {
-                        p.ultimoError = 'Error de seguridad. Recargue la página y reintente.';
-                    } else if (!resp.ok) {
+                    } else if (resp && resp.status === 403) {
+                        p.ultimoError = 'Error de seguridad (token vencido). Abra el formulario y reintente.';
+                    } else if (resp && !resp.ok) {
                         p.ultimoError = 'Error ' + resp.status + ' del servidor.';
                     } else {
-                        p.ultimoError = 'Datos incompletos o rechazados. Edite la inspección y reintente.';
+                        p.ultimoError = 'Datos incompletos o rechazados por el servidor.';
                     }
                     await actualizarPendiente(p);
                     if (p.intentos >= MAX_INTENTOS_SYNC) {
@@ -294,12 +295,15 @@
         document.body.classList.toggle('sin-conexion', !navigator.onLine);
     }
 
-    /** Reinicia el contador de intentos de los pendientes atascados y reintenta ahora mismo. */
+    /** Reinicia el contador de TODOS los pendientes atascados (cualquier cantidad de intentos) y reintenta. */
     async function reintentarFallidos() {
         const pendientes = await listarPendientes();
         for (const p of pendientes) {
-            if ((p.intentos || 0) >= MAX_INTENTOS_SYNC) {
-                p.intentos = 0;
+            // Resetear cualquiera que tenga intentos > 0, no solo los que llegaron al límite
+            if ((p.intentos || 0) > 0) {
+                p.intentos   = 0;
+                p.ultimoError = null;
+                p.subiendo    = false;
                 await actualizarPendiente(p);
             }
         }

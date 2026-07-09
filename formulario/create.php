@@ -1227,6 +1227,7 @@ include __DIR__ . '/../includes/header.php';
         readout.textContent = lat.toFixed(7) + ', ' + lng.toFixed(7);
         document.querySelector('#mapa-ubicacion .mapa-selector-hint')?.classList.remove('mapa-hint-error');
     }
+    window.fijarCoordenadas = fijarCoordenadas; // exponer para precarga offline
 
     function initMapaUbicacion() {
         if (mapaUbicacion) return;
@@ -1559,12 +1560,167 @@ include __DIR__ . '/../includes/header.php';
 
     async function guardarOffline() {
         const formData = new FormData(form);
+        const get = (name) => (document.querySelector('[name="'+name+'"]') || {}).value || '';
         await window.SismosOffline.guardarPendiente(form.action, formData, {
-            nombre_edificio: (document.querySelector('[name="nombre_edificio"]') || {}).value || '',
+            nombre_edificio:  get('nombre_edificio'),
+            fecha_inspeccion: get('fecha_inspeccion'),
+            estado:           get('estado'),
+            municipio:        get('municipio'),
+            parroquia:        get('parroquia'),
+            decision_final:   get('decision_final'),
+            ing1_nombre:      get('ing1_nombre'),
         });
         await window.SismosOffline.actualizarBadge();
         mostrarConfirmacionOffline();
     }
+
+    // ---- Precarga de inspección offline (editar_offline=ID) ----
+    // Cuando el inspector pulsa "Editar" en una inspección pendiente,
+    // se abre create.php?editar_offline=<id>. Aquí leemos ese registro
+    // del IndexedDB y rellenamos todos los campos del formulario con los
+    // datos que tenía cuando se guardó localmente.
+    (async function precargarOfflineEditar() {
+        const params = new URLSearchParams(window.location.search);
+        const offlineId = params.get('editar_offline');
+        if (!offlineId || !window.SismosOffline) return;
+
+        let registro = null;
+        try {
+            const todos = await window.SismosOffline.listarPendientes();
+            registro = todos.find(function(p) { return String(p.id) === String(offlineId); });
+        } catch(e) { return; }
+        if (!registro || !Array.isArray(registro.campos)) return;
+
+        // Construir un mapa campo → valor desde el FormData guardado
+        const vals  = {};   // campos de texto/select
+        const files = [];   // archivos (fotos) — no se pueden pre-cargar en inputs por seguridad
+        const checks = {};  // checkboxes marcados
+
+        for (const c of registro.campos) {
+            if (c.isFile) {
+                files.push(c);
+            } else {
+                // Los checkboxes se guardan como name=1 cuando están marcados
+                // Los campos array (name[key]) se guardan con el name completo
+                if (!vals[c.key]) {
+                    vals[c.key] = c.value;
+                } else {
+                    // Múltiples valores para el mismo name (checkboxes tipo array)
+                    if (!Array.isArray(vals[c.key])) vals[c.key] = [vals[c.key]];
+                    vals[c.key].push(c.value);
+                }
+            }
+        }
+
+        // Función helper para setear un campo e intentar disparar eventos
+        function setField(el, value) {
+            if (!el) return;
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'select') {
+                el.value = value;
+                if (el.value !== value) {
+                    // El option aún no existe (select dinámico) — forzar después
+                    el.dataset.offlineVal = value;
+                }
+            } else if (tag === 'textarea' || tag === 'input') {
+                el.value = value;
+            }
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new Event('input',  { bubbles: true }));
+        }
+
+        // Rellenar todos los campos del formulario
+        for (const [key, value] of Object.entries(vals)) {
+            if (['csrf','_fetch','_offline_sync','id','client_submission_id'].includes(key)) continue;
+
+            // Campo simple: name="campo"
+            const el = form.querySelector('[name="' + CSS.escape(key) + '"]');
+            if (el) {
+                if (el.type === 'checkbox') {
+                    el.checked = (value === '1' || value === 'on' || value === true);
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    setField(el, value);
+                }
+                continue;
+            }
+
+            // Varios elementos con el mismo name (checkboxes de grupo)
+            const all = form.querySelectorAll('[name="' + CSS.escape(key) + '"]');
+            if (all.length > 1) {
+                const values = Array.isArray(value) ? value : [value];
+                all.forEach(function(cb) {
+                    if (cb.type === 'checkbox') {
+                        cb.checked = values.includes(cb.value);
+                        cb.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
+            }
+        }
+
+        // Coordenadas: actualizar el mapa
+        const lat = vals['latitud'] ? parseFloat(vals['latitud']) : null;
+        const lng = vals['longitud'] ? parseFloat(vals['longitud']) : null;
+        if (lat && lng && window.fijarCoordenadas) {
+            setTimeout(function() { window.fijarCoordenadas(lat, lng); }, 800);
+        }
+
+        // Selects dinámicos (municipio/parroquia cargan por AJAX):
+        // guardar el valor y aplicarlo cuando el select se pueble
+        ['municipio','parroquia'].forEach(function(name) {
+            var sel = form.querySelector('[name="' + name + '"]');
+            if (sel && sel.dataset.offlineVal) {
+                var targetVal = sel.dataset.offlineVal;
+                var obs = new MutationObserver(function() {
+                    if (sel.querySelector('option[value="' + targetVal + '"]')) {
+                        sel.value = targetVal;
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        obs.disconnect();
+                    }
+                });
+                obs.observe(sel, { childList: true });
+                // También intentar en 2s por si ya cargó
+                setTimeout(function() { sel.value = targetVal; obs.disconnect(); }, 2000);
+            }
+        });
+
+        // Aviso de fotos (no se pueden auto-adjuntar — el inspector debe re-agregarlas)
+        if (files.length > 0) {
+            const avisoFotos = document.createElement('div');
+            avisoFotos.style.cssText = 'background:#fff4e0;border:1.5px solid #f0a63a;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:#92400e;';
+            avisoFotos.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> <strong>Fotos no recuperadas:</strong> '
+                + 'Esta inspección tenía <strong>' + files.length + ' foto'+(files.length===1?'':'s')+'</strong> guardadas. '
+                + 'Por seguridad del navegador, las fotos no se pueden pre-cargar automáticamente. '
+                + 'Por favor vuelva a agregar las fotos antes de guardar.';
+            const wizard = document.querySelector('.wizard-container') || form;
+            wizard.insertAdjacentElement('beforebegin', avisoFotos);
+        }
+
+        // Aviso de que se está editando una inspección offline
+        const avisoEditar = document.createElement('div');
+        avisoEditar.style.cssText = 'background:#eaf0ff;border:1.5px solid #3c58ad;border-radius:10px;padding:10px 16px;margin-bottom:10px;font-size:13px;color:#22366f;display:flex;align-items:center;gap:10px;';
+        avisoEditar.innerHTML = '<i class="bi bi-pencil-fill" style="font-size:16px;"></i>'
+            + '<span><strong>Modo edición offline:</strong> Corrija los datos y pulse <strong>Guardar</strong>. '
+            + 'Si el envío es exitoso, la inspección pendiente se eliminará automáticamente.</span>';
+        const wizard = document.querySelector('.wizard-container') || form;
+        wizard.insertAdjacentElement('beforebegin', avisoEditar);
+
+        // Al guardar exitosamente, eliminar el pendiente del IndexedDB
+        const offlineIdNum = parseInt(offlineId, 10);
+        const submitOriginal = form.onsubmit;
+        // Interceptar la navegación post-guardado
+        const observer = new MutationObserver(function() {});
+        // Escuchar el evento de éxito para borrar el pendiente
+        window._offlineEditarId = offlineIdNum;
+
+    })().catch(function() {});
+
+    // Si venimos de editar_offline y el guardado fue exitoso, eliminar el pendiente
+    (async function limpiarOfflineTrasEditar() {
+        const params = new URLSearchParams(window.location.search);
+        // Si hay una URL de éxito pendiente desde una sesión anterior, no hace nada aquí.
+        // El borrado ocurre en el handler de submit tras confirmar ok:true del servidor.
+    })();
 
     form.addEventListener('submit', async function (e) {
         e.preventDefault();
@@ -1606,13 +1762,23 @@ include __DIR__ . '/../includes/header.php';
         iniciarPollingProgreso(tokenEnvio);
         try {
             const formData = new FormData(form);
-            formData.set('_fetch', '1'); // indicar a save.php que responda JSON
-            const resp = await fetch(form.action, {
-                method: 'POST',
-                body: formData,
-                credentials: 'same-origin',
-                headers: { 'X-Requested-With': 'fetch' },
-            });
+            formData.set('_fetch', '1');
+            // Timeout de 90s para redes lentas con fotos grandes.
+            // Si se agota, el catch verifica en el servidor si ya guardó.
+            const ctrl    = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 90000);
+            let resp;
+            try {
+                resp = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'fetch' },
+                    signal: ctrl.signal,
+                });
+            } finally {
+                clearTimeout(timeoutId);
+            }
             detenerPollingProgreso();
 
             // save.php ahora SIEMPRE devuelve JSON cuando recibe X-Requested-With: fetch
@@ -1620,7 +1786,10 @@ include __DIR__ . '/../includes/header.php';
             try { resultado = await resp.json(); } catch(e) {}
 
             if (resultado && resultado.ok && resultado.url) {
-                // Guardado exitoso — navegar a la URL que el servidor indicó (view.php)
+                // Guardado exitoso — si venía de editar un pendiente offline, borrarlo
+                if (window._offlineEditarId && window.SismosOffline) {
+                    try { await window.SismosOffline.eliminarPendiente(window._offlineEditarId); } catch(e) {}
+                }
                 window.location.href = resultado.url;
                 return;
             }
@@ -1645,18 +1814,96 @@ include __DIR__ . '/../includes/header.php';
                 '</div>';
 
         } catch (err) {
-            // Red caída durante el upload — guardar offline
+            // El fetch falló (red cortada, timeout, etc.)
+            // ANTES de guardar offline, verificar si el servidor ya procesó
+            // el envío — puede que el servidor guardó pero la respuesta
+            // no llegó al cliente. Esto evita duplicados y falsas alarmas.
             detenerPollingProgreso();
-            btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
-            cajaProgreso.innerHTML = '<div class="paso-progreso en_progreso"><i class="bi bi-cloud-arrow-up"></i> Sin conexión: guardando en este dispositivo…</div>';
-            try {
-                await guardarOffline();
-            } catch (err2) {
+
+            const csid = document.getElementById('client_submission_id')?.value;
+            let yaGuardadoEnServidor = false;
+
+            if (csid && navigator.onLine) {
+                // Hay internet pero el fetch falló (ej. timeout de red).
+                // Consultar si el servidor ya procesó este envío.
+                try {
+                    const check = await fetch(
+                        (window._APP_URL_BASE || '/') + 'api/verificar_envio.php?csid=' + encodeURIComponent(csid),
+                        { credentials: 'same-origin', cache: 'no-store' }
+                    );
+                    const checkData = await check.json();
+                    if (checkData.procesado && checkData.url) {
+                        // ✅ El servidor SÍ lo guardó — navegar a la ficha
+                        window.location.href = checkData.url;
+                        return;
+                    }
+                    if (checkData.error === 'sesion_cerrada') {
+                        // Sesión cerrada — no guardar offline, pedir relogin
+                        btnGuardar.disabled = false;
+                        btnGuardar.innerHTML = textoOriginalBtn;
+                        cajaProgreso.classList.add('activo');
+                        cajaProgreso.innerHTML =
+                            '<div style="color:#b42318;font-size:13px;padding:8px 0;">' +
+                            '<i class="bi bi-exclamation-circle-fill"></i> ' +
+                            'La sesión se cerró. Vuelva a iniciar sesión y reintente.' +
+                            '</div>';
+                        return;
+                    }
+                } catch (checkErr) {
+                    // No se pudo verificar — asumir que no se guardó y continuar a offline
+                }
+            }
+
+            // Sin internet, o no se pudo verificar y no hay certeza —
+            // guardar offline para no perder los datos.
+            if (!navigator.onLine) {
+                btnGuardar.innerHTML = '<i class="bi bi-cloud-arrow-up"></i> Guardando localmente…';
+                cajaProgreso.classList.add('activo');
+                cajaProgreso.innerHTML =
+                    '<div class="paso-progreso en_progreso">' +
+                    '<i class="bi bi-cloud-arrow-up"></i> ' +
+                    'Sin conexión: guardando en este dispositivo para subir cuando haya internet…' +
+                    '</div>';
+                try {
+                    await guardarOffline();
+                } catch (err2) {
+                    btnGuardar.disabled = false;
+                    btnGuardar.innerHTML = textoOriginalBtn;
+                    cajaProgreso.classList.remove('activo');
+                    cajaProgreso.innerHTML = '';
+                    alert('No se pudo guardar localmente. Verifica que el navegador permita almacenamiento (IndexedDB).');
+                }
+            } else {
+                // Hay internet pero el envío falló y el servidor no lo procesó.
+                // Mostrar error con opción de reintentar o guardar offline manualmente.
                 btnGuardar.disabled = false;
                 btnGuardar.innerHTML = textoOriginalBtn;
-                cajaProgreso.classList.remove('activo');
-                cajaProgreso.innerHTML = '';
-                alert('Se perdió la conexión y no se pudo guardar localmente. Intenta de nuevo.');
+                cajaProgreso.classList.add('activo');
+                cajaProgreso.innerHTML =
+                    '<div class="progreso-barra-header">' +
+                        '<span class="progreso-barra-titulo" style="color:#b42318">' +
+                            '<i class="bi bi-wifi-off"></i> Error de conexión' +
+                        '</span>' +
+                    '</div>' +
+                    '<div style="padding:8px 0;font-size:13px;color:#b42318;">' +
+                        'La inspección no pudo enviarse al servidor. Verifique su señal e intente de nuevo.' +
+                    '</div>' +
+                    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">' +
+                        '<button type="button" class="btn btn-primary btn-sm" ' +
+                            'onclick="document.getElementById(\'btn-guardar\').click()">' +
+                            '<i class="bi bi-arrow-repeat"></i> Reintentar' +
+                        '</button>' +
+                        '<button type="button" class="btn btn-outline btn-sm" id="btn-guardar-offline-manual">' +
+                            '<i class="bi bi-cloud-arrow-down"></i> Guardar en este dispositivo' +
+                        '</button>' +
+                    '</div>';
+                document.getElementById('btn-guardar-offline-manual')?.addEventListener('click', async () => {
+                    try {
+                        await guardarOffline();
+                    } catch(e2) {
+                        alert('No se pudo guardar localmente. Verifica que el navegador permita almacenamiento.');
+                    }
+                }, { once: true });
             }
         }
     });

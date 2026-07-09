@@ -175,24 +175,39 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <div class="card-body" style="padding:12px;">
                 <div class="tv-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">
+                    <!-- Total edificaciones → ícono de edificios, azul institucional -->
                     <div class="tv-kpi-card">
-                        <div class="icon"><i class="bi bi-buildings-fill"></i></div>
-                        <div><div class="num" id="seg-total-ed">—</div><div class="lbl">Edificaciones</div></div>
+                        <div class="icon" style="background:#e7ecf9;color:#22366f;">
+                            <i class="bi bi-buildings-fill"></i>
+                        </div>
+                        <div><div class="num" id="seg-total-ed">—</div><div class="lbl">Total</div></div>
                     </div>
-                    <div class="tv-kpi-card">
-                        <div class="icon"><i class="bi bi-clock-history"></i></div>
+                    <!-- Sin seguimiento → reloj con X, gris apagado -->
+                    <div class="tv-kpi-card" style="border-top:3px solid #9ca3af;">
+                        <div class="icon" style="background:#f3f4f6;color:#6b7280;">
+                            <i class="bi bi-hourglass"></i>
+                        </div>
                         <div><div class="num" id="seg-sin-seg">—</div><div class="lbl">Sin seguimiento</div></div>
                     </div>
+                    <!-- En ejecución → herramientas cruzadas, naranja obra -->
                     <div class="tv-kpi-card" style="border-top:3px solid #C9A227;">
-                        <div class="icon" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hammer"></i></div>
+                        <div class="icon" style="background:#fff4e0;color:#C9A227;">
+                            <i class="bi bi-tools"></i>
+                        </div>
                         <div><div class="num" id="seg-en-ejec">—</div><div class="lbl">En ejecución</div></div>
                     </div>
+                    <!-- Culminadas → sello de verificación, verde -->
                     <div class="tv-kpi-card" style="border-top:3px solid #1c6b3d;">
-                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;"><i class="bi bi-check-circle-fill"></i></div>
+                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;">
+                            <i class="bi bi-patch-check-fill"></i>
+                        </div>
                         <div><div class="num" id="seg-culminadas">—</div><div class="lbl">Culminadas</div></div>
                     </div>
-                    <div class="tv-kpi-card" style="border-top:3px solid var(--azul-700, #22366f);">
-                        <div class="icon"><i class="bi bi-graph-up-arrow"></i></div>
+                    <!-- Avance promedio → gráfico de barras ascendente, azul medio -->
+                    <div class="tv-kpi-card" style="border-top:3px solid #3c58ad;">
+                        <div class="icon" style="background:#eaf0ff;color:#3c58ad;">
+                            <i class="bi bi-bar-chart-steps"></i>
+                        </div>
                         <div><div class="num" id="seg-avance">—</div><div class="lbl">Avance prom.</div></div>
                     </div>
                 </div>
@@ -260,8 +275,8 @@ include __DIR__ . '/../includes/header.php';
                 <div class="item"><span class="dot" style="background:#A61C1C;"></span> Acceso No Permitido</div>
                 <?php $mc = obtenerConfigMapa(); if (in_array($mc['modo'] ?? 'normal', ['normal','seguimiento','personalizado'])): ?>
                 <div class="item" style="margin-top:6px;border-top:1px solid rgba(255,255,255,.2);padding-top:6px;">
-                    <span style="display:inline-block;width:12px;height:12px;background:<?= e($mc['color_seguimiento']??'#f0a63a') ?>;transform:rotate(45deg);border-radius:2px;margin-right:4px;"></span>
-                    Seguimiento
+                    <span style="display:inline-block;width:12px;height:12px;background:<?= e($mc['color_seguimiento']??'#f0a63a') ?>;border-radius:50%;margin-right:4px;"></span>
+                    Seguimiento (en ejecución)
                 </div>
                 <?php endif; ?>
                 <div class="item text-muted" id="nota-limites" style="font-size:10.5px;max-width:220px;"></div>

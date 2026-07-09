@@ -221,7 +221,14 @@ include __DIR__ . '/../includes/header.php';
                 <h2 style="color:#fff;margin:0;"><i class="bi bi-cloud-slash-fill"></i> Sin conexión</h2>
                 <div style="font-size:13px;color:#aab4d8;margin-top:2px;">Inspecciones guardadas en este dispositivo</div>
             </div>
-            <span id="offline-resumen" class="badge" style="background:#fff2;color:#fff;font-size:12px;">Cargando…</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span id="offline-resumen" class="badge" style="background:#fff2;color:#fff;font-size:12px;">Cargando…</span>
+                <button id="btn-panel-reintentar-todo"
+                    style="background:#f0a63a;color:#22366f;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:none;"
+                    onclick="window._panelReintentarTodo?.()">
+                    <i class="bi bi-arrow-repeat"></i> Subir todas
+                </button>
+            </div>
         </div>
         <div class="card-body" style="padding:0;">
             <div id="offline-lista-pendientes" style="padding:16px;min-height:80px;"></div>
@@ -342,6 +349,7 @@ include __DIR__ . '/../includes/header.php';
             var fotos     = Array.isArray(p.campos)?p.campos.filter(function(c){return c&&c.isFile;}).length:0;
             var nombre    = meta.nombre_edificio||'(Sin nombre)';
             var ubic      = [meta.parroquia,meta.municipio,meta.estado].filter(Boolean).join(', ');
+            var inspector = meta.ing1_nombre ? meta.ing1_nombre : '';
 
             var badge = subiendo
                 ? '<span class="badge badge-azul"><i class="bi bi-arrow-repeat girando"></i> Subiendo…</span>'
@@ -362,14 +370,13 @@ include __DIR__ . '/../includes/header.php';
 
             var botones = '';
             if (!subiendo) {
-                if (navigator.onLine || esModal) {
-                    botones += '<button type="button" class="btn btn-primary btn-sm btn-rein-off" data-id="'+p.id+'">'
-                        +'<i class="bi bi-arrow-repeat"></i> '+(agotado?'Reintentar':'Subir ahora')+'</button>';
-                }
-                botones += '<a href="'+BASE+'formulario/create.php?editar_offline='+p.id+'" class="btn btn-outline btn-sm">'
+                // Reintentar: siempre visible. El handler avisa si no hay internet.
+                botones += '<button type="button" class="btn btn-primary btn-sm btn-rein-off" data-id="'+p.id+'">'
+                    +'<i class="bi bi-arrow-repeat"></i> '+(agotado?'Reintentar':'Subir ahora')+'</button>';
+                botones += '<a href="'+BASE+'formulario/create.php?editar_offline='+encodeURIComponent(p.id)+'" class="btn btn-outline btn-sm">'
                     +'<i class="bi bi-pencil"></i> Editar</a>';
-                botones += '<button type="button" class="btn btn-danger btn-sm btn-del-off" data-id="'+p.id+'">'
-                    +'<i class="bi bi-trash"></i> Eliminar</button>';
+                botones += '<button type="button" class="btn btn-danger btn-sm btn-del-off" data-id="'+p.id+'" title="Eliminar">'
+                    +'<i class="bi bi-trash"></i></button>';
             }
 
             return '<div class="buzon-item'+(agotado?' buzon-item-error':subiendo?' buzon-item-subiendo':'')+'" data-id="'+p.id+'" '
@@ -380,6 +387,7 @@ include __DIR__ . '/../includes/header.php';
                         +'<div style="font-size:12px;color:var(--gris-500);">'
                             +(ubic?'<span><i class="bi bi-geo-alt"></i> '+esc(ubic)+'</span> ':'')
                             +(meta.fecha_inspeccion?'<span><i class="bi bi-calendar3"></i> '+esc(meta.fecha_inspeccion)+'</span> ':'')
+                            +(inspector?'<span><i class="bi bi-person"></i> '+esc(inspector)+'</span> ':'')
                             +(fotos?'<span><i class="bi bi-camera"></i> '+fotos+' foto'+(fotos===1?'':'s')+'</span> ':'')
                             +'<span><i class="bi bi-clock-history"></i> '+fmtFecha(p.creado)+'</span>'
                         +'</div>'
@@ -398,7 +406,7 @@ include __DIR__ . '/../includes/header.php';
             btn.addEventListener('click', async function() {
                 var id = +btn.dataset.id;
                 if (!navigator.onLine) {
-                    alert('Sin conexión. Conéctese para reintentar.');
+                    window.SismosToast?.('<i class="bi bi-wifi-off"></i> Sin conexión. La inspección se subirá automáticamente al recuperar señal.', 'info');
                     return;
                 }
                 btn.disabled = true;
@@ -490,6 +498,9 @@ include __DIR__ . '/../includes/header.php';
         // Botón flotante: solo con internet y pendientes
         if (hayInternet) {
             actualizarBotónFlotante();
+            // Mostrar "Subir todas" en el panel si hay pendientes con internet
+            var btnSubirTodas = document.getElementById('btn-panel-reintentar-todo');
+            if (btnSubirTodas) btnSubirTodas.style.display = pendientes.length > 0 ? '' : 'none';
         } else {
             var btn = document.getElementById('btn-flotante-pendientes');
             if (btn) btn.style.display = 'none';
@@ -497,6 +508,20 @@ include __DIR__ . '/../includes/header.php';
     }
 
     window.SismosOfflinePanel = { abrir: abrirModal, cerrar: cerrarModal, render: renderModal };
+
+    // Botón "Subir todas" del panel sin conexión
+    window._panelReintentarTodo = async function() {
+        var btn = document.getElementById('btn-panel-reintentar-todo');
+        if (!navigator.onLine) {
+            window.SismosToast?.('<i class="bi bi-wifi-off"></i> Sin conexión. Se subirán automáticamente al recuperar señal.', 'info');
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat girando"></i> Subiendo…'; }
+        try { await offline().reintentarFallidos(); } catch(e) {}
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Subir todas'; }
+        await renderPanelOffline();
+        actualizarBotónFlotante();
+    };
 
     window.addEventListener('online',  function() { actualizarVista(); });
     window.addEventListener('offline', function() { actualizarVista(); });
@@ -515,15 +540,5 @@ include __DIR__ . '/../includes/header.php';
     document.head.appendChild(style);
 })();
 </script>
-    <div class="card" style="margin-top:0;">
-        <div class="card-header" style="background:var(--azul-900,#101b42);color:#fff;border-radius:var(--radio) var(--radio) 0 0;">
-            <h2 style="color:#fff;"><i class="bi bi-cloud-slash-fill"></i> Sin conexión — Inspecciones pendientes de subir</h2>
-            <div id="offline-resumen" class="text-sm" style="color:#aab4d8;">Cargando…</div>
-        </div>
-        <div class="card-body" style="padding:0;">
-            <div id="offline-lista-pendientes" style="padding:16px;"></div>
-        </div>
-    </div>
-</div>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
