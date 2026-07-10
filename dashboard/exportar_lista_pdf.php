@@ -77,6 +77,33 @@ $stmt->execute($params);
 $filas = $stmt->fetchAll();
 
 // ---------------------------------------------------------------------
+// Agrupación del listado.
+//   - Si NO se filtró por un estado concreto (exportación "a nivel nacional"),
+//     se agrupa por ESTADO.
+//   - Si ya se está viendo un estado concreto, se agrupa por PARROQUIA
+//     (ej.: residencial + verdes de Distrito Capital → dividido por parroquia).
+// ---------------------------------------------------------------------
+$hayEstadoConcreto = ($estadoFiltro !== '' && $estadoFiltro !== '__NINGUNO__');
+$campoAgrupacion   = $hayEstadoConcreto ? 'parroquia' : 'estado';
+$etiquetaAgrupacion = $hayEstadoConcreto ? 'Parroquia' : 'Estado';
+
+$grupos = [];
+foreach ($filas as $f) {
+    $clave = trim((string)($f[$campoAgrupacion] ?? ''));
+    if ($clave === '') {
+        $clave = 'Sin ' . strtolower($etiquetaAgrupacion) . ' registrada';
+    }
+    $grupos[$clave][] = $f;
+}
+// Orden alfabético de los grupos, dejando el "Sin ..." al final.
+uksort($grupos, function ($a, $b) {
+    $aSin = stripos($a, 'Sin ') === 0;
+    $bSin = stripos($b, 'Sin ') === 0;
+    if ($aSin !== $bSin) return $aSin ? 1 : -1;
+    return strcasecmp($a, $b);
+});
+
+// ---------------------------------------------------------------------
 // Descripción legible de los filtros activos, para el encabezado del PDF.
 // ---------------------------------------------------------------------
 $descripcionFiltros = [];
@@ -124,6 +151,16 @@ ob_start();
     .badge-verde { background: #2E7D32; }
     .badge-amarillo { background: #C9A227; }
     .badge-rojo { background: #A61C1C; }
+    tr.grupo-cab td {
+        background: #e8ecf6;
+        color: #22366F;
+        font-weight: bold;
+        font-size: 11px;
+        padding: 7px 8px;
+        border-top: 2px solid #22366F;
+        border-bottom: 1px solid #c3cbe0;
+    }
+    tr.grupo-cab td .conteo { font-weight: normal; color: #55617f; font-size: 9.5px; }
 </style>
 </head>
 <body>
@@ -138,7 +175,7 @@ ob_start();
     <?= e(APP_NAME) ?> — Documento generado automáticamente, uso interno.
 </footer>
 
-<div class="filtros-activos"><strong>Filtros aplicados:</strong> <?= e($tituloFiltros) ?></div>
+<div class="filtros-activos"><strong>Filtros aplicados:</strong> <?= e($tituloFiltros) ?><br><strong>Listado dividido por:</strong> <?= e($etiquetaAgrupacion) ?></div>
 
 <div class="resumen">
     <div class="caja"><strong style="font-size:15px;"><?= count($filas) ?></strong><br>Total de inspecciones</div>
@@ -166,23 +203,31 @@ ob_start();
     <?php if (!$filas): ?>
         <tr><td colspan="10" style="text-align:center;padding:16px;color:#888;">No hay inspecciones que coincidan con estos filtros.</td></tr>
     <?php endif; ?>
-    <?php foreach ($filas as $f):
-        $meta = $catalogo[$f['decision_final']] ?? ['corto' => $f['decision_final']];
-        $claveColor = $mapaCorto[$meta['corto']] ?? '';
-        $claseBadge = ['VERDE' => 'badge-verde', 'AMARILLO' => 'badge-amarillo', 'ROJO' => 'badge-rojo'][$claveColor] ?? '';
-    ?>
-        <tr>
-            <td><?= e($f['codigo']) ?></td>
-            <td><?= e($f['nombre_edificio']) ?></td>
-            <td><?= e($f['estado'] ?: '—') ?></td>
-            <td><?= e($f['municipio'] ?: '—') ?></td>
-            <td><?= e($f['parroquia'] ?: '—') ?></td>
-            <td><?= e($f['uso_edificacion'] ?: '—') ?></td>
-            <td><span class="badge <?= $claseBadge ?>"><?= e($meta['corto']) ?></span></td>
-            <td><?= e($f['fecha_inspeccion'] ?: '—') ?></td>
-            <td><?= e($f['ing1_nombre'] ?: '—') ?></td>
-            <td style="text-align:center;"><?= (int)$f['personas'] ?></td>
+    <?php foreach ($grupos as $nombreGrupo => $filasGrupo): ?>
+        <tr class="grupo-cab">
+            <td colspan="10">
+                <?= e($etiquetaAgrupacion) ?>: <?= e($nombreGrupo) ?>
+                <span class="conteo">(<?= count($filasGrupo) ?> <?= count($filasGrupo) === 1 ? 'inspección' : 'inspecciones' ?>)</span>
+            </td>
         </tr>
+        <?php foreach ($filasGrupo as $f):
+            $meta = $catalogo[$f['decision_final']] ?? ['corto' => $f['decision_final']];
+            $claveColor = $mapaCorto[$meta['corto']] ?? '';
+            $claseBadge = ['VERDE' => 'badge-verde', 'AMARILLO' => 'badge-amarillo', 'ROJO' => 'badge-rojo'][$claveColor] ?? '';
+        ?>
+            <tr>
+                <td><?= e($f['codigo']) ?></td>
+                <td><?= e($f['nombre_edificio']) ?></td>
+                <td><?= e($f['estado'] ?: '—') ?></td>
+                <td><?= e($f['municipio'] ?: '—') ?></td>
+                <td><?= e($f['parroquia'] ?: '—') ?></td>
+                <td><?= e($f['uso_edificacion'] ?: '—') ?></td>
+                <td><span class="badge <?= $claseBadge ?>"><?= e($meta['corto']) ?></span></td>
+                <td><?= e($f['fecha_inspeccion'] ?: '—') ?></td>
+                <td><?= e($f['ing1_nombre'] ?: '—') ?></td>
+                <td style="text-align:center;"><?= (int)$f['personas'] ?></td>
+            </tr>
+        <?php endforeach; ?>
     <?php endforeach; ?>
     </tbody>
 </table>

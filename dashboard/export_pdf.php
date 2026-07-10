@@ -40,23 +40,43 @@ if (!$r) {
     exit;
 }
 
-// Obtener fotos y convertir a data URIs para incrustar en el PDF
+// Obtener fotos y convertir a data URIs para incrustar en el PDF.
+// Dompdf no soporta display:flex, así que las fotos se colocan en una tabla
+// (3 por fila) para que salgan una al lado de la otra de forma confiable.
+$fotosPorFila = 3;
 $fotosAgrupadas = tablaFotosExiste() ? obtenerFotosInspeccion($id) : [];
 $fotosHtml = '';
 foreach ($fotosAgrupadas as $categoria => $lista) {
-    $fotosHtml .= '<h4>' . e($categoria) . '</h4><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">';
+    $fotosHtml .= '<h4 style="margin:12px 0 6px;">' . e($categoria) . '</h4>';
+    $fotosHtml .= '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;"><tr>';
+    $col = 0;
     foreach ($lista as $f) {
+        if ($col > 0 && $col % $fotosPorFila === 0) {
+            $fotosHtml .= '</tr><tr>';
+        }
+        $anchoCelda = round(100 / $fotosPorFila, 4);
+        $fotosHtml .= '<td style="width:' . $anchoCelda . '%;padding:4px;vertical-align:top;text-align:center;">';
         $rutaAbs = __DIR__ . '/../' . $f['ruta'];
         if (is_file($rutaAbs) && filesize($rutaAbs) > 0) {
             $mime = mime_content_type($rutaAbs) ?: 'image/jpeg';
             $data = base64_encode(file_get_contents($rutaAbs));
             $src = 'data:' . $mime . ';base64,' . $data;
-            $fotosHtml .= '<div style="width:140px;border:1px solid #ddd;padding:4px;text-align:center;"><img src="' . $src . '" style="max-width:100%;height:auto;"><div style="font-size:11px;margin-top:4px;">' . e($f['nombre_original']) . '</div></div>';
+            $fotosHtml .= '<div style="border:1px solid #ddd;padding:4px;">'
+                . '<img src="' . $src . '" style="width:100%;height:auto;">'
+                . '<div style="font-size:11px;margin-top:4px;word-wrap:break-word;">' . e($f['nombre_original']) . '</div>'
+                . '</div>';
         } else {
-            $fotosHtml .= '<div style="width:140px;height:90px;border:1px solid #ddd;display:flex;align-items:center;justify-content:center;background:#f7f7f7;color:#888;font-size:12px;">Archivo no encontrado</div>';
+            $fotosHtml .= '<div style="height:90px;border:1px solid #ddd;background:#f7f7f7;color:#888;font-size:12px;padding-top:36px;">Archivo no encontrado</div>';
         }
+        $fotosHtml .= '</td>';
+        $col++;
     }
-    $fotosHtml .= '</div>';
+    // Rellenar las celdas restantes de la última fila para que la tabla no se deforme.
+    while ($col % $fotosPorFila !== 0) {
+        $fotosHtml .= '<td style="width:' . round(100 / $fotosPorFila, 4) . '%;"></td>';
+        $col++;
+    }
+    $fotosHtml .= '</tr></table>';
 }
 
 $danosEst = json_decode($r['danos_estructurales'] ?? '{}', true) ?: [];
@@ -203,9 +223,7 @@ h2{font-size:14px;margin:18px 0 8px;}
 <?php if ($fotosHtml): ?>
     <div class="section">
         <h2>Registro fotográfico</h2>
-        <div class="photo-grid">
-            <?= $fotosHtml ?>
-        </div>
+        <?= $fotosHtml ?>
     </div>
 <?php endif; ?>
 </div>
