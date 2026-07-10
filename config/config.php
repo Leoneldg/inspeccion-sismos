@@ -12,7 +12,7 @@ define('DB_PORT',   getenv('DB_PORT')   ?: '3306');
 define('DB_NAME',   getenv('DB_NAME')   ?: 'inspecciones_sismos');
 define('DB_USER',   getenv('DB_USER')   ?: 'root');
 define('DB_PASS',   getenv('DB_PASS')   ?: 'root');
-define('DB_SOCKET', getenv('DB_SOCKET') ?: 'root');
+define('DB_SOCKET', getenv('DB_SOCKET') ?: 'rootgit add');
 
 // ---------------------------------------------------------------------
 // Aplicación
@@ -91,7 +91,7 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 
 // Mostrar errores solo en entorno de desarrollo
-define('APP_DEBUG', getenv('APP_DEBUG') === '1');
+define('APP_DEBUG', true);
 if (APP_DEBUG) {
     ini_set('display_errors', 1);
     error_reporting(E_ALL);
