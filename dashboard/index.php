@@ -86,7 +86,10 @@ include __DIR__ . '/../includes/header.php';
         </button>
         <?php if (puede('import_export', 'ver') || puede('dashboard', 'ver')): ?>
         <button id="btn-descargar-lista" type="button" class="btn btn-outline btn-sm" title="Descarga en Excel la lista con los filtros que tengas activos ahora">
-            <i class="bi bi-download"></i> Descargar lista
+            <i class="bi bi-file-earmark-excel"></i> Descargar Excel
+        </button>
+        <button id="btn-descargar-lista-pdf" type="button" class="btn btn-outline btn-sm" title="Descarga en PDF la lista con los filtros que tengas activos ahora">
+            <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
         </button>
         <?php endif; ?>
         <?php if (puede('formulario', 'crear')): ?>
@@ -245,6 +248,7 @@ include __DIR__ . '/../includes/header.php';
 const API_URL   = '<?= APP_URL_BASE ?>dashboard/api_kpis.php';
 const FICHA_URL = '<?= APP_URL_BASE ?>dashboard/api_ficha.php';
 const EXPORTAR_URL = '<?= APP_URL_BASE ?>dashboard/exportar_lista.php';
+const EXPORTAR_PDF_URL = '<?= APP_URL_BASE ?>dashboard/exportar_lista_pdf.php';
 
 // El plugin se registra globalmente pero cada gráfico decide si lo usa
 // mediante su propia opción "datalabels" (chart-decision sí, para mostrar
@@ -487,7 +491,14 @@ function renderListaEdificios(lista) {
     close.className = 'mapa-lista-close';
     close.title = 'Quitar filtro';
     close.innerHTML = '<i class="bi bi-x-lg"></i>';
-    close.addEventListener('click', () => { seleccionarParroquia(''); seleccionarDecision(''); });
+    close.addEventListener('click', () => {
+        seleccionarParroquia('');
+        seleccionarDecision('');
+        usoSeleccionado = '';
+        const selUso = document.getElementById('filtro-uso');
+        if (selUso) selUso.value = '';
+        cargarDashboard();
+    });
     header.appendChild(close);
 
     cont.appendChild(header);
@@ -630,16 +641,23 @@ document.getElementById('btn-quitar-filtro').addEventListener('click', function 
     cargarDashboard();
 });
 
-// Descarga en Excel exactamente lo que se está viendo en pantalla ahora
-// mismo: usa los mismos filtros que cargarDashboard() para armar la URL.
-document.getElementById('btn-descargar-lista')?.addEventListener('click', function () {
+// Descarga (Excel o PDF) exactamente lo que se está viendo en pantalla
+// ahora mismo: usa los mismos filtros que cargarDashboard() para armar la URL.
+function paramsDescargaActual() {
     const params = new URLSearchParams();
     window.DashboardNacional.paramsTerritorio(params); // estado / municipio
     if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
     if (usoSeleccionado) params.set('uso', usoSeleccionado);
     if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
-    const qs = params.toString();
+    return params.toString();
+}
+document.getElementById('btn-descargar-lista')?.addEventListener('click', function () {
+    const qs = paramsDescargaActual();
     window.location.href = EXPORTAR_URL + (qs ? '?' + qs : '');
+});
+document.getElementById('btn-descargar-lista-pdf')?.addEventListener('click', function () {
+    const qs = paramsDescargaActual();
+    window.location.href = EXPORTAR_PDF_URL + (qs ? '?' + qs : '');
 });
 
 async function cargarDashboard() {

@@ -1,39 +1,34 @@
-DASHBOARD — Descargar lista filtrada + Imprimir ficha desde el mapa
-=======================================================================
+DASHBOARD — Descargar lista filtrada también en PDF
+========================================================
 
-1. DESCARGAR LISTA FILTRADA
-----------------------------
-Nuevo botón "Descargar lista" en el encabezado del dashboard, junto a
-"Quitar filtro". Al tocarlo, descarga un Excel con EXACTAMENTE lo que
-se está viendo en pantalla en ese momento -- respeta todos los filtros
-activos a la vez (Estado, Municipio, Parroquia, Uso, Decisión).
+QUÉ SE AGREGÓ
+-------------
+Ahora hay DOS botones donde antes había uno: "Descargar Excel" (el que
+ya tenías) y el nuevo "Descargar PDF" -- ambos respetan exactamente los
+mismos filtros activos en pantalla (Estado, Municipio, Parroquia, Uso,
+Decisión, todos combinables).
 
-El Excel trae columnas pensadas para uso práctico (no las 96 columnas
-técnicas de la base de datos): Código, Nombre del edificio, Estado,
-Municipio, Parroquia, Uso, Tipo estructural, Decisión final, Fecha,
-Inspector y su cédula, las 8 categorías de personas/mascotas afectadas,
-coordenadas, y observaciones. Con encabezado de color, autofiltro y
-columnas ajustadas al ancho del contenido.
+El PDF quedó diseñado así, no es una tabla simple:
+  - Encabezado con el nombre del sistema, fecha de generación y quién
+    lo generó.
+  - Recuadro mostrando qué filtros se aplicaron, para que quede
+    constancia de qué es exactamente ese listado.
+  - 4 cajas de resumen arriba: Total de inspecciones, y el conteo de
+    cada decisión (Verde / Amarillo / Rojo).
+  - Tabla en orientación horizontal (más cómoda para 10 columnas),
+    encabezado azul, filas alternadas para que sea fácil de leer, y la
+    decisión de cada fila con su propia etiqueta de color.
+  - Numeración de página en el pie (Página X de Y).
 
-El nombre del archivo descargado refleja los filtros usados (ej.
-"inspecciones_Miranda_Escuela_2026-07-10.xlsx"), para que quede claro
-qué es cada descarga sin tener que abrirla.
+Reutiliza el mismo motor (Dompdf) que ya usa el sistema para la ficha
+individual de cada inspección, así que no agrega ninguna dependencia
+nueva.
 
-Archivo nuevo: dashboard/exportar_lista.php
-
-2. IMPRIMIR CADA FICHA DESDE EL MAPA
-----------------------------------------
-Al abrir la ficha técnica de una inspección desde el mapa del dashboard
-(clic en un punto), ahora hay un botón "Imprimir / Descargar PDF" junto
-al que ya existía de "Abrir en el módulo de formulario". Reutiliza el
-generador de PDF que ya tenía el sistema (el mismo que se usa para el
-código QR) -- abre el PDF en una pestaña nueva, desde ahí el navegador
-permite imprimir o guardar directamente.
+Archivo nuevo: dashboard/exportar_lista_pdf.php
 
 CÓMO APLICAR
 ------------
 Reemplaza dashboard/index.php y agrega el archivo nuevo
-dashboard/exportar_lista.php.
+dashboard/exportar_lista_pdf.php.
 
-No requiere ninguna migración SQL. Verifiqué la sintaxis del PHP y del
-JavaScript antes de esta entrega.
+No requiere ninguna migración SQL.

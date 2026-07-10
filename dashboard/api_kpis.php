@@ -190,7 +190,7 @@ try {
     }
 
     $inspecciones = [];
-    if ($tieneFiltro || $tieneDecisionFiltro) {
+    if ($tieneFiltro || $tieneUso || $tieneDecisionFiltro) {
         $stmt = $pdo->prepare("SELECT id, nombre_edificio, decision_final FROM inspecciones $whereSql ORDER BY nombre_edificio");
         $stmt->execute($paramsFiltro);
         foreach ($stmt->fetchAll() as $row) {
