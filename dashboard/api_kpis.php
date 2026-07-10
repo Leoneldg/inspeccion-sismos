@@ -93,6 +93,21 @@ try {
         ? '(uso_edificacion IS NULL OR TRIM(uso_edificacion) = \'\')'
         : 'uso_edificacion = :uso';
 
+    // Filtro por presencia de fotos / archivos adjuntos. Se maneja aparte de
+    // $condiciones porque algunas consultas prefijan las condiciones con "i."
+    // (alias de tabla) y otras no. Por eso se preparan DOS variantes de la
+    // condición: una para consultas sin alias (usa la columna id directa) y
+    // otra para las que usan el alias i. Solo aplica si la tabla de fotos existe.
+    $fotosFiltro = trim((string)($_GET['fotos'] ?? ''));
+    $tieneFotosFiltro = ($fotosFiltro === 'con' || $fotosFiltro === 'sin') && tablaFotosExiste();
+    $sqlFotosPlano = '';  // para FROM inspecciones (sin alias)
+    $sqlFotosAlias = '';  // para FROM inspecciones i (con alias)
+    if ($tieneFotosFiltro) {
+        $op = ($fotosFiltro === 'con') ? 'EXISTS' : 'NOT EXISTS';
+        $sqlFotosPlano = "$op (SELECT 1 FROM inspeccion_fotos ff WHERE ff.inspeccion_id = inspecciones.id)";
+        $sqlFotosAlias = "$op (SELECT 1 FROM inspeccion_fotos ff WHERE ff.inspeccion_id = i.id)";
+    }
+
     // Condición combinable (parroquia Y/O decisión) reutilizada en varias consultas.
     $condiciones = [];
     $paramsFiltro = [];
@@ -101,6 +116,7 @@ try {
     if ($tieneUso)        { $condiciones[] = $sqlUso; if (!$usoEsSinValor) $paramsFiltro['uso'] = $usoFiltro; }
     if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
     if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
+    if ($tieneFotosFiltro) { $condiciones[] = $sqlFotosPlano; }
     $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
 
     // Conjunto de condiciones "de territorio" (estado/municipio) SIN el filtro
@@ -114,6 +130,7 @@ try {
     if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
     if ($tieneUso)        { $condTerritorio[] = $sqlUso; if (!$usoEsSinValor) $paramsTerritorio['uso'] = $usoFiltro; }
+    if ($tieneFotosFiltro) { $condTerritorio[] = $sqlFotosPlano; }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("
@@ -165,7 +182,18 @@ try {
 
     // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta ambos filtros) ----
     $puntos = [];
-    $condPuntos = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
+    // Se prefijan con "i." solo las condiciones de columna simple. La condición
+    // de fotos (una subconsulta EXISTS) no debe prefijarse: se usa su variante
+    // con alias ($sqlFotosAlias), que ya referencia i.id internamente.
+    $condPuntosArr = [];
+    foreach ($condiciones as $c) {
+        if ($tieneFotosFiltro && $c === $sqlFotosPlano) {
+            $condPuntosArr[] = $sqlFotosAlias;
+        } else {
+            $condPuntosArr[] = "i.$c";
+        }
+    }
+    $condPuntos = $condPuntosArr ? (' AND ' . implode(' AND ', $condPuntosArr)) : '';
     $sqlPuntos = $tieneFotos
         ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
@@ -281,6 +309,7 @@ try {
     $paramsEstadoNal = [];
     if ($tieneDecisionFiltro) { $condEstadoNal[] = 'decision_final = :d'; $paramsEstadoNal['d'] = $decisionFiltroClave; }
     if ($tieneUso) { $condEstadoNal[] = $sqlUso; if (!$usoEsSinValor) $paramsEstadoNal['uso'] = $usoFiltro; }
+    if ($tieneFotosFiltro) { $condEstadoNal[] = $sqlFotosPlano; }
     $sqlEstado = 'SELECT estado, COUNT(*) AS total FROM inspecciones' .
         ($condEstadoNal ? (' WHERE ' . implode(' AND ', $condEstadoNal)) : '') .
         " GROUP BY estado ORDER BY total DESC";

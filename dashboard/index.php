@@ -82,6 +82,11 @@ include __DIR__ . '/../includes/header.php';
             <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
             <?php endforeach; ?>
         </select>
+        <select id="filtro-fotos" class="form-control" style="width:auto;min-width:170px;" title="Filtra según tengan o no fotos/archivos adjuntos">
+            <option value="">Con o sin fotos</option>
+            <option value="con">Con fotos / adjuntos</option>
+            <option value="sin">Sin fotos / adjuntos</option>
+        </select>
         <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
             <i class="bi bi-x-lg"></i> Quitar filtro
         </button>
@@ -263,6 +268,7 @@ let map, clusterLayer, seccionesLayer, chartDecision, chartParroquia;
 let geojsonLimitesParroquias = undefined; // undefined = aún no se intentó cargar; null = no existe; objeto = cargado
 let parroquiaSeleccionada = '';           // '' = sin filtro (todas)
 let usoSeleccionado = '';                 // '' = sin filtro (todos los usos)
+let fotosSeleccionado = '';               // '' = sin filtro; 'con' = con fotos/adjuntos; 'sin' = sin ellos
 let ultimaParroquiaEnMapa;                // controla cuándo animar el zoom (evita re-animar en cada refresh)
 let ultimoDatosDashboard = null;          // última respuesta de la API, para poder re-renderizar sin refetch
 let decisionRankingSeleccionada = '';     // '' = total (todas las decisiones); si no, ranking de esa decisión
@@ -452,6 +458,7 @@ function descripcionFiltroActivo() {
     const partes = [];
     if (parroquiaSeleccionada) partes.push(parroquiaSeleccionada);
     if (usoSeleccionado) partes.push(usoSeleccionado === '__SIN_USO__' ? 'Sin uso' : usoSeleccionado);
+    if (fotosSeleccionado) partes.push(fotosSeleccionado === 'con' ? 'Con fotos' : 'Sin fotos');
     if (decisionSeleccionada) partes.push(decisionSeleccionada);
     return partes.join(' · ');
 }
@@ -461,7 +468,9 @@ function actualizarIndicadoresFiltro() {
     document.getElementById('filtro-parroquia').value = parroquiaSeleccionada;
     const selUso = document.getElementById('filtro-uso');
     if (selUso) selUso.value = usoSeleccionado;
-    document.getElementById('btn-quitar-filtro').style.display = (activo || usoSeleccionado || decisionSeleccionada) ? 'inline-flex' : 'none';
+    const selFotos = document.getElementById('filtro-fotos');
+    if (selFotos) selFotos.value = fotosSeleccionado;
+    document.getElementById('btn-quitar-filtro').style.display = (activo || usoSeleccionado || fotosSeleccionado || decisionSeleccionada) ? 'inline-flex' : 'none';
     const desc = descripcionFiltroActivo();
     const tituloMapa = document.getElementById('titulo-mapa');
     if (tituloMapa) {
@@ -473,7 +482,7 @@ function renderListaEdificios(lista) {
     const cont = document.getElementById('lista-edificios');
     if (!cont) return; // widget "mapa" oculto por configuración
     cont.innerHTML = '';
-    const hayFiltro = !!(parroquiaSeleccionada || usoSeleccionado || decisionSeleccionada);
+    const hayFiltro = !!(parroquiaSeleccionada || usoSeleccionado || fotosSeleccionado || decisionSeleccionada);
     cont.classList.toggle('mapa-lista-hidden', !hayFiltro);
     if (!hayFiltro) {
         return;
@@ -498,6 +507,9 @@ function renderListaEdificios(lista) {
         usoSeleccionado = '';
         const selUso = document.getElementById('filtro-uso');
         if (selUso) selUso.value = '';
+        fotosSeleccionado = '';
+        const selFotos = document.getElementById('filtro-fotos');
+        if (selFotos) selFotos.value = '';
         cargarDashboard();
     });
     header.appendChild(close);
@@ -620,6 +632,10 @@ document.getElementById('filtro-uso').addEventListener('change', function () {
     usoSeleccionado = this.value;
     cargarDashboard();
 });
+document.getElementById('filtro-fotos').addEventListener('change', function () {
+    fotosSeleccionado = this.value;
+    cargarDashboard();
+});
 // Selector de estado (solo master): entra al estado elegido o vuelve al país.
 (function () {
     const selEstado = document.getElementById('filtro-estado');
@@ -638,6 +654,9 @@ document.getElementById('btn-quitar-filtro').addEventListener('click', function 
     usoSeleccionado = '';
     const selUso = document.getElementById('filtro-uso');
     if (selUso) selUso.value = '';
+    fotosSeleccionado = '';
+    const selFotos = document.getElementById('filtro-fotos');
+    if (selFotos) selFotos.value = '';
     decisionSeleccionada = '';
     cargarDashboard();
 });
@@ -649,6 +668,7 @@ function paramsDescargaActual() {
     window.DashboardNacional.paramsTerritorio(params); // estado / municipio
     if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
     if (usoSeleccionado) params.set('uso', usoSeleccionado);
+    if (fotosSeleccionado) params.set('fotos', fotosSeleccionado);
     if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
     return params.toString();
 }
@@ -666,6 +686,7 @@ async function cargarDashboard() {
     window.DashboardNacional.paramsTerritorio(params); // estado / municipio
     if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
     if (usoSeleccionado) params.set('uso', usoSeleccionado);
+    if (fotosSeleccionado) params.set('fotos', fotosSeleccionado);
     if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
     const qs = params.toString();
     const url = API_URL + (qs ? '?' + qs : '');

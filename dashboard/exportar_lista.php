@@ -57,6 +57,15 @@ if ($usoFiltro === '__SIN_USO__') {
     $params['uso'] = $usoFiltro;
 }
 
+$fotosFiltro = trim((string)($_GET['fotos'] ?? ''));
+if (($fotosFiltro === 'con' || $fotosFiltro === 'sin') && tablaFotosExiste()) {
+    if ($fotosFiltro === 'con') {
+        $condiciones[] = 'EXISTS (SELECT 1 FROM inspeccion_fotos f WHERE f.inspeccion_id = inspecciones.id)';
+    } else {
+        $condiciones[] = 'NOT EXISTS (SELECT 1 FROM inspeccion_fotos f WHERE f.inspeccion_id = inspecciones.id)';
+    }
+}
+
 $decisionFiltroCorto = trim((string)($_GET['decision'] ?? ''));
 $decisionFiltroClave = null;
 foreach ($catalogo as $clave => $meta) {

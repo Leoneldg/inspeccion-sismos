@@ -55,6 +55,17 @@ if ($usoFiltro === '__SIN_USO__') {
     $params['uso'] = $usoFiltro;
 }
 
+// Filtro por presencia de fotos / archivos adjuntos. Solo aplica si la tabla
+// de fotos existe; si no, se ignora para no romper la consulta.
+$fotosFiltro = trim((string)($_GET['fotos'] ?? ''));
+if (($fotosFiltro === 'con' || $fotosFiltro === 'sin') && tablaFotosExiste()) {
+    if ($fotosFiltro === 'con') {
+        $condiciones[] = 'EXISTS (SELECT 1 FROM inspeccion_fotos f WHERE f.inspeccion_id = inspecciones.id)';
+    } else {
+        $condiciones[] = 'NOT EXISTS (SELECT 1 FROM inspeccion_fotos f WHERE f.inspeccion_id = inspecciones.id)';
+    }
+}
+
 $decisionFiltroCorto = trim((string)($_GET['decision'] ?? ''));
 $decisionFiltroClave = null;
 foreach ($catalogo as $clave => $meta) {
@@ -114,6 +125,8 @@ if ($municipioFiltro) $descripcionFiltros[] = "Municipio: $municipioFiltro";
 if ($parroquiaFiltro) $descripcionFiltros[] = "Parroquia: $parroquiaFiltro";
 if ($usoFiltro === '__SIN_USO__') $descripcionFiltros[] = "Uso: Sin uso (vacío)";
 elseif ($usoFiltro) $descripcionFiltros[] = "Uso: $usoFiltro";
+if ($fotosFiltro === 'con') $descripcionFiltros[] = "Con fotos / adjuntos";
+elseif ($fotosFiltro === 'sin') $descripcionFiltros[] = "Sin fotos / adjuntos";
 if ($decisionFiltroClave) $descripcionFiltros[] = "Decisión: $decisionFiltroCorto";
 if (!usuarioEsMaster() && estadoDelUsuario()) {
     // Ya viene reflejado en $estadoFiltro por aplicarScopeEstado(), pero se dejó
