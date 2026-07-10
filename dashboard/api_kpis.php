@@ -86,13 +86,19 @@ try {
     // a un widget puntual como pasa con el filtro de decisión.
     $usoFiltro = trim((string)($_GET['uso'] ?? ''));
     $tieneUso = $usoFiltro !== '';
+    // Opción especial "Sin uso": trae los registros con uso_edificacion en NULL
+    // o vacío. Se usa un valor centinela para no chocar con ningún uso real.
+    $usoEsSinValor = ($usoFiltro === '__SIN_USO__');
+    $sqlUso = $usoEsSinValor
+        ? '(uso_edificacion IS NULL OR TRIM(uso_edificacion) = \'\')'
+        : 'uso_edificacion = :uso';
 
     // Condición combinable (parroquia Y/O decisión) reutilizada en varias consultas.
     $condiciones = [];
     $paramsFiltro = [];
     if ($tieneEstado)    { $condiciones[] = 'estado = :estado'; $paramsFiltro['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condiciones[] = 'municipio = :municipio'; $paramsFiltro['municipio'] = $municipioFiltro; }
-    if ($tieneUso)        { $condiciones[] = 'uso_edificacion = :uso'; $paramsFiltro['uso'] = $usoFiltro; }
+    if ($tieneUso)        { $condiciones[] = $sqlUso; if (!$usoEsSinValor) $paramsFiltro['uso'] = $usoFiltro; }
     if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
     if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
     $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
@@ -107,7 +113,7 @@ try {
     $paramsTerritorio = [];
     if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
-    if ($tieneUso)        { $condTerritorio[] = 'uso_edificacion = :uso'; $paramsTerritorio['uso'] = $usoFiltro; }
+    if ($tieneUso)        { $condTerritorio[] = $sqlUso; if (!$usoEsSinValor) $paramsTerritorio['uso'] = $usoFiltro; }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("
@@ -274,7 +280,7 @@ try {
     $condEstadoNal = [];
     $paramsEstadoNal = [];
     if ($tieneDecisionFiltro) { $condEstadoNal[] = 'decision_final = :d'; $paramsEstadoNal['d'] = $decisionFiltroClave; }
-    if ($tieneUso) { $condEstadoNal[] = 'uso_edificacion = :uso'; $paramsEstadoNal['uso'] = $usoFiltro; }
+    if ($tieneUso) { $condEstadoNal[] = $sqlUso; if (!$usoEsSinValor) $paramsEstadoNal['uso'] = $usoFiltro; }
     $sqlEstado = 'SELECT estado, COUNT(*) AS total FROM inspecciones' .
         ($condEstadoNal ? (' WHERE ' . implode(' AND ', $condEstadoNal)) : '') .
         " GROUP BY estado ORDER BY total DESC";

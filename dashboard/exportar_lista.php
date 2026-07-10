@@ -50,7 +50,9 @@ if ($parroquiaFiltro !== '') {
 }
 
 $usoFiltro = trim((string)($_GET['uso'] ?? ''));
-if ($usoFiltro !== '') {
+if ($usoFiltro === '__SIN_USO__') {
+    $condiciones[] = "(uso_edificacion IS NULL OR TRIM(uso_edificacion) = '')";
+} elseif ($usoFiltro !== '') {
     $condiciones[] = 'uso_edificacion = :uso';
     $params['uso'] = $usoFiltro;
 }

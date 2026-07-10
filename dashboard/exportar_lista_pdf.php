@@ -48,7 +48,9 @@ if ($parroquiaFiltro !== '') {
 }
 
 $usoFiltro = trim((string)($_GET['uso'] ?? ''));
-if ($usoFiltro !== '') {
+if ($usoFiltro === '__SIN_USO__') {
+    $condiciones[] = "(uso_edificacion IS NULL OR TRIM(uso_edificacion) = '')";
+} elseif ($usoFiltro !== '') {
     $condiciones[] = 'uso_edificacion = :uso';
     $params['uso'] = $usoFiltro;
 }
@@ -110,7 +112,8 @@ $descripcionFiltros = [];
 if ($estadoFiltro && $estadoFiltro !== '__NINGUNO__') $descripcionFiltros[] = "Estado: $estadoFiltro";
 if ($municipioFiltro) $descripcionFiltros[] = "Municipio: $municipioFiltro";
 if ($parroquiaFiltro) $descripcionFiltros[] = "Parroquia: $parroquiaFiltro";
-if ($usoFiltro) $descripcionFiltros[] = "Uso: $usoFiltro";
+if ($usoFiltro === '__SIN_USO__') $descripcionFiltros[] = "Uso: Sin uso (vacío)";
+elseif ($usoFiltro) $descripcionFiltros[] = "Uso: $usoFiltro";
 if ($decisionFiltroClave) $descripcionFiltros[] = "Decisión: $decisionFiltroCorto";
 if (!usuarioEsMaster() && estadoDelUsuario()) {
     // Ya viene reflejado en $estadoFiltro por aplicarScopeEstado(), pero se dejó
