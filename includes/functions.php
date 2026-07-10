@@ -65,9 +65,19 @@ function catalogoParroquias(): array
 function catalogoUsoEdificacion(): array
 {
     return [
-        'Casa', 'Quinta', 'Edificio Residencial', 'Edificio de Oficina', 'Edificio Gubernamental',
-        'Escuela', 'Hospital', 'Clínica', 'Centro de Atención Médica (CDI)', 'Galpón',
-        'Local Comercial', 'Centro Comercial',
+        // Residencial
+        'Casa', 'Quinta', 'Vivienda Unifamiliar', 'Vivienda Multifamiliar', 'Vivienda Popular',
+        'Edificio Residencial',
+        // Oficinas y gobierno
+        'Oficina', 'Edificio de Oficina', 'Gubernamental', 'Edificio Gubernamental', 'Policial',
+        // Educativo
+        'Escuela', 'Educativo',
+        // Salud
+        'Hospital', 'Clínica', 'Médico/Asistencial', 'Centro de Atención Médica (CDI)',
+        // Comercial e industrial
+        'Comercial', 'Local Comercial', 'Centro Comercial', 'Galpón',
+        // Otros
+        'Religioso',
     ];
 }
 
