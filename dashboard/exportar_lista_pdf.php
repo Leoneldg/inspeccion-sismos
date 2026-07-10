@@ -68,7 +68,7 @@ if ($decisionFiltroClave !== null) {
 $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
 
 $stmt = db()->prepare("
-    SELECT codigo, nombre_edificio, estado, municipio, parroquia, uso_edificacion,
+    SELECT id, codigo, nombre_edificio, estado, municipio, parroquia, uso_edificacion,
            decision_final, fecha_inspeccion, ing1_nombre,
            (COALESCE(hombres,0)+COALESCE(mujeres,0)+COALESCE(ninos,0)+COALESCE(adultos_tercera_edad,0)+COALESCE(gestantes,0)) AS personas
     FROM inspecciones
@@ -164,6 +164,17 @@ ob_start();
         border-bottom: 1px solid #c3cbe0;
     }
     tr.grupo-cab td .conteo { font-weight: normal; color: #55617f; font-size: 9.5px; }
+    a.link-ficha {
+        display: inline-block;
+        background: #22366F;
+        color: #fff !important;
+        text-decoration: none;
+        font-size: 8.5px;
+        font-weight: bold;
+        padding: 3px 7px;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
 </style>
 </head>
 <body>
@@ -178,7 +189,7 @@ ob_start();
     <?= e(APP_NAME) ?> — Documento generado automáticamente, uso interno.
 </footer>
 
-<div class="filtros-activos"><strong>Filtros aplicados:</strong> <?= e($tituloFiltros) ?><br><strong>Listado dividido por:</strong> <?= e($etiquetaAgrupacion) ?></div>
+<div class="filtros-activos"><strong>Filtros aplicados:</strong> <?= e($tituloFiltros) ?><br><strong>Listado dividido por:</strong> <?= e($etiquetaAgrupacion) ?><br><em style="color:#22366F;">Sugerencia: haga clic en el código o en «Ver ficha» de cualquier fila para abrir su ficha completa.</em></div>
 
 <div class="resumen">
     <div class="caja"><strong style="font-size:15px;"><?= count($filas) ?></strong><br>Total de inspecciones</div>
@@ -200,15 +211,16 @@ ob_start();
             <th>Fecha</th>
             <th>Inspector</th>
             <th>Personas</th>
+            <th>Ficha</th>
         </tr>
     </thead>
     <tbody>
     <?php if (!$filas): ?>
-        <tr><td colspan="10" style="text-align:center;padding:16px;color:#888;">No hay inspecciones que coincidan con estos filtros.</td></tr>
+        <tr><td colspan="11" style="text-align:center;padding:16px;color:#888;">No hay inspecciones que coincidan con estos filtros.</td></tr>
     <?php endif; ?>
     <?php foreach ($grupos as $nombreGrupo => $filasGrupo): ?>
         <tr class="grupo-cab">
-            <td colspan="10">
+            <td colspan="11">
                 <?= e($etiquetaAgrupacion) ?>: <?= e($nombreGrupo) ?>
                 <span class="conteo">(<?= count($filasGrupo) ?> <?= count($filasGrupo) === 1 ? 'inspección' : 'inspecciones' ?>)</span>
             </td>
@@ -217,9 +229,13 @@ ob_start();
             $meta = $catalogo[$f['decision_final']] ?? ['corto' => $f['decision_final']];
             $claveColor = $mapaCorto[$meta['corto']] ?? '';
             $claseBadge = ['VERDE' => 'badge-verde', 'AMARILLO' => 'badge-amarillo', 'ROJO' => 'badge-rojo'][$claveColor] ?? '';
+            // Enlace a la ficha individual. Se usa el token público para que
+            // el enlace funcione aunque el PDF se abra sin sesión iniciada.
+            $idFicha = (int)$f['id'];
+            $urlFicha = urlAbsoluta('dashboard/export_pdf.php?id=' . $idFicha . '&token=' . tokenPdfPublico($idFicha));
         ?>
             <tr>
-                <td><?= e($f['codigo']) ?></td>
+                <td><a href="<?= e($urlFicha) ?>" style="color:#22366F;font-weight:bold;text-decoration:none;"><?= e($f['codigo']) ?></a></td>
                 <td><?= e($f['nombre_edificio']) ?></td>
                 <td><?= e($f['estado'] ?: '—') ?></td>
                 <td><?= e($f['municipio'] ?: '—') ?></td>
@@ -229,6 +245,7 @@ ob_start();
                 <td><?= e($f['fecha_inspeccion'] ?: '—') ?></td>
                 <td><?= e($f['ing1_nombre'] ?: '—') ?></td>
                 <td style="text-align:center;"><?= (int)$f['personas'] ?></td>
+                <td style="text-align:center;"><a href="<?= e($urlFicha) ?>" class="link-ficha">Ver ficha &raquo;</a></td>
             </tr>
         <?php endforeach; ?>
     <?php endforeach; ?>
