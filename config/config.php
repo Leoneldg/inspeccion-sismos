@@ -12,7 +12,7 @@ define('DB_PORT',   getenv('DB_PORT')   ?: '3306');
 define('DB_NAME',   getenv('DB_NAME')   ?: 'inspecciones_sismos');
 define('DB_USER',   getenv('DB_USER')   ?: 'root');
 define('DB_PASS',   getenv('DB_PASS')   ?: 'root');
-define('DB_SOCKET', getenv('DB_SOCKET') ?: '');
+define('DB_SOCKET', getenv('DB_SOCKET') ?: 'root');
 
 // ---------------------------------------------------------------------
 // Aplicación
