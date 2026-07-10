@@ -77,6 +77,7 @@ include __DIR__ . '/../includes/header.php';
         </select>
         <select id="filtro-uso" class="form-control" style="width:auto;min-width:170px;">
             <option value="">Todos los usos</option>
+            <option value="__SIN_USO__">— Sin uso (vacío) —</option>
             <?php foreach (catalogoUsoEdificacion() as $__u): ?>
             <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
             <?php endforeach; ?>
@@ -450,7 +451,7 @@ function poblarFiltroParroquia(lista) {
 function descripcionFiltroActivo() {
     const partes = [];
     if (parroquiaSeleccionada) partes.push(parroquiaSeleccionada);
-    if (usoSeleccionado) partes.push(usoSeleccionado);
+    if (usoSeleccionado) partes.push(usoSeleccionado === '__SIN_USO__' ? 'Sin uso' : usoSeleccionado);
     if (decisionSeleccionada) partes.push(decisionSeleccionada);
     return partes.join(' · ');
 }
