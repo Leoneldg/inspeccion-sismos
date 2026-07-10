@@ -1,101 +1,39 @@
-================================================================================
- AISLAMIENTO POR ENTE + PROFESIÓN + FOTOS OPCIONALES + DEMO ADMIN (esta entrega)
-================================================================================
+DASHBOARD — Descargar lista filtrada + Imprimir ficha desde el mapa
+=======================================================================
 
-1. ASIGNAR Y CREAR ENTE DESDE USUARIOS
---------------------------------------
-- En el formulario de "Nuevo/Editar usuario" ahora hay un selector "Ente al
-  que pertenece". Con el enlace "+ Crear un ente nuevo" se puede registrar un
-  ente sin salir de la pantalla (queda seleccionado al instante).
-- La lista de usuarios muestra una columna "Ente".
+1. DESCARGAR LISTA FILTRADA
+----------------------------
+Nuevo botón "Descargar lista" en el encabezado del dashboard, junto a
+"Quitar filtro". Al tocarlo, descarga un Excel con EXACTAMENTE lo que
+se está viendo en pantalla en ese momento -- respeta todos los filtros
+activos a la vez (Estado, Municipio, Parroquia, Uso, Decisión).
 
-2. AISLAMIENTO DE DATOS POR ENTE ("bases de datos" separadas)
-------------------------------------------------------------
-Cada ente ve solo SUS datos: su dashboard (números y mapa), sus inspecciones,
-sus inspectores y sus usuarios. Reglas:
-  - Ente normal (alcaldía, empresa…): ve solo lo de su propio ente.
-  - Ente de tipo "Gobernación": ve TODO lo de su estado (todos los entes de
-    ese estado).
-  - Administrador master: ve todo el sistema.
-El "dueño" de una inspección es el ente del usuario que la creó (se guarda al
-registrarla). También se protege el acceso por URL: no se puede abrir la ficha
-de una inspección de otro ente.
+El Excel trae columnas pensadas para uso práctico (no las 96 columnas
+técnicas de la base de datos): Código, Nombre del edificio, Estado,
+Municipio, Parroquia, Uso, Tipo estructural, Decisión final, Fecha,
+Inspector y su cédula, las 8 categorías de personas/mascotas afectadas,
+coordenadas, y observaciones. Con encabezado de color, autofiltro y
+columnas ajustadas al ancho del contenido.
 
-3. PANEL MASTER: "BASES POR ENTE"
----------------------------------
-Nuevo módulo visible solo para el administrador master (menú Administración →
-"Bases por ente"). Muestra, por cada ente, cuántos usuarios, inspectores e
-inspecciones tiene, más el TOTAL GLOBAL del sistema.
+El nombre del archivo descargado refleja los filtros usados (ej.
+"inspecciones_Miranda_Escuela_2026-07-10.xlsx"), para que quede claro
+qué es cada descarga sin tener que abrirla.
 
-4. PROFESIÓN COMO CAMPO "ELEGIR O CREAR"
+Archivo nuevo: dashboard/exportar_lista.php
+
+2. IMPRIMIR CADA FICHA DESDE EL MAPA
 ----------------------------------------
-En Ingenieros/Inspectores, la profesión ahora es un selector: se elige una
-existente o se crea una nueva ("+ Otra"). Las profesiones quedan en un catálogo
-y arriba de la lista aparecen chips con cuántos profesionales hay por cada
-profesión (se puede filtrar tocándolos).
-
-5. FOTOS OPCIONALES
--------------------
-Ninguna foto del formulario de inspección es obligatoria (incluida la del
-inspector). Se pueden subir tomándolas con la cámara o eligiéndolas de la
-galería.
-
-6. MODO DEMOSTRACIÓN PARA EL ADMINISTRADOR
-------------------------------------------
-Solo el rol Administrador puede recorrer los 8 pasos del formulario de
-inspección sin llenar los campos, para mostrar el sistema. Los demás roles
-siguen con los campos obligatorios normales.
-
-7. BASE DE DATOS
-----------------
-Correr database/actualizacion.sql (idempotente). Agrega: inspecciones.ente_id,
-ingenieros.ente_id y la tabla "profesiones", y rellena el ente de los registros
-existentes a partir del usuario creador.
-
-
-FORMULARIO — Stepper rediseñado + bloqueo del paso 1 + buscador de ingenieros
-================================================================================
-
-1. DISEÑO DEL SELECTOR DE PASOS
-------------------------------------
-Antes eran cajas planas con el texto completo ("1. Profesionales", etc).
-Ahora es un stepper con círculos numerados conectados por una línea:
-  - Paso actual: círculo azul oscuro con resplandor.
-  - Paso completado: círculo azul con un check (✓), línea conectora
-    coloreada hasta ahí.
-  - Paso con un campo pendiente/inválido: círculo rojo (nuevo).
-  - Paso pendiente: círculo gris.
-
-2. PASO 1 — no se puede avanzar sin el profesional principal
-------------------------------------------------------------------
-El select de "Profesional" (ing1) ya tenía `required`, pero ahora hay
-además un aviso explícito: si tocas "Siguiente" (o si tocas directo el
-número "2" del stepper para saltarte el paso) sin haber elegido un
-ingeniero, sale una alerta clara, el foco salta al selector, y el
-círculo del paso 1 se pone rojo hasta que lo corrijas.
-
-Importante: antes, alguien podía saltarse la validación tocando
-directamente el número de un paso más adelante en vez del botón
-"Siguiente" -- ahora el clic directo en los números también valida
-(solo al avanzar; ir hacia atrás para revisar pasos ya completados
-sigue funcionando libremente, sin restricción).
-
-3. BUSCADOR EN EL SELECTOR DE INGENIEROS
----------------------------------------------
-Arriba de cada selector de profesional (el principal y el segundo) hay
-ahora un campo de texto para buscar por nombre o cédula -- útil en
-cuanto el directorio de ingenieros crezca y el desplegable se vuelva
-largo de recorrer a mano. Filtra en vivo mientras se escribe, ignora
-acentos/mayúsculas, y sigue funcionando bien después de tocar el botón
-de "Actualizar lista de ingenieros" (el buscador se limpia y vuelve a
-filtrar sobre la lista recién traída, no se queda con datos viejos).
+Al abrir la ficha técnica de una inspección desde el mapa del dashboard
+(clic en un punto), ahora hay un botón "Imprimir / Descargar PDF" junto
+al que ya existía de "Abrir en el módulo de formulario". Reutiliza el
+generador de PDF que ya tenía el sistema (el mismo que se usa para el
+código QR) -- abre el PDF en una pestaña nueva, desde ahí el navegador
+permite imprimir o guardar directamente.
 
 CÓMO APLICAR
 ------------
-Reemplaza estos 2 archivos:
-  formulario/create.php
-  assets/css/style.css
+Reemplaza dashboard/index.php y agrega el archivo nuevo
+dashboard/exportar_lista.php.
 
-No requiere ninguna migración SQL. Verifiqué el JavaScript con el
-parser real de Node (`node --check`), no solo conteo de llaves, así
-que la sintaxis está confirmada correcta.
+No requiere ninguna migración SQL. Verifiqué la sintaxis del PHP y del
+JavaScript antes de esta entrega.

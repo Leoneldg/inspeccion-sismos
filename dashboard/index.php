@@ -30,19 +30,6 @@ function ordenFila(array $wcfg, array $ids): int {
     return $ordenes ? min($ordenes) : 0;
 }
 
-// ¿Hay algún widget visible en la columna izquierda? Si no, el mapa (columna
-// derecha) debe ocupar todo el ancho, en vez de dejar la izquierda en negro.
-$hayIzquierda =
-       visibleDash($wcfg, 'kpi_inspecciones')
-    || visibleDash($wcfg, 'kpi_personas')
-    || visibleDash($wcfg, 'kpi_grid')
-    || (visibleDash($wcfg, 'kpis_custom') && $kpisCustomDefs)
-    || visibleDash($wcfg, 'chart_decision')
-    || visibleDash($wcfg, 'chart_parroquia');
-$mapaVisible = visibleDash($wcfg, 'mapa');
-// El mapa ocupa todo el ancho cuando es lo único visible.
-$soloMapa = $mapaVisible && !$hayIzquierda;
-
 $pageTitle    = 'Dashboard';
 $pageSubtitle = 'Panorama general de inspecciones estructurales post-sismo';
 $activeModule = 'dashboard';
@@ -88,9 +75,20 @@ include __DIR__ . '/../includes/header.php';
         <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:190px;">
             <option value="">Seleccione una unidad</option>
         </select>
+        <select id="filtro-uso" class="form-control" style="width:auto;min-width:170px;">
+            <option value="">Todos los usos</option>
+            <?php foreach (catalogoUsoEdificacion() as $__u): ?>
+            <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
+            <?php endforeach; ?>
+        </select>
         <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
             <i class="bi bi-x-lg"></i> Quitar filtro
         </button>
+        <?php if (puede('import_export', 'ver') || puede('dashboard', 'ver')): ?>
+        <button id="btn-descargar-lista" type="button" class="btn btn-outline btn-sm" title="Descarga en Excel la lista con los filtros que tengas activos ahora">
+            <i class="bi bi-download"></i> Descargar lista
+        </button>
+        <?php endif; ?>
         <?php if (puede('formulario', 'crear')): ?>
         <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-accent btn-sm">
             <i class="bi bi-plus-lg"></i> Nueva inspección
@@ -101,8 +99,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="dashboard-tv-body">
 
-<div id="dash-grid" class="split-grid <?= $soloMapa ? 'dashboard-solo-mapa' : 'cols-10-14' ?> align-start dashboard-chart-map" style="margin-bottom:16px;">
-    <?php if (!$soloMapa): ?>
+<div class="split-grid cols-10-14 align-start dashboard-chart-map" style="margin-bottom:16px;">
     <div class="dashboard-left-col">
         <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;order:<?= ordenFila($wcfg, ['kpi_inspecciones','kpi_personas']) ?>;">
             <?php if (visibleDash($wcfg, 'kpi_inspecciones')): ?>
@@ -166,55 +163,6 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
-        <!-- ── Seguimiento y Control ── -->
-        <?php if (puede('seguimiento', 'ver')): ?>
-        <div class="card" id="dash-seg-kpis" style="order:50;">
-            <div class="card-header" style="border-bottom:3px solid var(--naranja, #f0a63a);">
-                <h2 class="tv-section-title"><i class="bi bi-tools"></i> Seguimiento y Control</h2>
-                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i> Ver módulo</a>
-            </div>
-            <div class="card-body" style="padding:12px;">
-                <div class="tv-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">
-                    <!-- Total edificaciones → ícono de edificios, azul institucional -->
-                    <div class="tv-kpi-card">
-                        <div class="icon" style="background:#e7ecf9;color:#22366f;">
-                            <i class="bi bi-buildings-fill"></i>
-                        </div>
-                        <div><div class="num" id="seg-total-ed">—</div><div class="lbl">Total</div></div>
-                    </div>
-                    <!-- Sin seguimiento → reloj con X, gris apagado -->
-                    <div class="tv-kpi-card" style="border-top:3px solid #9ca3af;">
-                        <div class="icon" style="background:#f3f4f6;color:#6b7280;">
-                            <i class="bi bi-hourglass"></i>
-                        </div>
-                        <div><div class="num" id="seg-sin-seg">—</div><div class="lbl">Sin seguimiento</div></div>
-                    </div>
-                    <!-- En ejecución → herramientas cruzadas, naranja obra -->
-                    <div class="tv-kpi-card" style="border-top:3px solid #C9A227;">
-                        <div class="icon" style="background:#fff4e0;color:#C9A227;">
-                            <i class="bi bi-tools"></i>
-                        </div>
-                        <div><div class="num" id="seg-en-ejec">—</div><div class="lbl">En ejecución</div></div>
-                    </div>
-                    <!-- Culminadas → sello de verificación, verde -->
-                    <div class="tv-kpi-card" style="border-top:3px solid #1c6b3d;">
-                        <div class="icon" style="background:#e5f7ee;color:#1c6b3d;">
-                            <i class="bi bi-patch-check-fill"></i>
-                        </div>
-                        <div><div class="num" id="seg-culminadas">—</div><div class="lbl">Culminadas</div></div>
-                    </div>
-                    <!-- Avance promedio → gráfico de barras ascendente, azul medio -->
-                    <div class="tv-kpi-card" style="border-top:3px solid #3c58ad;">
-                        <div class="icon" style="background:#eaf0ff;color:#3c58ad;">
-                            <i class="bi bi-bar-chart-steps"></i>
-                        </div>
-                        <div><div class="num" id="seg-avance">—</div><div class="lbl">Avance prom.</div></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-
         <?php if (visibleDash($wcfg, 'chart_decision') || visibleDash($wcfg, 'chart_parroquia')): ?>
         <div class="split-grid cols-11" style="order:<?= ordenFila($wcfg, ['chart_decision','chart_parroquia']) ?>;">
             <?php if (visibleDash($wcfg, 'chart_decision')): ?>
@@ -259,7 +207,6 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <?php if (visibleDash($wcfg, 'mapa')): ?>
     <div class="card card-mapa" style="<?= estiloDash($wcfg, 'mapa') ?>">
@@ -273,12 +220,6 @@ include __DIR__ . '/../includes/header.php';
                 <div class="item"><span class="dot" style="background:#2E7D32;"></span> Acceso Permitido</div>
                 <div class="item"><span class="dot" style="background:#C9A227;"></span> Precaución al Entrar</div>
                 <div class="item"><span class="dot" style="background:#A61C1C;"></span> Acceso No Permitido</div>
-                <?php $mc = obtenerConfigMapa(); if (in_array($mc['modo'] ?? 'normal', ['normal','seguimiento','personalizado'])): ?>
-                <div class="item" style="margin-top:6px;border-top:1px solid rgba(255,255,255,.2);padding-top:6px;">
-                    <span style="display:inline-block;width:12px;height:12px;background:<?= e($mc['color_seguimiento']??'#f0a63a') ?>;border-radius:50%;margin-right:4px;"></span>
-                    Seguimiento (en ejecución)
-                </div>
-                <?php endif; ?>
                 <div class="item text-muted" id="nota-limites" style="font-size:10.5px;max-width:220px;"></div>
             </div>
             <div id="lista-edificios" class="mapa-lista"></div>
@@ -303,6 +244,7 @@ include __DIR__ . '/../includes/header.php';
 <script>
 const API_URL   = '<?= APP_URL_BASE ?>dashboard/api_kpis.php';
 const FICHA_URL = '<?= APP_URL_BASE ?>dashboard/api_ficha.php';
+const EXPORTAR_URL = '<?= APP_URL_BASE ?>dashboard/exportar_lista.php';
 
 // El plugin se registra globalmente pero cada gráfico decide si lo usa
 // mediante su propia opción "datalabels" (chart-decision sí, para mostrar
@@ -315,6 +257,7 @@ if (typeof ChartDataLabels !== 'undefined') {
 let map, clusterLayer, seccionesLayer, chartDecision, chartParroquia;
 let geojsonLimitesParroquias = undefined; // undefined = aún no se intentó cargar; null = no existe; objeto = cargado
 let parroquiaSeleccionada = '';           // '' = sin filtro (todas)
+let usoSeleccionado = '';                 // '' = sin filtro (todos los usos)
 let ultimaParroquiaEnMapa;                // controla cuándo animar el zoom (evita re-animar en cada refresh)
 let ultimoDatosDashboard = null;          // última respuesta de la API, para poder re-renderizar sin refetch
 let decisionRankingSeleccionada = '';     // '' = total (todas las decisiones); si no, ranking de esa decisión
@@ -503,6 +446,7 @@ function poblarFiltroParroquia(lista) {
 function descripcionFiltroActivo() {
     const partes = [];
     if (parroquiaSeleccionada) partes.push(parroquiaSeleccionada);
+    if (usoSeleccionado) partes.push(usoSeleccionado);
     if (decisionSeleccionada) partes.push(decisionSeleccionada);
     return partes.join(' · ');
 }
@@ -510,7 +454,9 @@ function descripcionFiltroActivo() {
 function actualizarIndicadoresFiltro() {
     const activo = !!parroquiaSeleccionada;
     document.getElementById('filtro-parroquia').value = parroquiaSeleccionada;
-    document.getElementById('btn-quitar-filtro').style.display = (activo || decisionSeleccionada) ? 'inline-flex' : 'none';
+    const selUso = document.getElementById('filtro-uso');
+    if (selUso) selUso.value = usoSeleccionado;
+    document.getElementById('btn-quitar-filtro').style.display = (activo || usoSeleccionado || decisionSeleccionada) ? 'inline-flex' : 'none';
     const desc = descripcionFiltroActivo();
     const tituloMapa = document.getElementById('titulo-mapa');
     if (tituloMapa) {
@@ -522,7 +468,7 @@ function renderListaEdificios(lista) {
     const cont = document.getElementById('lista-edificios');
     if (!cont) return; // widget "mapa" oculto por configuración
     cont.innerHTML = '';
-    const hayFiltro = !!(parroquiaSeleccionada || decisionSeleccionada);
+    const hayFiltro = !!(parroquiaSeleccionada || usoSeleccionado || decisionSeleccionada);
     cont.classList.toggle('mapa-lista-hidden', !hayFiltro);
     if (!hayFiltro) {
         return;
@@ -658,6 +604,10 @@ function seleccionarDecision(nombre) {
 document.getElementById('filtro-parroquia').addEventListener('change', function () {
     seleccionarParroquia(this.value);
 });
+document.getElementById('filtro-uso').addEventListener('change', function () {
+    usoSeleccionado = this.value;
+    cargarDashboard();
+});
 // Selector de estado (solo master): entra al estado elegido o vuelve al país.
 (function () {
     const selEstado = document.getElementById('filtro-estado');
@@ -673,27 +623,52 @@ document.getElementById('filtro-parroquia').addEventListener('change', function 
 })();
 document.getElementById('btn-quitar-filtro').addEventListener('click', function () {
     parroquiaSeleccionada = '';
+    usoSeleccionado = '';
+    const selUso = document.getElementById('filtro-uso');
+    if (selUso) selUso.value = '';
     decisionSeleccionada = '';
     cargarDashboard();
+});
+
+// Descarga en Excel exactamente lo que se está viendo en pantalla ahora
+// mismo: usa los mismos filtros que cargarDashboard() para armar la URL.
+document.getElementById('btn-descargar-lista')?.addEventListener('click', function () {
+    const params = new URLSearchParams();
+    window.DashboardNacional.paramsTerritorio(params); // estado / municipio
+    if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
+    if (usoSeleccionado) params.set('uso', usoSeleccionado);
+    if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
+    const qs = params.toString();
+    window.location.href = EXPORTAR_URL + (qs ? '?' + qs : '');
 });
 
 async function cargarDashboard() {
     const params = new URLSearchParams();
     window.DashboardNacional.paramsTerritorio(params); // estado / municipio
     if (parroquiaSeleccionada) params.set('parroquia', parroquiaSeleccionada);
+    if (usoSeleccionado) params.set('uso', usoSeleccionado);
     if (decisionSeleccionada) params.set('decision', decisionSeleccionada);
     const qs = params.toString();
     const url = API_URL + (qs ? '?' + qs : '');
     const res = await fetch(url);
     const data = await res.json();
 
-    // Primero los indicadores (no dependen de librerías externas), para que
-    // siempre se muestren aunque el mapa o los gráficos fallen al cargar.
+    window.DashboardNacional.sincronizar(data);
+    renderBreadcrumb(data);
+    // La lista del <select> de unidades cambia según el nivel: re-poblar.
+    poblarFiltroParroquia(data.por_parroquia);
+    poblarFiltroDecisionParroquia(data.decision);
+    actualizarIndicadoresFiltro();
+    renderListaEdificios(data.inspecciones);
+    ultimoDatosDashboard = data;
+
+    document.getElementById('hora-actualizacion').textContent = data.actualizado;
+
     setTxt('kpi-inspecciones', formatNum(data.totales.inspecciones));
-    const personasTotalesTop = (Number(data.totales.hombres) || 0) + (Number(data.totales.mujeres) || 0) +
+    const personasTotales = (Number(data.totales.hombres) || 0) + (Number(data.totales.mujeres) || 0) +
         (Number(data.totales.ninos) || 0) + (Number(data.totales.adultos_tercera_edad) || 0) +
         (Number(data.totales.gestantes) || 0);
-    setTxt('kpi-personas-totales', formatNum(personasTotalesTop));
+    setTxt('kpi-personas-totales', formatNum(personasTotales));
     setTxt('kpi-familias', formatNum(data.totales.familias));
     setTxt('kpi-hombres', formatNum(data.totales.hombres));
     setTxt('kpi-mujeres', formatNum(data.totales.mujeres));
@@ -702,32 +677,6 @@ async function cargarDashboard() {
     setTxt('kpi-terceraedad', formatNum(data.totales.adultos_tercera_edad));
     setTxt('kpi-gestantes', formatNum(data.totales.gestantes));
     setTxt('kpi-mascotas', formatNum(data.totales.mascotas));
-    if (data.kpis_custom) {
-        Object.keys(data.kpis_custom).forEach(id => setTxt('kpi-custom-' + id, formatNum(data.kpis_custom[id])));
-    }
-    // KPIs de seguimiento y control.
-    if (data.kpis_seguimiento) {
-        const ks = data.kpis_seguimiento;
-        setTxt('seg-total-ed',   formatNum(ks.total_edificios));
-        setTxt('seg-sin-seg',    formatNum(ks.sin_seguimiento));
-        setTxt('seg-en-ejec',    formatNum(ks.en_ejecucion));
-        setTxt('seg-culminadas', formatNum(ks.culminadas));
-        setTxt('seg-avance',     parseFloat(ks.avance_promedio || 0).toFixed(1) + '%');
-    }
-
-    try {
-        window.DashboardNacional.sincronizar(data);
-    } catch (e) { console.error('Error al sincronizar el mapa:', e); }
-    renderBreadcrumb(data);
-    // La lista del <select> de unidades cambia según el nivel: re-poblar.
-    poblarFiltroParroquia(data.por_parroquia);
-    poblarFiltroDecisionParroquia(data.decision);
-    actualizarIndicadoresFiltro();
-
-    renderListaEdificios(data.inspecciones);
-    ultimoDatosDashboard = data;
-
-    document.getElementById('hora-actualizacion').textContent = data.actualizado;
 
     // ---- KPIs personalizados (definidos en Configuración del Sistema) ----
     if (data.kpis_custom) {
@@ -909,43 +858,18 @@ async function cargarDashboard() {
         (data.puntos || []).forEach(p => {
             const lat = p.lat, lng = p.lng;
             if (lat == null || lng == null) return;
-            let marcador;
-            if (p.tipo === 'seguimiento') {
-                // Punto de seguimiento: mismo color que su estado de obra pero
-                // con un ícono de herramienta (🔧) para indicar fase 2.
-                const color = p.marker_color || '#f0a63a';
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div style="width:30px;height:30px;background:${color};border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
-                               <i class="bi bi-tools" style="font-size:13px;color:#fff;"></i>
-                           </div>`,
-                    iconSize: [30, 30], iconAnchor: [15, 15],
-                });
-                marcador = L.marker([lat, lng], { icon });
-                marcador.bindTooltip(
-                    `<strong>${p.nombre}</strong><br>${p.parroquia || ''}<br>` +
-                    `<span style="font-size:11px;">⚙ Seguimiento · ${p.etiqueta || p.decision}</span>` +
-                    (p.avance != null ? `<br>Avance: ${Math.round(p.avance)}%` : ''),
-                    { direction: 'top', offset: [0, -15] }
-                );
-                marcador.on('click', () => {
-                    window.location.href = '<?= APP_URL_BASE ?>seguimiento/ficha.php?inspeccion=' + p.insp_id;
-                });
-            } else {
-                // Punto de inspección: círculo con el color de semáforo (sin cambios).
-                marcador = L.circleMarker([lat, lng], {
-                    radius: 7,
-                    weight: 1.5,
-                    color: '#1f2937',
-                    fillColor: p.decision_color,
-                    fillOpacity: 0.9,
-                });
-                marcador.bindTooltip(
-                    `<strong>${p.nombre}</strong><br>${p.parroquia || ''}<br>${p.etiqueta || p.decision}`,
-                    { direction: 'top', offset: [0, -8] }
-                );
-                marcador.on('click', () => abrirFicha(p.id));
-            }
+            const marcador = L.circleMarker([lat, lng], {
+                radius: 7,
+                weight: 1.5,
+                color: '#1f2937',
+                fillColor: p.decision_color,
+                fillOpacity: 0.9,
+            });
+            marcador.bindTooltip(
+                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}`,
+                { direction: 'top', offset: [0, -8] }
+            );
+            marcador.on('click', () => abrirFicha(p.id));
             clusterLayer.addLayer(marcador);
         });
     }
@@ -1012,6 +936,7 @@ async function abrirFicha(id) {
             ${galeria(f.fotos)}
 
             <div class="flex gap-8" style="margin-top:20px;">
+                <a href="<?= APP_URL_BASE ?>dashboard/export_pdf.php?id=${id}" target="_blank" class="btn btn-primary btn-sm"><i class="bi bi-printer-fill"></i> Imprimir / Descargar PDF</a>
                 <a href="${f.url_ficha_completa}" class="btn btn-outline btn-sm"><i class="bi bi-arrow-up-right-square"></i> Abrir en el módulo de formulario</a>
             </div>
         </div>
@@ -1065,13 +990,7 @@ window.addEventListener('sismos:layout-change', () => {
     if (map) map.invalidateSize();
 });
 
-// Si una librería externa del mapa (Leaflet) no cargó, no debe impedir que se
-// muestren los indicadores y gráficos: se aísla su inicialización.
-try {
-    initMap();
-} catch (e) {
-    console.error('No se pudo iniciar el mapa (se continúa con los indicadores):', e);
-}
+initMap();
 cargarDashboard();
 setInterval(cargarDashboard, 60000);
 </script>

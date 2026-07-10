@@ -51,17 +51,12 @@ try {
     // estadal SIEMPRE queda forzado a su estado, ignorando lo que pida el GET.
     $estadoFiltro = trim((string)($_GET['estado'] ?? ''));
     if (!usuarioEsMaster()) {
-        // Si el usuario pertenece a un ente, el aislamiento se hace POR ENTE
-        // (más abajo), no por estado: no se fuerza su estado, para no chocar
-        // con inspecciones del ente que estén en otro estado. Una Gobernación
-        // sí ve por estado, pero eso lo resuelve el scope de ente.
-        $tieneEnteUsuario = (columnaInspeccionExiste('ente_id') && enteDelUsuario() !== null);
-        if (!$tieneEnteUsuario) {
-            // Usuario estadal sin ente: se fuerza a su estado (comportamiento previo).
-            $suyo = estadoDelUsuario();
-            if ($suyo !== null) {
-                $estadoFiltro = $suyo;
-            }
+        // Un usuario estadal queda forzado a su estado. Si NO tiene estado
+        // asignado (cuenta previa al alcance nacional), se comporta como
+        // master a efectos de visualización: puede navegar el país.
+        $suyo = estadoDelUsuario();
+        if ($suyo !== null) {
+            $estadoFiltro = $suyo;
         }
     }
     $tieneEstado = $estadoFiltro !== '' && $estadoFiltro !== '__NINGUNO__';
@@ -85,11 +80,19 @@ try {
     }
     $tieneDecisionFiltro = $decisionFiltroClave !== null;
 
+    // Filtro por uso de la edificación (Vivienda, Escuela, Hospital, etc.).
+    // Se trata como un filtro "de alcance" -- igual que estado/municipio,
+    // afecta a TODO el dashboard (KPIs, mapa, semáforo, rankings), no solo
+    // a un widget puntual como pasa con el filtro de decisión.
+    $usoFiltro = trim((string)($_GET['uso'] ?? ''));
+    $tieneUso = $usoFiltro !== '';
+
     // Condición combinable (parroquia Y/O decisión) reutilizada en varias consultas.
     $condiciones = [];
     $paramsFiltro = [];
     if ($tieneEstado)    { $condiciones[] = 'estado = :estado'; $paramsFiltro['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condiciones[] = 'municipio = :municipio'; $paramsFiltro['municipio'] = $municipioFiltro; }
+    if ($tieneUso)        { $condiciones[] = 'uso_edificacion = :uso'; $paramsFiltro['uso'] = $usoFiltro; }
     if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
     if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
     $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
@@ -97,27 +100,14 @@ try {
     // Conjunto de condiciones "de territorio" (estado/municipio) SIN el filtro
     // de parroquia ni decisión — se usa como base en consultas que arman su
     // propio WHERE (decisión, secciones geo, rankings), para que respeten el
-    // alcance nacional aunque no respeten los demás filtros.
+    // alcance nacional aunque no respeten los demás filtros. El filtro de uso
+    // también entra aquí, porque igual que el territorio, debe acotar TODO el
+    // dashboard, no solo un widget puntual.
     $condTerritorio = [];
     $paramsTerritorio = [];
     if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
-
-    // ---- Aislamiento por ENTE ----
-    // Cada ente ve solo sus datos (una Gobernación ve todo su estado; el
-    // master ve todo). Se agrega a las dos listas base de condiciones para
-    // que TODAS las consultas del dashboard queden restringidas.
-    if (columnaInspeccionExiste('ente_id')) {
-        [$fragEnte, $pEnte] = scopeEnteSql('ente_id', 'estado');
-        if ($fragEnte !== '') {
-            $condiciones[]    = $fragEnte;
-            $paramsFiltro     = array_merge($paramsFiltro, $pEnte);
-            $condTerritorio[] = $fragEnte;
-            $paramsTerritorio = array_merge($paramsTerritorio, $pEnte);
-            // Rearmar el WHERE principal que ya se había construido arriba.
-            $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
-        }
-    }
+    if ($tieneUso)        { $condTerritorio[] = 'uso_edificacion = :uso'; $paramsTerritorio['uso'] = $usoFiltro; }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
     $stmt = $pdo->prepare("
@@ -163,116 +153,40 @@ try {
         }
     }
 
-    // ---- Configuración del modo del mapa ----
-    $mapaOpc    = obtenerConfigMapa();
-    $modoMapa   = $mapaOpc['modo'] ?? 'normal';
-    $colorInsp  = $mapaOpc['color_inspeccion'] ?? '#22366f';
-    $colorSeg   = $mapaOpc['color_seguimiento'] ?? '#f0a63a';
-    $inspIdsOk  = array_filter(array_map('intval', $mapaOpc['insp_ids'] ?? []));
-    $segIdsOk   = array_filter(array_map('intval', $mapaOpc['seg_ids']  ?? []));
-
     // ---- ¿Existe la tabla de fotos? (compatibilidad con instalaciones que
     // aún no ejecutaron database/actualizacion_v2.sql) ----
     $tieneFotos = tablaFotosExiste();
 
-    // ---- Puntos individuales para el mapa ----
+    // ---- Puntos individuales para el mapa (con conteo de fotos si aplica; respeta ambos filtros) ----
     $puntos = [];
     $condPuntos = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
-
-    // Puntos de INSPECCIÓN (según modo)
-    $mostrarInsp = in_array($modoMapa, ['normal','inspeccion','personalizado']);
-    if ($mostrarInsp) {
-        $filtroIdInsp = '';
-        $paramsInsp   = $paramsFiltro;
-        if ($modoMapa === 'personalizado' && $inspIdsOk) {
-            $ph = implode(',', array_fill(0, count($inspIdsOk), '?'));
-            $filtroIdInsp = " AND i.id IN ($ph)";
-            $paramsInsp   = array_merge(array_values($paramsFiltro), array_values($inspIdsOk));
-        } elseif ($modoMapa === 'personalizado') {
-            $mostrarInsp = false; // sin ids seleccionados, nada
-        }
-        if ($mostrarInsp) {
-            $sqlPuntos = $tieneFotos
-                ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
-                          (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
-                          (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
-                   FROM inspecciones i
-                   WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$filtroIdInsp"
-                : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
-                          0 AS cantidad_fotos, NULL AS foto_portada
-                   FROM inspecciones i
-                   WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos$filtroIdInsp";
-            $stmt = $pdo->prepare($sqlPuntos);
-            $stmt->execute($paramsInsp);
-            foreach ($stmt->fetchAll() as $row) {
-                $meta = $catalogo[$row['decision_final']] ?? ['color' => $colorInsp, 'corto' => $row['decision_final']];
-                $puntos[] = [
-                    'id'             => (int)$row['id'],
-                    'tipo'           => 'inspeccion',
-                    'codigo'         => $row['codigo'],
-                    'nombre'         => $row['nombre_edificio'],
-                    'parroquia'      => $row['parroquia'],
-                    'decision'       => $meta['corto'],
-                    'decision_color' => $meta['color'],
-                    'etiqueta'       => $row['decision_final'] ?? '',
-                    'lat'            => (float)$row['latitud'],
-                    'lng'            => (float)$row['longitud'],
-                    'fecha'          => $row['fecha_inspeccion'],
-                    'fotos'          => (int)$row['cantidad_fotos'],
-                    'portada'        => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,
-                    'marker_color'   => $meta['color'],
-                ];
-            }
-        }
-    }
-
-    // Puntos de SEGUIMIENTO (según modo, usando coordenadas de la inspección original)
-    $mostrarSeg = in_array($modoMapa, ['normal','seguimiento','personalizado']);
-    if ($mostrarSeg) {
-        try {
-            require_once __DIR__ . '/../includes/seguimiento.php';
-            $filtroIdSeg = '';
-            $paramsSeg   = array_values($paramsFiltro);
-            $condSeg     = $condiciones ? (' AND ' . implode(' AND ', array_map(fn($c) => "i.$c", $condiciones))) : '';
-            if ($modoMapa === 'personalizado' && $segIdsOk) {
-                $ph = implode(',', array_fill(0, count($segIdsOk), '?'));
-                $filtroIdSeg = " AND so.id IN ($ph)";
-                $paramsSeg   = array_merge(array_values($paramsFiltro), array_values($segIdsOk));
-            } elseif ($modoMapa === 'personalizado') {
-                $mostrarSeg = false;
-            }
-            if ($mostrarSeg) {
-                $stSeg = $pdo->prepare(
-                    "SELECT so.id AS seg_id, so.estado_obra, so.avance_pct,
-                            i.id AS insp_id, i.nombre_edificio, i.parroquia, i.latitud, i.longitud
-                     FROM seguimiento_obras so
-                     JOIN inspecciones i ON i.id = so.inspeccion_id
-                     WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL
-                       AND so.estado_obra = 'En ejecución'$condSeg$filtroIdSeg"
-                );
-                $stSeg->execute($paramsSeg);
-                foreach ($stSeg->fetchAll() as $row) {
-                    $puntos[] = [
-                        'id'             => (int)$row['seg_id'],
-                        'insp_id'        => (int)$row['insp_id'],
-                        'tipo'           => 'seguimiento',
-                        'codigo'         => 'SEG-' . $row['seg_id'],
-                        'nombre'         => $row['nombre_edificio'],
-                        'parroquia'      => $row['parroquia'],
-                        'decision'       => $row['estado_obra'],
-                        'decision_color' => $colorSeg,
-                        'etiqueta'       => $row['estado_obra'],
-                        'avance'         => (float)($row['avance_pct'] ?? 0),
-                        'lat'            => (float)$row['latitud'],
-                        'lng'            => (float)$row['longitud'],
-                        'fecha'          => null,
-                        'fotos'          => 0,
-                        'portada'        => null,
-                        'marker_color'   => $colorSeg,
-                    ];
-                }
-            }
-        } catch (Throwable $e) { /* seguimiento no disponible */ }
+    $sqlPuntos = $tieneFotos
+        ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+                  (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
+                  (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
+           FROM inspecciones i
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos"
+        : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+                  0 AS cantidad_fotos, NULL AS foto_portada
+           FROM inspecciones i
+           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos";
+    $stmt = $pdo->prepare($sqlPuntos);
+    $stmt->execute($paramsFiltro);
+    foreach ($stmt->fetchAll() as $row) {
+        $meta = $catalogo[$row['decision_final']] ?? ['color' => '#767c94', 'corto' => $row['decision_final']];
+        $puntos[] = [
+            'id'        => (int)$row['id'],
+            'codigo'    => $row['codigo'],
+            'nombre'    => $row['nombre_edificio'],
+            'parroquia' => $row['parroquia'],
+            'decision'  => $meta['corto'],
+            'decision_color' => $meta['color'],
+            'lat'       => (float)$row['latitud'],
+            'lng'       => (float)$row['longitud'],
+            'fecha'     => $row['fecha_inspeccion'],
+            'fotos'     => (int)$row['cantidad_fotos'],
+            'portada'   => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,
+        ];
     }
 
     $inspecciones = [];
@@ -355,13 +269,17 @@ try {
 
     // ---- Agregación NACIONAL por estado (para la vista de todo el país y
     // el filtro de estado del usuario master). No respeta el filtro de estado
-    // (siempre lista todos), pero sí el de decisión si está activo. ----
+    // (siempre lista todos), pero sí el de decisión y el de uso si están activos. ----
     $porEstado = [];
+    $condEstadoNal = [];
+    $paramsEstadoNal = [];
+    if ($tieneDecisionFiltro) { $condEstadoNal[] = 'decision_final = :d'; $paramsEstadoNal['d'] = $decisionFiltroClave; }
+    if ($tieneUso) { $condEstadoNal[] = 'uso_edificacion = :uso'; $paramsEstadoNal['uso'] = $usoFiltro; }
     $sqlEstado = 'SELECT estado, COUNT(*) AS total FROM inspecciones' .
-        ($tieneDecisionFiltro ? ' WHERE decision_final = :d' : '') .
+        ($condEstadoNal ? (' WHERE ' . implode(' AND ', $condEstadoNal)) : '') .
         " GROUP BY estado ORDER BY total DESC";
     $stmtE = $pdo->prepare($sqlEstado);
-    $stmtE->execute($tieneDecisionFiltro ? ['d' => $decisionFiltroClave] : []);
+    $stmtE->execute($paramsEstadoNal);
     foreach ($stmtE->fetchAll() as $row) {
         if ($row['estado'] === null || $row['estado'] === '') continue;
         $porEstado[] = ['estado' => $row['estado'], 'total' => (int)$row['total']];
@@ -429,13 +347,6 @@ try {
         }
     }
 
-    // KPIs de seguimiento y control (sección adicional del dashboard).
-    $kpisSeg = ['total_edificios'=>0,'sin_seguimiento'=>0,'en_ejecucion'=>0,'culminadas'=>0,'avance_promedio'=>0];
-    try {
-        require_once __DIR__ . '/../includes/seguimiento.php';
-        $kpisSeg = segKpis();
-    } catch (Throwable $e) {}
-
     echo json_encode([
         'totales'         => $totales,
         'decision'        => $decision,
@@ -446,9 +357,9 @@ try {
         'secciones_geo'   => $porParroquia,
         'por_estado'      => $porEstado,
         'kpis_custom'     => $kpisCustom,
-        'kpis_seguimiento'=> $kpisSeg,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
         'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
+        'uso_filtro'      => $tieneUso ? $usoFiltro : null,
         // Contexto de navegación nacional para el frontend
         'nivel'           => (!$tieneEstado ? 'nacional' : ($tieneMunicipio || $unidadBase === 'parroquia' ? 'parroquia' : 'municipio')),
         'estado_filtro'   => $tieneEstado ? $estadoFiltro : null,
