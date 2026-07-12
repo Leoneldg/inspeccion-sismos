@@ -34,9 +34,71 @@ $tipoConstruccion = trim($_POST['tipo_construccion'] ?? '');
 $metrajeTotal     = $_POST['metraje_total'] !== '' ? (float)$_POST['metraje_total'] : null;
 $metrajeUnidad    = trim($_POST['metraje_unidad'] ?? 'm²');
 
+// --- Datos generales del plan (ente, responsable, estado de obra, fechas…) ---
+// El formulario los envía; antes no se estaban guardando.
+$entesValidos  = array_column(segEntes(usuarioEsMaster() ? null : estadoDelUsuario()), 'id');
+$enteId        = (int)($_POST['ente_id'] ?? 0);
+$enteId        = ($enteId > 0 && in_array($enteId, array_map('intval', $entesValidos), true)) ? $enteId : null;
+
+$responsableId = (int)($_POST['responsable_id'] ?? 0) ?: null;
+
+$estadosObra   = array_keys(segEstadosObra());
+$estadoObra    = trim($_POST['estado_obra'] ?? '');
+if (!in_array($estadoObra, $estadosObra, true)) {
+    $estadoObra = $obra['estado_obra'] ?? 'Sin iniciar';   // no se toca si viene inválido
+}
+
+$prioridad     = trim($_POST['prioridad'] ?? '');
+if (!in_array($prioridad, ['Alta', 'Media', 'Baja'], true)) {
+    $prioridad = $obra['prioridad'] ?? 'Media';
+}
+
+$fechaInicio      = trim($_POST['fecha_inicio'] ?? '')       ?: null;
+$fechaFinEstimada = trim($_POST['fecha_fin_estimada'] ?? '') ?: null;
+$fechaFinReal     = trim($_POST['fecha_fin_real'] ?? '')     ?: null;
+$tiempoAccion     = ($_POST['tiempo_accion_dias'] ?? '') !== '' ? (int)$_POST['tiempo_accion_dias'] : null;
+$presupuesto      = ($_POST['presupuesto_estimado'] ?? '') !== '' ? (float)$_POST['presupuesto_estimado'] : null;
+$observaciones    = trim($_POST['observaciones'] ?? '') ?: null;
+
+// Si la obra se marca como Culminada y no hay fecha de fin real, se registra hoy.
+if ($estadoObra === 'Culminada' && !$fechaFinReal) {
+    $fechaFinReal = date('Y-m-d');
+}
+
 $pdo->prepare(
-    'UPDATE seguimiento_obras SET tipo_construccion=:tc, metraje_total=:mt, metraje_unidad=:mu, actualizado_por=:u WHERE id=:o'
-)->execute(['tc' => $tipoConstruccion ?: null, 'mt' => $metrajeTotal, 'mu' => $metrajeUnidad, 'u' => $_SESSION['user_id'], 'o' => $obraId]);
+    'UPDATE seguimiento_obras
+        SET tipo_construccion    = :tc,
+            metraje_total        = :mt,
+            metraje_unidad       = :mu,
+            ente_id              = :ente,
+            responsable_id       = :resp,
+            estado_obra          = :eo,
+            prioridad            = :pr,
+            fecha_inicio         = :fi,
+            fecha_fin_estimada   = :ffe,
+            fecha_fin_real       = :ffr,
+            tiempo_accion_dias   = :tad,
+            presupuesto_estimado = :pres,
+            observaciones        = :obs,
+            actualizado_por      = :u
+      WHERE id = :o'
+)->execute([
+    'tc'   => $tipoConstruccion ?: null,
+    'mt'   => $metrajeTotal,
+    'mu'   => $metrajeUnidad,
+    'ente' => $enteId,
+    'resp' => $responsableId,
+    'eo'   => $estadoObra,
+    'pr'   => $prioridad,
+    'fi'   => $fechaInicio,
+    'ffe'  => $fechaFinEstimada,
+    'ffr'  => $fechaFinReal,
+    'tad'  => $tiempoAccion,
+    'pres' => $presupuesto,
+    'obs'  => $observaciones,
+    'u'    => $_SESSION['user_id'],
+    'o'    => $obraId,
+]);
 
 // --- Materiales del plan ---
 // Primero borramos los que ya no están en el formulario (por id) y añadimos/actualizamos.
@@ -80,7 +142,7 @@ if ($idsEnviados) {
 
 // Recalcular avance tras cambio en el plan.
 segRecalcularAvance($obraId);
-segBitacora($obraId, 'plan_accion_actualizado', "Tipo: $tipoConstruccion | Metraje: $metrajeTotal $metrajeUnidad | " . count($idsEnviados) . " materiales");
+segBitacora($obraId, 'plan_accion_actualizado', "Estado: $estadoObra | Tipo: $tipoConstruccion | Metraje: $metrajeTotal $metrajeUnidad | " . count($idsEnviados) . " materiales");
 
 flash('success', 'Plan de acción guardado.');
 header('Location: ' . $volver); exit;

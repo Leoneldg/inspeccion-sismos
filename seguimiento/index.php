@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/seguimiento.php';
 requierePermiso('seguimiento', 'ver');
 
 $pageTitle    = 'Seguimiento y Control';
-$pageSubtitle = 'Reconstrucción y recuperación de edificaciones inspeccionadas';
+$pageSubtitle = 'Mapa de recuperación de edificaciones inspeccionadas';
 $activeModule = 'seguimiento';
 
 $filtros = [
@@ -25,9 +25,100 @@ $edificios   = segListaEdificios($filtros);
 $entes       = segEntes(usuarioEsMaster() ? null : estadoDelUsuario());
 $decisiones  = catalogoDecisionFinal();
 $estadosObra = segEstadosObra();
+$fasesCat    = segFasesRecuperacion();
+$puedeEditar = puede('seguimiento', 'editar');
+
+// ---------------------------------------------------------------------
+// Puntos para el mapa: solo los que tienen coordenadas registradas.
+// A cada uno se le calcula su fase de recuperación actual.
+// ---------------------------------------------------------------------
+$puntos = [];
+$sinCoords = 0;
+foreach ($edificios as $ed) {
+    $lat = $ed['latitud'] ?? null;
+    $lng = $ed['longitud'] ?? null;
+    if ($lat === null || $lng === null || $lat === '' || $lng === '') { $sinCoords++; continue; }
+
+    $fase = segFaseDe($ed['estado_obra'] ?? null, $ed['avance_pct'] ?? 0);
+    $meta = $decisiones[$ed['decision_final']] ?? ['color' => '#767c94', 'corto' => '—'];
+
+    $puntos[] = [
+        'id'          => (int)$ed['inspeccion_id'],
+        'codigo'      => $ed['codigo'],
+        'nombre'      => $ed['nombre_edificio'],
+        'lat'         => (float)$lat,
+        'lng'         => (float)$lng,
+        'color'       => $meta['color'],
+        'decision'    => $meta['corto'],
+        'estado'      => $ed['estado'] ?: '—',
+        'municipio'   => $ed['municipio'] ?: '—',
+        'parroquia'   => $ed['parroquia'] ?: '—',
+        'uso'         => $ed['uso_edificacion'] ?: '—',
+        'pisos'       => (int)($ed['num_pisos'] ?? 0),
+        'personas'    => (int)($ed['personas'] ?? 0),
+        'fecha'       => $ed['fecha_inspeccion'] ?: '—',
+        'ente'        => $ed['ente_nombre'] ?: null,
+        'estado_obra' => $ed['estado_obra'] ?: null,
+        'avance'      => round((float)($ed['avance_pct'] ?? 0)),
+        'fase'        => $fase,
+        'ficha_url'   => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'],
+    ];
+}
 
 include __DIR__ . '/../includes/header.php';
 ?>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+<style>
+/* ---- Mapa de seguimiento ---- */
+#seg-map { height: 620px; width: 100%; border-radius: 10px; z-index: 1; }
+.seg-map-wrap { position: relative; }
+
+/* Panel lateral con la ficha técnica del punto seleccionado */
+.seg-panel {
+    position: absolute; top: 12px; right: 12px; width: 330px; max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px); overflow-y: auto; z-index: 500;
+    background: #fff; border-radius: 10px; box-shadow: 0 6px 24px rgba(20,30,60,.22);
+    display: none;
+}
+.seg-panel.open { display: block; }
+.seg-panel-head { padding: 12px 14px; border-bottom: 1px solid #e8ebf3; position: relative; }
+.seg-panel-head h3 { margin: 0 22px 2px 0; font-size: 15px; line-height: 1.25; }
+.seg-panel-close {
+    position: absolute; top: 10px; right: 10px; border: 0; background: transparent;
+    font-size: 17px; color: #97a0b8; cursor: pointer; line-height: 1;
+}
+.seg-panel-body { padding: 12px 14px; }
+.seg-panel-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; border-bottom: 1px dashed #eef0f6; }
+.seg-panel-row:last-child { border-bottom: 0; }
+.seg-panel-row span:first-child { color: #767c94; }
+.seg-panel-row span:last-child { font-weight: 600; text-align: right; }
+.seg-panel-foot { padding: 0 14px 14px; }
+
+/* Botón grande de asignar fase */
+.btn-fase {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 14px 12px; border: 0; border-radius: 9px;
+    font-size: 14.5px; font-weight: 700; color: #fff; cursor: pointer;
+    background: #2d4488; transition: filter .15s; text-align: center; line-height: 1.2;
+}
+.btn-fase:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-fase:disabled { opacity: .75; cursor: default; }
+.btn-fase i { font-size: 19px; }
+.btn-fase-sub { display: block; font-weight: 500; font-size: 11.5px; opacity: .9; margin-top: 2px; }
+
+.fase-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 700;
+}
+.seg-leyenda { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px 0; font-size: 12.5px; color: #55617f; }
+.seg-leyenda i { font-size: 11px; }
+.seg-marker-ico { display: block; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); }
+.seg-marker-mant { position: absolute; right: -3px; bottom: -3px; background: #2d4488; color: #fff;
+    border-radius: 50%; width: 13px; height: 13px; font-size: 8px; line-height: 13px; text-align: center; border: 1.5px solid #fff; }
+</style>
 
 <!-- KPIs del módulo -->
 <div class="seg-kpi-grid">
@@ -107,87 +198,296 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- Tabla de edificaciones -->
+<!-- Mapa -->
 <div class="card">
-    <div class="card-header"><h2><i class="bi bi-list-check"></i> Edificaciones (<?= count($edificios) ?>)</h2></div>
-    <?php if (!$edificios): ?>
-        <div class="empty-state"><i class="bi bi-clipboard2-x"></i> No hay edificaciones con esos filtros.</div>
-    <?php else: ?>
-    <div class="table-wrap">
-        <table class="data-table seg-table">
-            <thead>
-                <tr>
-                    <th>Edificación</th>
-                    <?php if (usuarioEsMaster()): ?><th>Estado</th><?php endif; ?>
-                    <th>Ubicación</th>
-                    <th>Ente asignado</th>
-                    <th>Estado de obra</th>
-                    <th style="min-width:130px;">Avance</th>
-                    <th>Tiempo</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($edificios as $ed): ?>
-                <?php
-                    $estadoObra = $ed['estado_obra'] ?? null;
-                    $colorObra  = $estadoObra ? ($estadosObra[$estadoObra] ?? '#767c94') : '#c2c7d6';
-                    $avance     = (float)($ed['avance_pct'] ?? 0);
-                    $tiempo     = segTiempoRestante($ed['fecha_fin_estimada'] ?? null, $estadoObra ?? 'Sin iniciar');
-                    $fichaUrl   = APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'];
-                ?>
-                <tr>
-                    <td>
-                        <strong><?= e($ed['nombre_edificio']) ?></strong><br>
-                        <span class="text-sm text-muted" style="font-family:var(--font-mono);"><?= e($ed['codigo']) ?></span>
-                    </td>
-                    <?php if (usuarioEsMaster()): ?><td><span class="badge badge-gris"><?= e($ed['estado'] ?? '—') ?></span></td><?php endif; ?>
-                    <td class="text-sm">
-                        <?= e($ed['parroquia']) ?>
-                        <?php if (!empty($ed['municipio']) && ($ed['estado'] ?? '') !== 'Distrito Capital'): ?><br><span class="text-muted"><?= e($ed['municipio']) ?></span><?php endif; ?>
-                    </td>
-                    <td class="text-sm">
-                        <?php if ($ed['ente_nombre']): ?>
-                            <span class="badge" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-building"></i> <?= e($ed['ente_nombre']) ?></span>
-                        <?php else: ?>
-                            <span class="text-muted">Sin asignar</span>
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php if ($estadoObra): ?>
-                            <span class="badge" style="background:<?= $colorObra ?>22;color:<?= $colorObra ?>;"><?= e($estadoObra) ?></span>
-                        <?php else: ?>
-                            <span class="badge badge-gris">Sin seguimiento</span>
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <div class="seg-progress seg-progress-sm">
-                            <div class="seg-progress-bar" style="width:<?= round($avance) ?>%;background:<?= $colorObra ?>;"></div>
-                            <span class="seg-progress-txt"><?= round($avance) ?>%</span>
-                        </div>
-                    </td>
-                    <td class="text-sm">
-                        <?php
-                            $badges = [
-                                'a_tiempo'  => ['#2E7D32', $tiempo['dias'] . ' días'],
-                                'proximo'   => ['#C9A227', $tiempo['dias'] . ' días'],
-                                'vencido'   => ['#A61C1C', abs($tiempo['dias']) . ' días vencido'],
-                                'culminada' => ['#2E7D32', 'Culminada'],
-                                'sin_fecha' => ['#767c94', '—'],
-                            ];
-                            [$c, $txt] = $badges[$tiempo['estado']] ?? ['#767c94', '—'];
-                        ?>
-                        <span style="color:<?= $c ?>;font-weight:600;"><?= e($txt) ?></span>
-                    </td>
-                    <td>
-                        <a href="<?= $fichaUrl ?>" class="btn btn-primary btn-sm"><i class="bi bi-clipboard-data"></i> Ficha</a>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
+    <div class="card-header">
+        <h2><i class="bi bi-geo-alt-fill"></i> Mapa de recuperación (<?= count($puntos) ?>)</h2>
+        <?php if ($sinCoords > 0): ?>
+            <span class="text-sm text-muted"><?= $sinCoords ?> sin coordenadas registradas</span>
+        <?php endif; ?>
     </div>
-    <?php endif; ?>
+
+    <div class="seg-leyenda">
+        <span><strong>Color del punto = decisión:</strong></span>
+        <?php foreach ($decisiones as $meta): ?>
+            <span><i class="bi bi-circle-fill" style="color:<?= $meta['color'] ?>;"></i> <?= e($meta['corto']) ?></span>
+        <?php endforeach; ?>
+        <span style="margin-left:6px;"><i class="bi bi-tools" style="color:#2d4488;"></i> = en fase de mantenimiento</span>
+    </div>
+
+    <div class="card-body">
+        <?php if (!$puntos): ?>
+            <div class="empty-state"><i class="bi bi-geo-alt"></i> No hay edificaciones con coordenadas para mostrar en el mapa.</div>
+        <?php else: ?>
+        <div class="seg-map-wrap">
+            <div id="seg-map"></div>
+
+            <!-- Panel con la ficha técnica del punto seleccionado -->
+            <div class="seg-panel" id="seg-panel">
+                <div class="seg-panel-head">
+                    <button class="seg-panel-close" id="seg-panel-close" title="Cerrar"><i class="bi bi-x-lg"></i></button>
+                    <h3 id="sp-nombre">—</h3>
+                    <div style="font-family:var(--font-mono);font-size:12px;color:#767c94;" id="sp-codigo">—</div>
+                    <div style="margin-top:7px;" id="sp-chips"></div>
+                </div>
+                <div class="seg-panel-body" id="sp-datos"></div>
+                <div class="seg-panel-foot">
+                    <a class="btn-fase" id="sp-btn-fase" href="#"></a>
+
+                    <!-- Selección de ente (fase 2). Oculto hasta que se pulsa el botón. -->
+                    <div id="sp-entes" style="display:none;margin-top:10px;">
+                        <label class="text-sm" style="display:block;margin-bottom:5px;color:#55617f;font-weight:600;">
+                            Seleccione el ente responsable de la recuperación
+                        </label>
+                        <select id="sp-ente-sel" class="form-control" style="width:100%;">
+                            <option value="">— Elegir ente —</option>
+                        </select>
+                        <div style="display:flex;gap:7px;margin-top:8px;">
+                            <button class="btn btn-primary btn-sm" id="sp-ente-ok" style="flex:1;justify-content:center;">
+                                <i class="bi bi-check-lg"></i> Asignar
+                            </button>
+                            <button class="btn btn-outline btn-sm" id="sp-ente-cancel" style="justify-content:center;">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Mensaje de confirmación / error -->
+                    <div id="sp-msg" style="display:none;margin-top:10px;padding:10px 11px;border-radius:8px;font-size:13px;line-height:1.4;"></div>
+
+                    <a href="#" id="sp-ficha" class="btn btn-outline btn-sm" style="width:100%;margin-top:8px;justify-content:center;">
+                        <i class="bi bi-clipboard-data"></i> Ver ficha completa
+                    </a>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
 </div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const PUNTOS       = <?= json_encode($puntos, JSON_UNESCAPED_UNICODE) ?>;
+const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
+const ENTES        = <?= json_encode(array_map(fn($x) => ['id' => (int)$x['id'], 'nombre' => $x['nombre']], $entes), JSON_UNESCAPED_UNICODE) ?>;
+const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
+const URL_ENTE     = '<?= APP_URL_BASE ?>seguimiento/asignar_ente.php';
+
+let map, cluster;
+let marcadores = {};      // id -> marker
+let seleccionado = null;  // punto actualmente abierto en el panel
+
+/* ---------- Ícono del marcador (color por decisión + señal de mantenimiento) ---------- */
+function iconoPunto(p) {
+    const size = 20;
+    // En recuperación (tiene ente asignado y aún no culmina) -> ícono de mantenimiento.
+    const enRecuperacion = !!p.ente && p.fase !== 3;
+    const mant = enRecuperacion
+        ? '<span class="seg-marker-mant"><i class="bi bi-tools"></i></span>'
+        : '';
+    const anillo = (p.fase === 3) ? 'box-shadow:0 0 0 3px #2E7D32, 0 1px 4px rgba(0,0,0,.45);' : '';
+    return L.divIcon({
+        className: '',
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+        html: `<div style="position:relative;width:${size}px;height:${size}px;">
+                 <span class="seg-marker-ico" style="width:${size}px;height:${size}px;background:${p.color};${anillo}"></span>
+                 ${mant}
+               </div>`
+    });
+}
+
+/* ---------- Configura el botón grande según el estado de la edificación ----------
+   - Si aún NO tiene ente asignado  -> el botón despliega el listado de entes
+     ahí mismo en el mapa (asignación rápida, sin salir a la ficha).
+   - Si YA tiene ente asignado      -> el botón lleva a la ficha completa,
+     que es donde el responsable carga el plan y las fotos de seguimiento. */
+function pintarBoton(p) {
+    const btn    = document.getElementById('sp-btn-fase');
+    const bloque = document.getElementById('sp-entes');
+    const msg    = document.getElementById('sp-msg');
+
+    // Cada vez que se abre un punto, se parte de cero.
+    bloque.style.display = 'none';
+    msg.style.display    = 'none';
+    btn.style.display    = 'flex';
+
+    // Sin permiso de edición: solo consulta.
+    if (!PUEDE_EDITAR) {
+        btn.href = p.ficha_url;
+        btn.style.background = '#767c94';
+        btn.innerHTML = '<i class="bi bi-clipboard-data"></i><span>Ver ficha completa</span>';
+        btn.onclick = null;
+        return;
+    }
+
+    const tieneEnte = !!p.ente;
+
+    if (!tieneEnte) {
+        // --- Falta asignar el ente: el botón abre el listado ---
+        btn.href = '#';
+        btn.style.background = '#2d4488';
+        btn.innerHTML = '<i class="bi bi-building-add"></i><span>Asignar ente de recuperación'
+                      + '<span class="btn-fase-sub">Seleccione el ente responsable</span></span>';
+        btn.onclick = (ev) => {
+            ev.preventDefault();
+            abrirSelectorEntes(p);
+        };
+    } else if (p.fase === 3) {
+        // --- Culminada ---
+        btn.href = p.ficha_url;
+        btn.style.background = '#2E7D32';
+        btn.innerHTML = '<i class="bi bi-check-circle-fill"></i><span>Recuperación culminada'
+                      + '<span class="btn-fase-sub">' + p.ente + ' · Ver ficha</span></span>';
+        btn.onclick = null;
+    } else {
+        // --- Ya tiene ente: en fase de recuperación. Ícono de mantenimiento. ---
+        btn.href = p.ficha_url;
+        btn.style.background = '#2d4488';
+        btn.innerHTML = '<i class="bi bi-tools"></i><span>En fase de recuperación'
+                      + '<span class="btn-fase-sub">' + p.ente + ' · Abrir ficha y cargar seguimiento</span></span>';
+        btn.onclick = null;
+    }
+}
+
+/* ---------- Despliega el listado de entes para asignar ---------- */
+function abrirSelectorEntes(p) {
+    const bloque = document.getElementById('sp-entes');
+    const sel    = document.getElementById('sp-ente-sel');
+    const msg    = document.getElementById('sp-msg');
+
+    // Llenar el listado de entes.
+    sel.innerHTML = '<option value="">— Elegir ente —</option>'
+        + ENTES.map(en => `<option value="${en.id}">${en.nombre}</option>`).join('');
+    sel.value = '';
+
+    msg.style.display = 'none';
+    bloque.style.display = 'block';
+    document.getElementById('sp-btn-fase').style.display = 'none';
+
+    document.getElementById('sp-ente-cancel').onclick = () => {
+        bloque.style.display = 'none';
+        document.getElementById('sp-btn-fase').style.display = 'flex';
+    };
+    document.getElementById('sp-ente-ok').onclick = () => asignarEnte(p, sel.value);
+}
+
+/* ---------- Envía la asignación del ente al servidor ---------- */
+async function asignarEnte(p, enteId) {
+    const msg = document.getElementById('sp-msg');
+    const ok  = document.getElementById('sp-ente-ok');
+
+    if (!enteId) {
+        mostrarMsg('Seleccione un ente de la lista.', false);
+        return;
+    }
+
+    const textoOriginal = ok.innerHTML;
+    ok.disabled  = true;
+    ok.innerHTML = '<i class="bi bi-arrow-repeat"></i> Asignando…';
+
+    try {
+        const res = await fetch(URL_ENTE, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:    new URLSearchParams({ inspeccion_id: p.id, ente_id: enteId }).toString()
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.mensaje || 'No se pudo asignar el ente.');
+
+        // Actualiza el punto en memoria: ya tiene ente y entra en recuperación.
+        p.ente = data.ente_nombre;
+        if (p.fase === 0) p.fase = 2;                       // pasa a fase de recuperación
+        if (!p.estado_obra || p.estado_obra === 'Sin iniciar') p.estado_obra = 'En ejecución';
+
+        // Repinta el marcador (ahora lleva el ícono de mantenimiento).
+        const m = marcadores[p.id];
+        if (m) m.setIcon(iconoPunto(p));
+
+        // Repinta el panel y muestra la confirmación.
+        abrirPanel(p);
+        mostrarMsg(data.mensaje, true);
+
+    } catch (err) {
+        ok.disabled  = false;
+        ok.innerHTML = textoOriginal;
+        mostrarMsg(err.message, false);
+    }
+}
+
+/* ---------- Mensaje de confirmación / error dentro del panel ---------- */
+function mostrarMsg(texto, exito) {
+    const msg = document.getElementById('sp-msg');
+    msg.style.display    = 'block';
+    msg.style.background = exito ? '#e5f7ee' : '#fdeaea';
+    msg.style.color      = exito ? '#1e5b2a' : '#A61C1C';
+    msg.style.border     = '1px solid ' + (exito ? '#b9e3c8' : '#f3c2c2');
+    msg.innerHTML = (exito ? '<i class="bi bi-check-circle-fill"></i> ' : '<i class="bi bi-exclamation-triangle-fill"></i> ')
+                  + texto;
+}
+
+/* ---------- Abre el panel con la ficha técnica del punto ---------- */
+function abrirPanel(p) {
+    seleccionado = p;
+    document.getElementById('sp-nombre').textContent = p.nombre;
+    document.getElementById('sp-codigo').textContent = p.codigo;
+    document.getElementById('sp-ficha').href = p.ficha_url;
+
+    const f = FASES[p.fase];
+    document.getElementById('sp-chips').innerHTML =
+        `<span class="fase-chip" style="background:${p.color}22;color:${p.color};">
+            <i class="bi bi-circle-fill"></i> ${p.decision}
+         </span>
+         <span class="fase-chip" style="background:${f.color}22;color:${f.color};margin-left:5px;">
+            <i class="bi ${f.icono}"></i> ${f.nombre}
+         </span>`;
+
+    const filas = [
+        ['Ubicación',    [p.parroquia, p.municipio, p.estado].filter(x => x && x !== '—').join(', ') || '—'],
+        ['Uso',          p.uso],
+        ['Pisos',        p.pisos || '—'],
+        ['Personas',     p.personas || '—'],
+        ['Inspección',   p.fecha],
+        ['Ente',         p.ente || 'Sin asignar'],
+        ['Estado obra',  p.estado_obra || 'Sin seguimiento'],
+        ['Avance',       p.avance + '%'],
+    ];
+    document.getElementById('sp-datos').innerHTML = filas.map(
+        ([k, v]) => `<div class="seg-panel-row"><span>${k}</span><span>${v}</span></div>`
+    ).join('');
+
+    pintarBoton(p);
+    document.getElementById('seg-panel').classList.add('open');
+}
+
+/* ---------- Inicialización del mapa ---------- */
+(function initMapa() {
+    if (!PUNTOS.length) return;
+
+    map = L.map('seg-map', { zoomControl: true });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Esri'
+    }).addTo(map);
+
+    cluster = L.markerClusterGroup({ maxClusterRadius: 45, spiderfyOnMaxZoom: true });
+
+    PUNTOS.forEach(p => {
+        const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
+        m.on('click', () => abrirPanel(p));
+        marcadores[p.id] = m;
+        cluster.addLayer(m);
+    });
+
+    map.addLayer(cluster);
+    map.fitBounds(cluster.getBounds().pad(0.15));
+
+    document.getElementById('seg-panel-close').addEventListener('click', () => {
+        document.getElementById('seg-panel').classList.remove('open');
+        seleccionado = null;
+    });
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

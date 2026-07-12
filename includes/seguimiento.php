@@ -266,6 +266,9 @@ function segListaEdificios(array $filtros = []): array
     $sql = "
         SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio, i.estado, i.municipio, i.parroquia,
                i.decision_final, i.fecha_inspeccion,
+               i.latitud, i.longitud, i.uso_edificacion, i.num_pisos,
+               (COALESCE(i.hombres,0)+COALESCE(i.mujeres,0)+COALESCE(i.ninos,0)
+                +COALESCE(i.adultos_tercera_edad,0)+COALESCE(i.gestantes,0)) AS personas,
                so.id AS obra_id, so.estado_obra, so.avance_pct, so.fecha_fin_estimada,
                so.ente_id, e.nombre AS ente_nombre,
                so.responsable_id, r.nombre_completo AS responsable_nombre,
@@ -532,4 +535,134 @@ function segRecalcularAvance(int $obraId): void
              WHERE id = :o'
         )->execute(['mat' => round($pctMat,2), 'met' => round($pctMet,2), 'final' => round($pctFinal,2), 'o' => $obraId]);
     } catch (Throwable $e) { /* silencioso */ }
+}
+
+// =====================================================================
+// FASES DE RECUPERACIÓN (para el mapa de Seguimiento y Control)
+// ---------------------------------------------------------------------
+// Se derivan de los campos que YA existen en seguimiento_obras
+// (estado_obra + avance_pct); no requieren cambios en la base de datos.
+//
+//   Sin asignar → la obra aún no tiene seguimiento (o está "Sin iniciar")
+//   Fase 1      → Evaluación y remoción      (En ejecución, avance 0%)
+//   Fase 2      → Rehabilitación/mantenimiento (En ejecución, con avance > 0)
+//   Fase 3      → Culminada                   (estado_obra = Culminada)
+//
+// La fase 2 es la que muestra el ícono de mantenimiento en el botón.
+// =====================================================================
+
+/** Catálogo de las fases de recuperación. */
+function segFasesRecuperacion(): array
+{
+    return [
+        0 => ['nombre' => 'Sin asignar',                  'color' => '#767c94', 'icono' => 'bi-plus-circle'],
+        1 => ['nombre' => 'Evaluación y remoción',        'color' => '#C9A227', 'icono' => 'bi-cone-striped'],
+        2 => ['nombre' => 'Rehabilitación / mantenimiento','color' => '#2d4488', 'icono' => 'bi-tools'],
+        3 => ['nombre' => 'Culminada',                    'color' => '#2E7D32', 'icono' => 'bi-check-circle-fill'],
+    ];
+}
+
+/**
+ * Deduce la fase de recuperación (0-3) a partir del estado de obra y el avance.
+ * Recibe la fila tal como la devuelve segListaEdificios().
+ */
+function segFaseDe(?string $estadoObra, $avancePct = 0): int
+{
+    if ($estadoObra === null || $estadoObra === '' || $estadoObra === 'Sin iniciar') return 0;
+    if ($estadoObra === 'Culminada') return 3;
+    // "En ejecución" o "Suspendida": si ya hay avance registrado, va en fase 2.
+    return ((float)$avancePct > 0) ? 2 : 1;
+}
+
+/**
+ * Asigna/avanza la fase de recuperación de una inspección, escribiendo en los
+ * campos existentes de seguimiento_obras. Devuelve la nueva fase (0-3).
+ * Las fases avanzan en orden: 0 → 1 → 2 → 3.
+ */
+function segAsignarFase(int $inspeccionId, int $faseDestino): int
+{
+    $faseDestino = max(1, min(3, $faseDestino));
+    $obra   = segObtenerOCrearObra($inspeccionId);   // crea la obra si no existía
+    $obraId = (int)$obra['id'];
+
+    // Traducción de fase -> campos reales existentes.
+    if ($faseDestino === 3) {
+        $estado = 'Culminada';
+        $avance = 100.00;
+    } elseif ($faseDestino === 2) {
+        $estado = 'En ejecución';
+        // Si aún no hay avance, se marca un avance mínimo para que la fase 2
+        // quede registrada de forma consistente con segFaseDe().
+        $avance = ((float)($obra['avance_pct'] ?? 0) > 0) ? (float)$obra['avance_pct'] : 1.00;
+    } else {
+        $estado = 'En ejecución';
+        $avance = 0.00;
+    }
+
+    $sql = 'UPDATE seguimiento_obras
+               SET estado_obra = :e, avance_pct = :a, actualizado_por = :u';
+    $params = [
+        'e' => $estado,
+        'a' => $avance,
+        'u' => $_SESSION['user_id'] ?? null,
+        'o' => $obraId,
+    ];
+    // Al iniciar la recuperación se registra la fecha de inicio si no había.
+    if ($faseDestino >= 1 && empty($obra['fecha_inicio'])) {
+        $sql .= ', fecha_inicio = CURDATE()';
+    }
+    // Al culminar se registra la fecha de fin real.
+    if ($faseDestino === 3) {
+        $sql .= ', fecha_fin_real = CURDATE()';
+    }
+    $sql .= ' WHERE id = :o';
+
+    db()->prepare($sql)->execute($params);
+
+    $fases = segFasesRecuperacion();
+    segBitacora($obraId, 'Fase de recuperación', 'Asignada fase ' . $faseDestino . ': ' . $fases[$faseDestino]['nombre']);
+
+    return $faseDestino;
+}
+
+/**
+ * Asigna un ente a la obra de una inspección (fase de recuperación).
+ * Si la obra no existía, se crea. Al asignar el ente la obra pasa a
+ * "En ejecución" (queda formalmente en fase de recuperación).
+ * Devuelve los datos del ente asignado.
+ */
+function segAsignarEnte(int $inspeccionId, int $enteId): array
+{
+    $obra   = segObtenerOCrearObra($inspeccionId);
+    $obraId = (int)$obra['id'];
+
+    // El ente debe existir y estar activo.
+    $st = db()->prepare('SELECT id, nombre FROM entes WHERE id = :e AND activo = 1 LIMIT 1');
+    $st->execute(['e' => $enteId]);
+    $ente = $st->fetch();
+    if (!$ente) {
+        throw new RuntimeException('El ente seleccionado no existe o no está activo.');
+    }
+
+    // Al asignar el ente la obra entra en ejecución (si aún no estaba culminada).
+    $estadoActual = $obra['estado_obra'] ?? 'Sin iniciar';
+    $nuevoEstado  = ($estadoActual === 'Culminada') ? 'Culminada' : 'En ejecución';
+
+    $sql = 'UPDATE seguimiento_obras
+               SET ente_id = :e, estado_obra = :eo, actualizado_por = :u';
+    if (empty($obra['fecha_inicio'])) {
+        $sql .= ', fecha_inicio = CURDATE()';
+    }
+    $sql .= ' WHERE id = :o';
+
+    db()->prepare($sql)->execute([
+        'e'  => (int)$ente['id'],
+        'eo' => $nuevoEstado,
+        'u'  => $_SESSION['user_id'] ?? null,
+        'o'  => $obraId,
+    ]);
+
+    segBitacora($obraId, 'ente_asignado', 'Ente asignado para fase de recuperación: ' . $ente['nombre']);
+
+    return ['id' => (int)$ente['id'], 'nombre' => $ente['nombre']];
 }
