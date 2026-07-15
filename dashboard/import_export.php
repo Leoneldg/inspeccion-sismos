@@ -3,6 +3,20 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
+
+// Estados y parroquias que realmente tienen inspecciones (para los selectores
+// del PDF masivo de fichas).
+$estadosConDatos = db()->query(
+    "SELECT DISTINCT estado FROM inspecciones WHERE estado IS NOT NULL AND estado <> '' ORDER BY estado"
+)->fetchAll(PDO::FETCH_COLUMN);
+$parroquiasPorEstado = [];
+foreach (db()->query(
+    "SELECT DISTINCT estado, parroquia FROM inspecciones
+     WHERE parroquia IS NOT NULL AND parroquia <> '' ORDER BY parroquia"
+)->fetchAll() as $row) {
+    $parroquiasPorEstado[$row['estado']][] = $row['parroquia'];
+}
 
 // Manejo de errores / excepciones: si APP_DEBUG está activo, mostrar traza
 if (defined('APP_DEBUG') && APP_DEBUG) {
@@ -53,6 +67,58 @@ include __DIR__ . '/../includes/header.php';
         <h3>Exportar ficha técnica (PDF)</h3>
         <p class="help-text">Abra la vista de una inspección y use el botón proporcionar abajo para generar un PDF de la ficha técnica.</p>
         <p class="text-muted">Generar PDF para inspecciones individuales usando <code>export_pdf.php?id=XX</code>.</p>
+
+        <hr>
+
+        <h3>PDF masivo de fichas resumidas</h3>
+        <p class="help-text">
+            Genera un PDF con una ficha por edificación (una hoja cada una), agrupadas
+            primero en <strong>con fotos</strong> / <strong>sin fotos</strong> y luego por parroquia.
+            Elija el ámbito a exportar.
+        </p>
+        <form action="export_fichas_masivo.php" method="get" target="_blank" class="flex gap-8" style="flex-wrap:wrap;align-items:flex-end;">
+            <div class="field" style="margin:0;">
+                <label class="text-sm">Estado</label>
+                <select name="estado" id="fm-estado" class="form-control" style="width:210px;">
+                    <option value="">— Seleccione un estado —</option>
+                    <?php foreach ($estadosConDatos as $est): ?>
+                        <option value="<?= e($est) ?>"><?= e($est) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
+                <label class="text-sm">Parroquia (opcional)</label>
+                <select name="parroquia" id="fm-parroquia" class="form-control" style="width:210px;">
+                    <option value="">Todas las del estado</option>
+                </select>
+            </div>
+            <button class="btn btn-primary"><i class="bi bi-file-earmark-pdf"></i> Generar PDF</button>
+        </form>
+        <p class="text-muted" style="margin-top:6px;">Sugerencia: para muchos edificios el PDF puede tardar unos segundos en generarse.</p>
+
+        <hr>
+
+        <h3>Limpiar inspecciones (borrado por fecha)</h3>
+        <p class="help-text">
+            Filtre inspecciones por fecha, seleccione varias y elimínelas. Útil para
+            borrar datos de prueba. <strong>Acción irreversible</strong>; solo el
+            superadministrador puede ejecutarla.
+        </p>
+        <a href="<?= APP_URL_BASE ?>dashboard/limpiar_inspecciones.php" class="btn btn-outline">
+            <i class="bi bi-trash3"></i> Abrir herramienta de limpieza
+        </a>
+
+        <script>
+            // Parroquias disponibles por estado (solo las que tienen inspecciones).
+            const PARROQUIAS_POR_ESTADO = <?= json_encode($parroquiasPorEstado, JSON_UNESCAPED_UNICODE) ?>;
+            const selEstado = document.getElementById('fm-estado');
+            const selParroquia = document.getElementById('fm-parroquia');
+            selEstado.addEventListener('change', function () {
+                const lista = PARROQUIAS_POR_ESTADO[this.value] || [];
+                selParroquia.innerHTML = '<option value="">Todas las del estado</option>'
+                    + lista.map(p => '<option value="' + p.replace(/"/g, '&quot;') + '">' + p + '</option>').join('');
+            });
+        </script>
     </div>
 </div>
 
