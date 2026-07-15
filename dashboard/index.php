@@ -275,6 +275,7 @@ let usoSeleccionado = '';                 // '' = sin filtro (todos los usos)
 let fotosSeleccionado = '';               // '' = sin filtro; 'con' = con fotos/adjuntos; 'sin' = sin ellos
 let listaOculta = false;                  // true = el usuario ocultó la lista (el filtro sigue activo)
 let modoPresentacion = false;             // true = solo mapa y KPIs (para capturas de pantalla)
+let encuadreInicialHecho = false;         // el mapa se encuadra solo la 1ª vez; luego el zoom es manual
 let ultimaListaEdificios = [];            // última lista recibida, para re-renderizar sin recargar
 let ultimaParroquiaEnMapa;                // controla cuándo animar el zoom (evita re-animar en cada refresh)
 let ultimoDatosDashboard = null;          // última respuesta de la API, para poder re-renderizar sin refetch
@@ -927,7 +928,10 @@ async function cargarDashboard() {
             onEachFeature: function (feature, layer) {
                 const nombre = nombreParroquiaDeFeature(feature) || '';
                 try { centroidesPoligono[normalizarTexto(nombre)] = layer.getBounds().getCenter(); } catch (e) {}
-                layer.on('click', () => clicSeccion(nombre));
+                // El polígono ya NO reacciona al clic: la parroquia solo se
+                // selecciona al hacer clic sobre un punto. Así un clic en zona
+                // vacía no cambia la selección ni hace zoom por error.
+                // Se conserva solo el resaltado al pasar el mouse, para ubicarse.
                 layer.on('mouseover', () => layer.setStyle({ weight: 3, fillOpacity: 0.22 }));
                 layer.on('mouseout', () => { if (!esParroquiaSeleccionada(nombre)) layer.setStyle({ weight: 1.5, fillOpacity: 0.10 }); });
                 if (esParroquiaSeleccionada(nombre)) boundsSeleccion = layer.getBounds();
@@ -974,9 +978,13 @@ async function cargarDashboard() {
             ? ('Cada punto es una inspección. Haga clic sobre una zona para filtrar por ' + (data.unidad_base || 'unidad') + '.')
             : 'Secciones aproximadas.');
 
-    // Zoom/encuadre por nivel.
-    const claveEncuadre = (data.estado_filtro || 'PAIS') + '|' + (data.municipio_filtro || '') + '|' + parroquiaSeleccionada;
-    if (ultimaParroquiaEnMapa !== claveEncuadre) {
+    // Zoom/encuadre automático: SOLO se hace la primera vez que se carga el
+    // mapa, para que arranque mostrando la zona correspondiente. Después NO se
+    // vuelve a mover ni a hacer zoom por sí solo: así el zoom/encuadre que el
+    // usuario haya hecho a mano se respeta aunque cambie de filtro o se
+    // equivoque. El usuario controla el zoom manualmente.
+    if (!encuadreInicialHecho) {
+        const claveEncuadre = (data.estado_filtro || 'PAIS') + '|' + (data.municipio_filtro || '') + '|' + parroquiaSeleccionada;
         if (parroquiaSeleccionada && boundsSeleccion) {
             map.flyToBounds(boundsSeleccion, { padding: [40, 40], maxZoom: 16, duration: 0.7 });
         } else if (limites && limites.features && limites.features.length) {
@@ -988,6 +996,7 @@ async function cargarDashboard() {
             map.flyTo([8.0, -66.0], 6, { duration: 0.7 });
         }
         ultimaParroquiaEnMapa = claveEncuadre;
+        encuadreInicialHecho = true;
     }
 
     // ---- Marcadores individuales de cada inspección (clusters).
