@@ -194,20 +194,84 @@ try {
         }
     }
     $condPuntos = $condPuntosArr ? (' AND ' . implode(' AND ', $condPuntosArr)) : '';
+    // Se trae también estado y parroquia: hacen falta para poder ubicar por
+    // parroquia las inspecciones que no tienen coordenadas propias.
     $sqlPuntos = $tieneFotos
-        ? "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+        ? "SELECT i.id, i.codigo, i.nombre_edificio, i.estado, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   (SELECT COUNT(*) FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id) AS cantidad_fotos,
                   (SELECT ruta FROM inspeccion_fotos f WHERE f.inspeccion_id = i.id ORDER BY f.creado_en ASC LIMIT 1) AS foto_portada
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos"
-        : "SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
+           WHERE 1=1$condPuntos"
+        : "SELECT i.id, i.codigo, i.nombre_edificio, i.estado, i.parroquia, i.decision_final, i.latitud, i.longitud, i.fecha_inspeccion,
                   0 AS cantidad_fotos, NULL AS foto_portada
            FROM inspecciones i
-           WHERE i.latitud IS NOT NULL AND i.longitud IS NOT NULL$condPuntos";
+           WHERE 1=1$condPuntos";
     $stmt = $pdo->prepare($sqlPuntos);
     $stmt->execute($paramsFiltro);
-    foreach ($stmt->fetchAll() as $row) {
+    $filasPuntos = $stmt->fetchAll();
+
+    // --- Detección de coordenadas "por defecto" ---
+    // Si un mismo par lat/lng se repite en muchas inspecciones, no es una
+    // ubicación real (viene de un valor puesto automáticamente). Esas se
+    // reubican dentro de su parroquia para que no se amontonen en un punto.
+    $umbralDuplicadas = 5;
+    $conteoCoords = [];
+    foreach ($filasPuntos as $row) {
+        if ($row['latitud'] === null || $row['longitud'] === null) continue;
+        $k = round((float)$row['latitud'], 5) . ',' . round((float)$row['longitud'], 5);
+        $conteoCoords[$k] = ($conteoCoords[$k] ?? 0) + 1;
+    }
+    $coordsPorDefecto = [];
+    foreach ($conteoCoords as $k => $n) {
+        if ($n >= $umbralDuplicadas) $coordsPorDefecto[$k] = true;
+    }
+
+    // --- Anclas por parroquia ---
+    // Se recogen las inspecciones que SÍ tienen coordenada propia y fiable.
+    // Sirven de referencia de dónde hay edificaciones reales dentro de cada
+    // parroquia, para no colocar los puntos aproximados en zonas deshabitadas
+    // (montañas, embalses…), que es lo que pasa si se reparten por todo el
+    // polígono: parroquias como El Junquito o Macarao son casi todo monte.
+    $anclas = [];
+    foreach ($filasPuntos as $row) {
+        if ($row['latitud'] === null || $row['longitud'] === null) continue;
+        if ((float)$row['latitud'] == 0.0 && (float)$row['longitud'] == 0.0) continue;
+        $k = round((float)$row['latitud'], 5) . ',' . round((float)$row['longitud'], 5);
+        if (isset($coordsPorDefecto[$k])) continue;   // coordenada falsa: no sirve de ancla
+        $pq = segNorm((string)($row['estado'] ?? '')) . '|' . segNorm((string)($row['parroquia'] ?? ''));
+        $anclas[$pq][] = [(float)$row['latitud'], (float)$row['longitud']];
+    }
+
+    foreach ($filasPuntos as $row) {
         $meta = $catalogo[$row['decision_final']] ?? ['color' => '#767c94', 'corto' => $row['decision_final']];
+
+        $lat = $row['latitud'];
+        $lng = $row['longitud'];
+
+        // ¿Tiene coordenadas propias utilizables?
+        $tieneGps = ($lat !== null && $lng !== null
+                     && !((float)$lat == 0.0 && (float)$lng == 0.0));
+        if ($tieneGps) {
+            $k = round((float)$lat, 5) . ',' . round((float)$lng, 5);
+            if (isset($coordsPorDefecto[$k])) $tieneGps = false;   // coordenada falsa
+        }
+
+        $aprox = false;
+        if (!$tieneGps) {
+            // Se ubica dentro de su parroquia, apoyándose en los edificios
+            // reales de esa misma parroquia (si los hay) para caer en zona urbana.
+            $pqKey = segNorm((string)($row['estado'] ?? '')) . '|' . segNorm((string)($row['parroquia'] ?? ''));
+            $pt = segUbicarEnParroquia(
+                (string)($row['estado'] ?? ''),
+                (string)($row['parroquia'] ?? ''),
+                (int)$row['id'],                    // semilla: siempre el mismo punto
+                $anclas[$pqKey] ?? []
+            );
+            if ($pt === null) continue;             // sin parroquia -> no se muestra
+            [$lat, $lng] = $pt;
+            $aprox = true;
+        }
+
         $puntos[] = [
             'id'        => (int)$row['id'],
             'codigo'    => $row['codigo'],
@@ -215,8 +279,9 @@ try {
             'parroquia' => $row['parroquia'],
             'decision'  => $meta['corto'],
             'decision_color' => $meta['color'],
-            'lat'       => (float)$row['latitud'],
-            'lng'       => (float)$row['longitud'],
+            'lat'       => (float)$lat,
+            'lng'       => (float)$lng,
+            'aprox'     => $aprox,              // true = ubicación aproximada por parroquia
             'fecha'     => $row['fecha_inspeccion'],
             'fotos'     => (int)$row['cantidad_fotos'],
             'portada'   => $row['foto_portada'] ? APP_URL_BASE . $row['foto_portada'] : null,

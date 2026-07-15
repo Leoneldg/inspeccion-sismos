@@ -49,8 +49,8 @@ include __DIR__ . '/../includes/header.php';
         <i class="bi bi-building-fill" style="font-size:22px;"></i>
         <span class="dashboard-tv-title"><?= e(mb_strtoupper($pageTitle === 'Dashboard' ? 'Inspección de Edificaciones Post-Sismo' : $pageTitle)) ?></span>
     </div>
-    <div class="flex items-center gap-12" style="flex-wrap:wrap;">
-        <span class="text-sm" style="color:#9fb0d6;"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
+    <div class="flex items-center gap-12" style="flex-wrap:wrap;" id="barra-filtros">
+        <span class="text-sm" style="color:#9fb0d6;" id="txt-actualizado"><i class="bi bi-arrow-repeat"></i> Actualizado <span id="hora-actualizacion">—</span></span>
         <?php
             // Tiene "vista nacional" quien es master O quien (siendo no-master)
             // no tiene un estado asignado. Sólo un estadal con estado fijo NO
@@ -98,6 +98,10 @@ include __DIR__ . '/../includes/header.php';
             <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
         </button>
         <?php endif; ?>
+        <button id="btn-presentacion" type="button" class="btn btn-outline btn-sm"
+                title="Oculta filtros y lista para dejar solo el mapa y los KPIs (ideal para capturas)">
+            <i class="bi bi-camera-fill"></i> Modo presentación
+        </button>
         <?php if (puede('formulario', 'crear')): ?>
         <a href="<?= APP_URL_BASE ?>formulario/create.php" class="btn btn-accent btn-sm">
             <i class="bi bi-plus-lg"></i> Nueva inspección
@@ -269,6 +273,9 @@ let geojsonLimitesParroquias = undefined; // undefined = aún no se intentó car
 let parroquiaSeleccionada = '';           // '' = sin filtro (todas)
 let usoSeleccionado = '';                 // '' = sin filtro (todos los usos)
 let fotosSeleccionado = '';               // '' = sin filtro; 'con' = con fotos/adjuntos; 'sin' = sin ellos
+let listaOculta = false;                  // true = el usuario ocultó la lista (el filtro sigue activo)
+let modoPresentacion = false;             // true = solo mapa y KPIs (para capturas de pantalla)
+let ultimaListaEdificios = [];            // última lista recibida, para re-renderizar sin recargar
 let ultimaParroquiaEnMapa;                // controla cuándo animar el zoom (evita re-animar en cada refresh)
 let ultimoDatosDashboard = null;          // última respuesta de la API, para poder re-renderizar sin refetch
 let decisionRankingSeleccionada = '';     // '' = total (todas las decisiones); si no, ranking de esa decisión
@@ -307,18 +314,9 @@ function initMap() {
         maxZoom: 19,
     }).addTo(map);
 
-    clusterLayer = L.markerClusterGroup({
-        maxClusterRadius: 45,
-        iconCreateFunction: function (cluster) {
-            const count = cluster.getChildCount();
-            const size = count > 50 ? 54 : count > 15 ? 46 : 36;
-            return L.divIcon({
-                html: '<div class="marker-cluster-custom" style="width:' + size + 'px;height:' + size + 'px;font-size:' + (size > 40 ? 14 : 12) + 'px;">' + count + '</div>',
-                className: '',
-                iconSize: [size, size],
-            });
-        }
-    });
+    // Capa de puntos SIN agrupar: se dibuja cada inspección individualmente,
+    // en vez de un círculo con un número que hay que desplegar.
+    clusterLayer = L.layerGroup();
     seccionesLayer = L.layerGroup();
     map.addLayer(clusterLayer);
     map.addLayer(seccionesLayer);
@@ -481,12 +479,47 @@ function actualizarIndicadoresFiltro() {
 function renderListaEdificios(lista) {
     const cont = document.getElementById('lista-edificios');
     if (!cont) return; // widget "mapa" oculto por configuración
+    ultimaListaEdificios = lista;      // se guarda para poder re-renderizar
     cont.innerHTML = '';
     const hayFiltro = !!(parroquiaSeleccionada || usoSeleccionado || fotosSeleccionado || decisionSeleccionada);
     cont.classList.toggle('mapa-lista-hidden', !hayFiltro);
     if (!hayFiltro) {
+        // Sin filtro no hay lista que mostrar. Solo se restablece el estado si
+        // NO estamos en modo presentación (ahí la lista debe seguir oculta).
+        if (!modoPresentacion) listaOculta = false;
         return;
     }
+
+    // --- Lista ocultada por el usuario: solo se deja un botón para traerla de
+    //     vuelta. El filtro sigue activo (el mapa y los KPIs no se tocan). ---
+    if (listaOculta) {
+        cont.classList.remove('mapa-lista-hidden');
+        cont.style.background = 'transparent';
+        cont.style.boxShadow  = 'none';
+        cont.style.border     = '0';
+        cont.style.padding    = '0';
+
+        const mostrar = document.createElement('button');
+        mostrar.type = 'button';
+        mostrar.title = 'Mostrar la lista de edificios';
+        mostrar.innerHTML = '<i class="bi bi-list-ul"></i> Mostrar lista';
+        mostrar.style.cssText =
+            'display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border:0;'
+          + 'border-radius:8px;background:rgba(34,54,111,.92);color:#fff;font-size:12.5px;'
+          + 'font-weight:600;cursor:pointer;box-shadow:0 2px 10px rgba(20,30,60,.28);';
+        mostrar.addEventListener('click', () => {
+            listaOculta = false;
+            renderListaEdificios(ultimaListaEdificios);
+        });
+        cont.appendChild(mostrar);
+        return;
+    }
+
+    // La lista visible recupera su estilo normal (por si venía de estar oculta).
+    cont.style.background = '';
+    cont.style.boxShadow  = '';
+    cont.style.border     = '';
+    cont.style.padding    = '';
 
     const header = document.createElement('div');
     header.className = 'mapa-lista-header';
@@ -495,6 +528,19 @@ function renderListaEdificios(lista) {
     title.className = 'mapa-lista-title';
     title.textContent = `EDIFICIOS EN ${descripcionFiltroActivo().toUpperCase()}`;
     header.appendChild(title);
+
+    // Botón para OCULTAR la lista sin perder el filtro. Útil para ver el mapa
+    // y los KPIs despejados (por ejemplo, para tomar una captura de pantalla).
+    const ocultar = document.createElement('button');
+    ocultar.type = 'button';
+    ocultar.className = 'mapa-lista-close';
+    ocultar.title = 'Ocultar la lista (el filtro se mantiene)';
+    ocultar.innerHTML = '<i class="bi bi-eye-slash"></i>';
+    ocultar.addEventListener('click', () => {
+        listaOculta = true;
+        renderListaEdificios(ultimaListaEdificios);
+    });
+    header.appendChild(ocultar);
 
     const close = document.createElement('button');
     close.type = 'button';
@@ -510,6 +556,7 @@ function renderListaEdificios(lista) {
         fotosSeleccionado = '';
         const selFotos = document.getElementById('filtro-fotos');
         if (selFotos) selFotos.value = '';
+        listaOculta = false;      // al quitar el filtro se restablece la lista
         cargarDashboard();
     });
     header.appendChild(close);
@@ -635,6 +682,52 @@ document.getElementById('filtro-uso').addEventListener('change', function () {
 document.getElementById('filtro-fotos').addEventListener('change', function () {
     fotosSeleccionado = this.value;
     cargarDashboard();
+});
+
+/* ---------------- Modo presentación ----------------
+   Oculta de una vez los filtros y la lista de edificios, dejando solo el mapa
+   y los KPIs. Pensado para tomar capturas de pantalla con un filtro aplicado
+   (por ejemplo, solo los verdes) sin que la lista tape el mapa.
+   NO toca los filtros: lo que se ve sigue siendo lo filtrado.
+   Se sale con el mismo botón o con la tecla Escape. */
+function aplicarModoPresentacion(activo) {
+    modoPresentacion = activo;
+
+    // Filtros: se ocultan todos menos el botón de salir.
+    const barra = document.getElementById('barra-filtros');
+    if (barra) {
+        Array.from(barra.children).forEach(el => {
+            if (el.id !== 'btn-presentacion') {
+                el.style.display = activo ? 'none' : '';
+            }
+        });
+    }
+
+    // Lista de edificios.
+    listaOculta = activo;
+    renderListaEdificios(ultimaListaEdificios);
+
+    // El botón cambia para poder salir.
+    const btn = document.getElementById('btn-presentacion');
+    if (btn) {
+        btn.innerHTML = activo
+            ? '<i class="bi bi-x-lg"></i> Salir de presentación'
+            : '<i class="bi bi-camera-fill"></i> Modo presentación';
+        btn.title = activo
+            ? 'Volver a mostrar los filtros y la lista (Esc)'
+            : 'Oculta filtros y lista para dejar solo el mapa y los KPIs (ideal para capturas)';
+    }
+
+    // El mapa debe recalcular su tamaño al cambiar el espacio disponible.
+    if (map) setTimeout(() => map.invalidateSize(), 220);
+}
+
+document.getElementById('btn-presentacion').addEventListener('click', () => {
+    aplicarModoPresentacion(!modoPresentacion);
+});
+
+document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && modoPresentacion) aplicarModoPresentacion(false);
 });
 // Selector de estado (solo master): entra al estado elegido o vuelve al país.
 (function () {
@@ -843,36 +936,43 @@ async function cargarDashboard() {
     }
 
     // 2) Burbujas de TOTAL por sección (el "puntero indicador de total").
-    //    Se ubican en el centroide del polígono si existe, si no en el
-    //    promedio de coordenadas de las inspecciones de esa sección.
-    const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
-    data.secciones_geo.forEach(s => {
-        const clave = normalizarTexto(s.parroquia);
-        let pos = centroidesPoligono[clave];
-        if (!pos && s.lat != null && s.lng != null) pos = [s.lat, s.lng];
-        if (!pos) return; // sin ubicación conocida
-        const seleccionada = esParroquiaSeleccionada(s.parroquia);
-        // Tamaño de la burbuja proporcional al total (escala suave).
-        const size = 30 + Math.round((s.total / maxTotal) * 26);
-        const color = s.color || '#2d4488';
-        const burbuja = L.marker(pos, {
-            icon: L.divIcon({
-                className: 'seccion-total-marker' + (seleccionada ? ' activa' : ''),
-                html: '<div class="seccion-burbuja" style="width:' + size + 'px;height:' + size + 'px;'
-                    + 'background:' + color + ';border-color:' + (seleccionada ? '#1f4bd8' : '#fff') + ';">'
-                    + '<span>' + formatNum(s.total) + '</span></div>'
-                    + '<div class="seccion-nombre">' + s.parroquia + '</div>',
-                iconSize: [size, size],
-                iconAnchor: [size / 2, size / 2],
-            }),
+    //    SOLO se dibujan en la vista NACIONAL, donde son la forma de ver el
+    //    total por estado y de entrar a cada uno. Dentro de un estado o
+    //    parroquia no se muestran: ahí ya se ven los puntos individuales y las
+    //    burbujas los taparían. La navegación se mantiene haciendo clic sobre
+    //    los polígonos (las zonas sombreadas).
+    if (esNivelNacional) {
+        const maxTotal = Math.max(1, ...data.secciones_geo.map(s => s.total));
+        data.secciones_geo.forEach(s => {
+            const clave = normalizarTexto(s.parroquia);
+            let pos = centroidesPoligono[clave];
+            if (!pos && s.lat != null && s.lng != null) pos = [s.lat, s.lng];
+            if (!pos) return; // sin ubicación conocida
+            const seleccionada = esParroquiaSeleccionada(s.parroquia);
+            // Tamaño de la burbuja proporcional al total (escala suave).
+            const size = 30 + Math.round((s.total / maxTotal) * 26);
+            const color = s.color || '#2d4488';
+            const burbuja = L.marker(pos, {
+                icon: L.divIcon({
+                    className: 'seccion-total-marker' + (seleccionada ? ' activa' : ''),
+                    html: '<div class="seccion-burbuja" style="width:' + size + 'px;height:' + size + 'px;'
+                        + 'background:' + color + ';border-color:' + (seleccionada ? '#1f4bd8' : '#fff') + ';">'
+                        + '<span>' + formatNum(s.total) + '</span></div>'
+                        + '<div class="seccion-nombre">' + s.parroquia + '</div>',
+                    iconSize: [size, size],
+                    iconAnchor: [size / 2, size / 2],
+                }),
+            });
+            burbuja.on('click', () => clicSeccion(s.parroquia));
+            burbuja.addTo(seccionesLayer);
         });
-        burbuja.on('click', () => clicSeccion(s.parroquia));
-        burbuja.addTo(seccionesLayer);
-    });
+    }
 
     document.getElementById('nota-limites').textContent = esNivelNacional
         ? 'Vista nacional: total de inspecciones por estado. Haga clic en un estado para ver su detalle.'
-        : (limites ? ('Detalle por ' + (data.unidad_base || 'unidad') + '. Haga clic para filtrar.') : 'Secciones aproximadas.');
+        : (limites
+            ? ('Cada punto es una inspección. Haga clic sobre una zona para filtrar por ' + (data.unidad_base || 'unidad') + '.')
+            : 'Secciones aproximadas.');
 
     // Zoom/encuadre por nivel.
     const claveEncuadre = (data.estado_filtro || 'PAIS') + '|' + (data.municipio_filtro || '') + '|' + parroquiaSeleccionada;
@@ -904,9 +1004,13 @@ async function cargarDashboard() {
                 color: '#1f2937',
                 fillColor: p.decision_color,
                 fillOpacity: 0.9,
+                // Las ubicadas por parroquia (sin GPS propio) van con borde
+                // punteado, para distinguirlas de las de coordenada exacta.
+                dashArray: p.aprox ? '3,3' : null,
             });
+            const nota = p.aprox ? '<br><em style="color:#C9A227;">Ubicación aprox. por parroquia</em>' : '';
             marcador.bindTooltip(
-                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}`,
+                `<strong>${p.nombre}</strong><br>${p.parroquia}<br>${p.decision}${nota}`,
                 { direction: 'top', offset: [0, -8] }
             );
             marcador.on('click', () => abrirFicha(p.id));

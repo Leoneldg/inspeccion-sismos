@@ -1,34 +1,85 @@
-DASHBOARD — Descargar lista filtrada también en PDF
-========================================================
+====================================================================
+ ACTUALIZACIÓN — Sistema de Inspecciones Post-Sismo
+====================================================================
 
-QUÉ SE AGREGÓ
--------------
-Ahora hay DOS botones donde antes había uno: "Descargar Excel" (el que
-ya tenías) y el nuevo "Descargar PDF" -- ambos respetan exactamente los
-mismos filtros activos en pantalla (Estado, Municipio, Parroquia, Uso,
-Decisión, todos combinables).
+Este paquete reúne TODOS los cambios que hicimos en el Dashboard y en
+el módulo de Seguimiento y Control.
 
-El PDF quedó diseñado así, no es una tabla simple:
-  - Encabezado con el nombre del sistema, fecha de generación y quién
-    lo generó.
-  - Recuadro mostrando qué filtros se aplicaron, para que quede
-    constancia de qué es exactamente ese listado.
-  - 4 cajas de resumen arriba: Total de inspecciones, y el conteo de
-    cada decisión (Verde / Amarillo / Rojo).
-  - Tabla en orientación horizontal (más cómoda para 10 columnas),
-    encabezado azul, filas alternadas para que sea fácil de leer, y la
-    decisión de cada fila con su propia etiqueta de color.
-  - Numeración de página en el pie (Página X de Y).
+--------------------------------------------------------------------
+ QUÉ INCLUYE CADA ARCHIVO
+--------------------------------------------------------------------
 
-Reutiliza el mismo motor (Dompdf) que ya usa el sistema para la ficha
-individual de cada inspección, así que no agrega ninguna dependencia
-nueva.
+dashboard/index.php
+   - Modo presentación (botón cámara: oculta filtros y lista para capturas)
+   - Botón para ocultar la lista sin perder el filtro
+   - Mapa sin agrupamiento: se ven todos los puntos individuales
+   - Las burbujas de total por zona solo salen en la vista nacional
+   - Reubicación de puntos sin GPS hacia su parroquia (no en las montañas)
 
-Archivo nuevo: dashboard/exportar_lista_pdf.php
+dashboard/api_kpis.php
+   - Detecta coordenadas repetidas "por defecto" y las reubica por parroquia
+   - Usa los edificios con GPS real como referencia de la zona urbana
 
-CÓMO APLICAR
-------------
-Reemplaza dashboard/index.php y agrega el archivo nuevo
-dashboard/exportar_lista_pdf.php.
+dashboard/exportar_lista.php
+dashboard/exportar_lista_pdf.php
+   - Filtro "Sin uso" y filtro por fotos/adjuntos en las descargas
+   - El PDF de lista se divide por parroquia (o por estado a nivel nacional)
+   - Enlaces a la ficha de cada inspección desde el PDF de lista
 
-No requiere ninguna migración SQL.
+dashboard/export_pdf.php
+   - En la ficha PDF, las fotos salen una al lado de la otra
+
+includes/functions.php
+   - Catálogo de usos completo (incluye "Vivienda Multifamiliar", etc.)
+   - Funciones de ubicación por parroquia (las usan los dos mapas)
+
+includes/seguimiento.php
+   - Coordenadas en la lista de edificios + funciones de fases y de ente
+
+seguimiento/index.php
+   - Nuevo mapa del módulo de Seguimiento y Control
+   - Al tocar un punto: ficha técnica + asignar ente de recuperación
+
+seguimiento/asignar_ente.php   (ARCHIVO NUEVO)
+   - Recibe la asignación de ente desde el mapa
+
+seguimiento/guardar_plan.php
+   - CORRECCIÓN: ahora guarda TODOS los campos del plan (antes solo 3)
+
+--------------------------------------------------------------------
+ CÓMO INSTALAR  (respetando las carpetas)
+--------------------------------------------------------------------
+
+Copie cada archivo a su carpeta correspondiente dentro de su sitio.
+Si su sitio está en /var/www/inspeccion, quedaría así:
+
+   dashboard/*    ->  /var/www/inspeccion/dashboard/
+   includes/*     ->  /var/www/inspeccion/includes/
+   seguimiento/*  ->  /var/www/inspeccion/seguimiento/
+
+IMPORTANTE: NINGUNO de estos index.php va en la raíz del sitio.
+El index.php de la raíz (el de redirección) NO se toca.
+
+--------------------------------------------------------------------
+ RECOMENDADO ANTES DE COPIAR (por SSH): hacer respaldo
+--------------------------------------------------------------------
+
+   cd /var/www/inspeccion
+   cp -r dashboard dashboard_respaldo
+   cp -r includes  includes_respaldo
+   cp -r seguimiento seguimiento_respaldo
+
+--------------------------------------------------------------------
+ DESPUÉS DE COPIAR: verificar que no haya errores
+--------------------------------------------------------------------
+
+   cd /var/www/inspeccion
+   php -l dashboard/index.php
+   php -l dashboard/api_kpis.php
+   php -l includes/functions.php
+   php -l seguimiento/index.php
+
+Cada uno debe responder "No syntax errors detected".
+
+Luego abra el sistema en el navegador y recargue con Ctrl+F5.
+====================================================================

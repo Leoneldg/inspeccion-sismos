@@ -1175,3 +1175,227 @@ function obtenerConfigMapa(): array
     }
     return $defaults;
 }
+
+// =====================================================================
+// UBICACIÓN APROXIMADA POR PARROQUIA
+// ---------------------------------------------------------------------
+// Muchas inspecciones no tienen coordenadas GPS válidas, pero sí tienen
+// parroquia. Para poder mostrarlas en el mapa se les genera un punto
+// aleatorio DENTRO del polígono de su parroquia (usando los geojson de
+// assets/geo/parroquias). Así se distribuyen por su zona real en vez de
+// amontonarse todas en un mismo sitio.
+//
+// El punto es determinista por inspección (se usa su id como semilla),
+// de modo que una misma inspección cae siempre en el mismo lugar y no
+// "salta" cada vez que se recarga el mapa.
+// =====================================================================
+
+/** Normaliza un nombre para comparar (sin tildes, minúsculas, sin dobles espacios). */
+function segNorm(string $s): string
+{
+    $s = mb_strtolower(trim($s), 'UTF-8');
+    $s = strtr($s, [
+        'á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ü'=>'u','ñ'=>'n',
+        'à'=>'a','è'=>'e','ì'=>'i','ò'=>'o','ù'=>'u',
+    ]);
+    return preg_replace('/\s+/', ' ', $s);
+}
+
+/**
+ * Carga (una sola vez) los polígonos de parroquias de un estado.
+ * Devuelve: [ nombre_normalizado => ['rings' => [...], 'bbox' => [minLng,minLat,maxLng,maxLat]] ]
+ */
+function segPoligonosParroquias(string $estado): array
+{
+    static $cache = [];
+    $clave = segNorm($estado);
+    if (isset($cache[$clave])) return $cache[$clave];
+
+    // El nombre de archivo usa guiones bajos y sin tildes: "Distrito Capital" -> distrito_capital
+    $archivo = str_replace(' ', '_', segNorm($estado)) . '.geojson';
+    $ruta    = __DIR__ . '/../assets/geo/parroquias/' . $archivo;
+
+    if (!is_file($ruta)) { $cache[$clave] = []; return []; }
+
+    $json = json_decode((string)file_get_contents($ruta), true);
+    if (!is_array($json) || empty($json['features'])) { $cache[$clave] = []; return []; }
+
+    $res = [];
+    foreach ($json['features'] as $ft) {
+        $nom = $ft['properties']['parroquia'] ?? '';
+        if ($nom === '') continue;
+        $geom = $ft['geometry'] ?? null;
+        if (!$geom) continue;
+
+        // Se admiten Polygon y MultiPolygon: se recogen todos sus anillos exteriores.
+        $rings = [];
+        if ($geom['type'] === 'Polygon') {
+            $rings[] = $geom['coordinates'][0] ?? [];
+        } elseif ($geom['type'] === 'MultiPolygon') {
+            foreach ($geom['coordinates'] as $poly) {
+                if (!empty($poly[0])) $rings[] = $poly[0];
+            }
+        }
+        if (!$rings) continue;
+
+        // Bounding box de todos los anillos (para acelerar el sorteo).
+        $minLng = $minLat = INF; $maxLng = $maxLat = -INF;
+        foreach ($rings as $ring) {
+            foreach ($ring as $pt) {
+                $minLng = min($minLng, $pt[0]); $maxLng = max($maxLng, $pt[0]);
+                $minLat = min($minLat, $pt[1]); $maxLat = max($maxLat, $pt[1]);
+            }
+        }
+        $res[segNorm($nom)] = ['rings' => $rings, 'bbox' => [$minLng, $minLat, $maxLng, $maxLat]];
+    }
+
+    $cache[$clave] = $res;
+    return $res;
+}
+
+/** ¿El punto (lng,lat) cae dentro del anillo? (algoritmo ray casting) */
+function segPuntoEnAnillo(float $lng, float $lat, array $ring): bool
+{
+    $dentro = false;
+    $n = count($ring);
+    for ($i = 0, $j = $n - 1; $i < $n; $j = $i++) {
+        $xi = $ring[$i][0]; $yi = $ring[$i][1];
+        $xj = $ring[$j][0]; $yj = $ring[$j][1];
+        $corta = (($yi > $lat) !== ($yj > $lat))
+              && ($lng < ($xj - $xi) * ($lat - $yi) / (($yj - $yi) ?: 1e-12) + $xi);
+        if ($corta) $dentro = !$dentro;
+    }
+    return $dentro;
+}
+
+/**
+ * Devuelve [lat, lng] aleatorio DENTRO de la parroquia indicada, o null si
+ * no se encuentra la parroquia. El resultado es estable para un mismo $semilla.
+ */
+function segPuntoEnParroquia(string $estado, string $parroquia, int $semilla): ?array
+{
+    if ($estado === '' || $parroquia === '') return null;
+
+    $polis = segPoligonosParroquias($estado);
+    if (!$polis) return null;
+
+    $clave = segNorm($parroquia);
+    $poli  = $polis[$clave] ?? null;
+
+    // Si no hay coincidencia exacta, se intenta una parcial (nombres con variantes).
+    if ($poli === null) {
+        foreach ($polis as $nom => $datos) {
+            if (str_contains($nom, $clave) || str_contains($clave, $nom)) { $poli = $datos; break; }
+        }
+    }
+    if ($poli === null) return null;
+
+    [$minLng, $minLat, $maxLng, $maxLat] = $poli['bbox'];
+
+    // Generador determinista: la misma inspección cae siempre en el mismo punto.
+    mt_srand($semilla);
+    for ($i = 0; $i < 60; $i++) {   // intentos de sorteo dentro del bbox
+        $lng = $minLng + (mt_rand() / mt_getrandmax()) * ($maxLng - $minLng);
+        $lat = $minLat + (mt_rand() / mt_getrandmax()) * ($maxLat - $minLat);
+        foreach ($poli['rings'] as $ring) {
+            if (segPuntoEnAnillo($lng, $lat, $ring)) {
+                mt_srand();   // se restaura la aleatoriedad global
+                return [$lat, $lng];
+            }
+        }
+    }
+    mt_srand();
+
+    // Si tras varios intentos no se logró (parroquias muy irregulares),
+    // se usa el centro del bounding box como aproximación.
+    return [($minLat + $maxLat) / 2, ($minLng + $maxLng) / 2];
+}
+
+/**
+ * Devuelve el centro poblado declarado de una parroquia (center_lat/center_lon
+ * del geojson), o null si no se encuentra.
+ */
+function segCentroParroquia(string $estado, string $parroquia): ?array
+{
+    static $cache = [];
+    $ck = segNorm($estado) . '|' . segNorm($parroquia);
+    if (array_key_exists($ck, $cache)) return $cache[$ck];
+
+    $archivo = str_replace(' ', '_', segNorm($estado)) . '.geojson';
+    $ruta    = __DIR__ . '/../assets/geo/parroquias/' . $archivo;
+    if (!is_file($ruta)) { return $cache[$ck] = null; }
+
+    $json = json_decode((string)file_get_contents($ruta), true);
+    if (empty($json['features'])) { return $cache[$ck] = null; }
+
+    $objetivo = segNorm($parroquia);
+    foreach ($json['features'] as $ft) {
+        $pr = $ft['properties'] ?? [];
+        $nom = segNorm((string)($pr['parroquia'] ?? ''));
+        if ($nom === '') continue;
+        if ($nom === $objetivo || str_contains($nom, $objetivo) || str_contains($objetivo, $nom)) {
+            if (isset($pr['center_lat'], $pr['center_lon'])) {
+                return $cache[$ck] = [(float)$pr['center_lat'], (float)$pr['center_lon']];
+            }
+        }
+    }
+    return $cache[$ck] = null;
+}
+
+/**
+ * Ubica una inspección SIN coordenadas propias, evitando que caiga en zonas
+ * deshabitadas (montañas). Estrategia, en orden de preferencia:
+ *
+ *   1) Si en su misma parroquia hay inspecciones CON GPS real, se coloca cerca
+ *      de una de ellas (pequeña dispersión). Es la mejor referencia de dónde
+ *      hay edificaciones de verdad, porque son datos reales del propio sistema.
+ *   2) Si no hay ninguna, se coloca alrededor del centro poblado que declara
+ *      el geojson de la parroquia, con una dispersión acotada.
+ *   3) Como último recurso, un punto aleatorio dentro del polígono.
+ *
+ * $anclas: lista de [lat, lng] de inspecciones con GPS real de esa parroquia.
+ * El resultado es determinista según $semilla (no "salta" al recargar).
+ */
+function segUbicarEnParroquia(string $estado, string $parroquia, int $semilla, array $anclas = []): ?array
+{
+    if ($estado === '' || $parroquia === '') return null;
+
+    mt_srand($semilla);
+
+    // --- 1) Cerca de un edificio real de la misma parroquia ---
+    if ($anclas) {
+        $base = $anclas[mt_rand(0, count($anclas) - 1)];
+        // Dispersión ~120 m: suficiente para que no se solapen, sin sacarlos
+        // de la zona urbana donde están los edificios reales.
+        $r = 0.0011;
+        $lat = $base[0] + ((mt_rand() / mt_getrandmax()) * 2 - 1) * $r;
+        $lng = $base[1] + ((mt_rand() / mt_getrandmax()) * 2 - 1) * $r;
+        mt_srand();
+        return [$lat, $lng];
+    }
+
+    // --- 2) Alrededor del centro poblado de la parroquia ---
+    $centro = segCentroParroquia($estado, $parroquia);
+    if ($centro !== null) {
+        // Dispersión ~400 m alrededor del centro declarado.
+        $r = 0.0035;
+        for ($i = 0; $i < 25; $i++) {
+            $lat = $centro[0] + ((mt_rand() / mt_getrandmax()) * 2 - 1) * $r;
+            $lng = $centro[1] + ((mt_rand() / mt_getrandmax()) * 2 - 1) * $r;
+            // Se comprueba que siga dentro de la parroquia.
+            $polis = segPoligonosParroquias($estado);
+            $clave = segNorm($parroquia);
+            $poli  = $polis[$clave] ?? null;
+            if ($poli === null) { mt_srand(); return [$lat, $lng]; }
+            foreach ($poli['rings'] as $ring) {
+                if (segPuntoEnAnillo($lng, $lat, $ring)) { mt_srand(); return [$lat, $lng]; }
+            }
+        }
+        mt_srand();
+        return $centro;   // si la dispersión se sale, se usa el centro exacto
+    }
+
+    mt_srand();
+    // --- 3) Último recurso: aleatorio dentro del polígono ---
+    return segPuntoEnParroquia($estado, $parroquia, $semilla);
+}

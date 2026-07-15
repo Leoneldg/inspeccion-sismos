@@ -29,15 +29,78 @@ $fasesCat    = segFasesRecuperacion();
 $puedeEditar = puede('seguimiento', 'editar');
 
 // ---------------------------------------------------------------------
-// Puntos para el mapa: solo los que tienen coordenadas registradas.
-// A cada uno se le calcula su fase de recuperación actual.
+// Puntos para el mapa.
+//   1) Si la inspección tiene coordenadas GPS propias y válidas, se usan.
+//   2) Si NO las tiene (nulas, 0,0) o tiene una coordenada "por defecto"
+//      (la misma repetida en muchas inspecciones, señal de que no es una
+//      ubicación real sino un valor puesto automáticamente), se le genera
+//      un punto aleatorio dentro del polígono de su parroquia.
+//   3) Si no hay forma de ubicarla (sin parroquia), no se muestra.
 // ---------------------------------------------------------------------
-$puntos = [];
-$sinCoords = 0;
+
+// Primero se detectan las coordenadas repetidas en masa: si un mismo par
+// lat/lng aparece en muchas inspecciones, no es una ubicación real.
+$umbralDuplicadas = 5;   // a partir de aquí se considera valor por defecto
+$conteoCoords = [];
 foreach ($edificios as $ed) {
     $lat = $ed['latitud'] ?? null;
     $lng = $ed['longitud'] ?? null;
-    if ($lat === null || $lng === null || $lat === '' || $lng === '') { $sinCoords++; continue; }
+    if ($lat === null || $lng === null || $lat === '' || $lng === '') continue;
+    $k = round((float)$lat, 5) . ',' . round((float)$lng, 5);
+    $conteoCoords[$k] = ($conteoCoords[$k] ?? 0) + 1;
+}
+$coordsPorDefecto = [];
+foreach ($conteoCoords as $k => $n) {
+    if ($n >= $umbralDuplicadas) $coordsPorDefecto[$k] = true;
+}
+
+// Anclas por parroquia: inspecciones con coordenada propia fiable. Sirven de
+// referencia de dónde hay edificaciones reales, para no colocar los puntos
+// aproximados en zonas deshabitadas (montañas) de parroquias muy extensas.
+$anclas = [];
+foreach ($edificios as $ed) {
+    $la = $ed['latitud'] ?? null; $ln = $ed['longitud'] ?? null;
+    if ($la === null || $ln === null || $la === '' || $ln === '') continue;
+    if ((float)$la == 0.0 && (float)$ln == 0.0) continue;
+    $k = round((float)$la, 5) . ',' . round((float)$ln, 5);
+    if (isset($coordsPorDefecto[$k])) continue;
+    $pq = segNorm((string)($ed['estado'] ?? '')) . '|' . segNorm((string)($ed['parroquia'] ?? ''));
+    $anclas[$pq][] = [(float)$la, (float)$ln];
+}
+
+$puntos       = [];
+$sinUbicacion = 0;   // ni coordenadas ni parroquia ubicable
+$aproximados  = 0;   // ubicadas por parroquia (no por GPS propio)
+
+foreach ($edificios as $ed) {
+    $lat = $ed['latitud'] ?? null;
+    $lng = $ed['longitud'] ?? null;
+
+    // ¿Tiene coordenadas propias utilizables?
+    $tieneGps = ($lat !== null && $lng !== null && $lat !== '' && $lng !== ''
+                 && !((float)$lat == 0.0 && (float)$lng == 0.0));
+
+    // Si su coordenada es una de las repetidas en masa, no es real: se descarta.
+    if ($tieneGps) {
+        $k = round((float)$lat, 5) . ',' . round((float)$lng, 5);
+        if (isset($coordsPorDefecto[$k])) $tieneGps = false;
+    }
+
+    $aprox = false;
+    if (!$tieneGps) {
+        // Se ubica dentro de su parroquia.
+        $pqKey = segNorm((string)($ed['estado'] ?? '')) . '|' . segNorm((string)($ed['parroquia'] ?? ''));
+        $pt = segUbicarEnParroquia(
+            (string)($ed['estado'] ?? ''),
+            (string)($ed['parroquia'] ?? ''),
+            (int)$ed['inspeccion_id'],         // semilla: siempre cae en el mismo punto
+            $anclas[$pqKey] ?? []
+        );
+        if ($pt === null) { $sinUbicacion++; continue; }   // sin parroquia -> no se muestra
+        [$lat, $lng] = $pt;
+        $aprox = true;
+        $aproximados++;
+    }
 
     $fase = segFaseDe($ed['estado_obra'] ?? null, $ed['avance_pct'] ?? 0);
     $meta = $decisiones[$ed['decision_final']] ?? ['color' => '#767c94', 'corto' => '—'];
@@ -48,6 +111,7 @@ foreach ($edificios as $ed) {
         'nombre'      => $ed['nombre_edificio'],
         'lat'         => (float)$lat,
         'lng'         => (float)$lng,
+        'aprox'       => $aprox,     // true = ubicación aproximada por parroquia
         'color'       => $meta['color'],
         'decision'    => $meta['corto'],
         'estado'      => $ed['estado'] ?: '—',
@@ -68,8 +132,6 @@ foreach ($edificios as $ed) {
 include __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
 <style>
 /* ---- Mapa de seguimiento ---- */
@@ -202,9 +264,14 @@ include __DIR__ . '/../includes/header.php';
 <div class="card">
     <div class="card-header">
         <h2><i class="bi bi-geo-alt-fill"></i> Mapa de recuperación (<?= count($puntos) ?>)</h2>
-        <?php if ($sinCoords > 0): ?>
-            <span class="text-sm text-muted"><?= $sinCoords ?> sin coordenadas registradas</span>
-        <?php endif; ?>
+        <span class="text-sm text-muted">
+            <?php if ($aproximados > 0): ?>
+                <i class="bi bi-geo"></i> <?= $aproximados ?> ubicadas por parroquia (aprox.)
+            <?php endif; ?>
+            <?php if ($sinUbicacion > 0): ?>
+                &nbsp;·&nbsp; <?= $sinUbicacion ?> sin ubicación (no se muestran)
+            <?php endif; ?>
+        </span>
     </div>
 
     <div class="seg-leyenda">
@@ -212,7 +279,8 @@ include __DIR__ . '/../includes/header.php';
         <?php foreach ($decisiones as $meta): ?>
             <span><i class="bi bi-circle-fill" style="color:<?= $meta['color'] ?>;"></i> <?= e($meta['corto']) ?></span>
         <?php endforeach; ?>
-        <span style="margin-left:6px;"><i class="bi bi-tools" style="color:#2d4488;"></i> = en fase de mantenimiento</span>
+        <span style="margin-left:6px;"><i class="bi bi-tools" style="color:#2d4488;"></i> = en fase de recuperación</span>
+        <span><i class="bi bi-circle" style="color:#767c94;"></i> borde punteado = ubicación aproximada (por parroquia, sin GPS)</span>
     </div>
 
     <div class="card-body">
@@ -266,7 +334,6 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 const PUNTOS       = <?= json_encode($puntos, JSON_UNESCAPED_UNICODE) ?>;
 const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
@@ -274,7 +341,7 @@ const ENTES        = <?= json_encode(array_map(fn($x) => ['id' => (int)$x['id'],
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const URL_ENTE     = '<?= APP_URL_BASE ?>seguimiento/asignar_ente.php';
 
-let map, cluster;
+let map;
 let marcadores = {};      // id -> marker
 let seleccionado = null;  // punto actualmente abierto en el panel
 
@@ -287,12 +354,15 @@ function iconoPunto(p) {
         ? '<span class="seg-marker-mant"><i class="bi bi-tools"></i></span>'
         : '';
     const anillo = (p.fase === 3) ? 'box-shadow:0 0 0 3px #2E7D32, 0 1px 4px rgba(0,0,0,.45);' : '';
+    // Los ubicados por parroquia (sin GPS) llevan borde punteado, para
+    // distinguir la ubicación aproximada de la exacta.
+    const borde = p.aprox ? 'border:2px dashed #fff;' : 'border:2px solid #fff;';
     return L.divIcon({
         className: '',
         iconSize: [size, size],
         iconAnchor: [size / 2, size / 2],
         html: `<div style="position:relative;width:${size}px;height:${size}px;">
-                 <span class="seg-marker-ico" style="width:${size}px;height:${size}px;background:${p.color};${anillo}"></span>
+                 <span class="seg-marker-ico" style="width:${size}px;height:${size}px;background:${p.color};${borde}${anillo}"></span>
                  ${mant}
                </div>`
     });
@@ -445,6 +515,7 @@ function abrirPanel(p) {
 
     const filas = [
         ['Ubicación',    [p.parroquia, p.municipio, p.estado].filter(x => x && x !== '—').join(', ') || '—'],
+        ...(p.aprox ? [['Coordenadas', '<span style="color:#C9A227;" title="Sin GPS: se ubicó dentro de su parroquia"><i class="bi bi-geo"></i> Aprox. por parroquia</span>']] : []),
         ['Uso',          p.uso],
         ['Pisos',        p.pisos || '—'],
         ['Personas',     p.personas || '—'],
@@ -471,17 +542,19 @@ function abrirPanel(p) {
         attribution: 'Esri'
     }).addTo(map);
 
-    cluster = L.markerClusterGroup({ maxClusterRadius: 45, spiderfyOnMaxZoom: true });
+    // Sin agrupamiento: todos los puntos se dibujan individualmente, para que
+    // se vea cada edificación y no un número que hay que desplegar.
+    const capa = L.featureGroup();
 
     PUNTOS.forEach(p => {
         const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
         m.on('click', () => abrirPanel(p));
         marcadores[p.id] = m;
-        cluster.addLayer(m);
+        capa.addLayer(m);
     });
 
-    map.addLayer(cluster);
-    map.fitBounds(cluster.getBounds().pad(0.15));
+    capa.addTo(map);
+    map.fitBounds(capa.getBounds().pad(0.15));
 
     document.getElementById('seg-panel-close').addEventListener('click', () => {
         document.getElementById('seg-panel').classList.remove('open');
