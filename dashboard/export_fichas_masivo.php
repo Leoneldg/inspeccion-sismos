@@ -100,16 +100,30 @@ $catalogo = catalogoDecisionFinal();
 $hayTablaFotos = tablaFotosExiste();
 
 // ------------------------------------------------------------------
+// Traer TODAS las fotos de las inspecciones filtradas en UNA sola consulta
+// (en vez de una consulta por inspección). Con cientos de fichas, esto evita
+// cientos de idas a la base de datos y acelera mucho la generación.
+// ------------------------------------------------------------------
+$fotosPorInspeccion = [];
+if ($hayTablaFotos && $inspecciones) {
+    $ids = array_map(fn($x) => (int)$x['id'], $inspecciones);
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $stF = db()->prepare(
+        "SELECT inspeccion_id, categoria, ruta, nombre_original
+         FROM inspeccion_fotos WHERE inspeccion_id IN ($in) ORDER BY creado_en ASC"
+    );
+    $stF->execute($ids);
+    foreach ($stF->fetchAll() as $foto) {
+        $fotosPorInspeccion[(int)$foto['inspeccion_id']][] = $foto;
+    }
+}
+
+// ------------------------------------------------------------------
 // Clasificar: CON FOTOS / SIN FOTOS  ->  por PARROQUIA
 // ------------------------------------------------------------------
 $grupos = ['con' => [], 'sin' => []];
 foreach ($inspecciones as $insp) {
-    $fotos = $hayTablaFotos ? obtenerFotosInspeccion((int)$insp['id']) : [];
-    // Aplanar todas las fotos de todas las categorías en una sola lista.
-    $listaFotos = [];
-    foreach ($fotos as $cat => $lista) {
-        foreach ($lista as $f) $listaFotos[] = $f;
-    }
+    $listaFotos = $fotosPorInspeccion[(int)$insp['id']] ?? [];
     $bloque = $listaFotos ? 'con' : 'sin';
     $pq = trim((string)($insp['parroquia'] ?? '')) ?: 'Sin parroquia';
     $grupos[$bloque][$pq][] = ['insp' => $insp, 'fotos' => $listaFotos];
@@ -124,19 +138,31 @@ foreach ($grupos as $b => $_) {
 // ------------------------------------------------------------------
 /**
  * Convierte una foto en data URI para incrustarla en el PDF, REDIMENSIONÁNDOLA
- * a un tamaño de miniatura. Incrustar las fotos a resolución completa agota la
- * memoria cuando hay muchas fichas; como en la ficha se ven pequeñas, basta con
- * una versión reducida (máx 500 px de lado y JPEG de calidad media).
+ * a miniatura. Para acelerar, la versión reducida se GUARDA EN CACHÉ en disco:
+ * la primera vez se genera, y las siguientes se lee directamente (instantáneo),
+ * en vez de re-procesar la foto original cada vez que se genera un PDF.
  */
 function fotoDataUri(array $f): ?string
 {
     $rutaAbs = __DIR__ . '/../' . ($f['ruta'] ?? '');
     if (!is_file($rutaAbs) || filesize($rutaAbs) === 0) return null;
 
-    // Si no está disponible la librería GD, se cae al método simple (sin redimensionar).
+    // Si no está disponible GD, método simple (sin redimensionar).
     if (!function_exists('imagecreatetruecolor')) {
         $mime = mime_content_type($rutaAbs) ?: 'image/jpeg';
         return 'data:' . $mime . ';base64,' . base64_encode((string)file_get_contents($rutaAbs));
+    }
+
+    // --- Caché en disco ---
+    // La miniatura se identifica por la ruta + fecha de modificación del archivo,
+    // así que si la foto cambia, se regenera; si no, se reutiliza.
+    $cacheDir = __DIR__ . '/../storage/cache_fichas';
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+    $clave = md5($rutaAbs . '|' . @filemtime($rutaAbs)) . '.jpg';
+    $cacheFile = $cacheDir . '/' . $clave;
+
+    if (is_file($cacheFile)) {
+        return 'data:image/jpeg;base64,' . base64_encode((string)file_get_contents($cacheFile));
     }
 
     $info = @getimagesize($rutaAbs);
@@ -144,7 +170,6 @@ function fotoDataUri(array $f): ?string
     [$ancho, $alto] = $info;
     $tipo = $info[2];
 
-    // Cargar según el tipo.
     $src = null;
     switch ($tipo) {
         case IMAGETYPE_JPEG: $src = @imagecreatefromjpeg($rutaAbs); break;
@@ -154,14 +179,14 @@ function fotoDataUri(array $f): ?string
     }
     if (!$src) return null;
 
-    // Escalar para que el lado mayor sea como máximo 500 px.
-    $max = 500;
+    // Escalar para que el lado mayor sea como máximo 380 px (suficiente para
+    // la miniatura de la ficha; más pequeño = más rápido y más liviano).
+    $max = 380;
     $escala = min(1, $max / max($ancho, $alto));
     $nw = max(1, (int)round($ancho * $escala));
     $nh = max(1, (int)round($alto * $escala));
 
     $dst = imagecreatetruecolor($nw, $nh);
-    // Fondo blanco (evita transparencias negras en PNG).
     $blanco = imagecolorallocate($dst, 255, 255, 255);
     imagefilledrectangle($dst, 0, 0, $nw, $nh, $blanco);
     imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ancho, $alto);
@@ -169,9 +194,12 @@ function fotoDataUri(array $f): ?string
 
     // Exportar como JPEG de calidad media.
     ob_start();
-    imagejpeg($dst, null, 70);
+    imagejpeg($dst, null, 68);
     $datos = ob_get_clean();
     imagedestroy($dst);
+
+    // Guardar en caché para la próxima vez (así no se re-procesa la foto).
+    @file_put_contents($cacheFile, $datos);
 
     return 'data:image/jpeg;base64,' . base64_encode($datos);
 }
@@ -421,5 +449,5 @@ $nombre = 'fichas_' . ($estadoFiltro ?: 'todas');
 if ($parroquiaFiltro !== '') $nombre .= '_' . $parroquiaFiltro;
 $nombre = preg_replace('/[^A-Za-z0-9_]+/', '_', $nombre);
 
-$dompdf->stream($nombre . '.pdf', ['Attachment' => false]);
+$dompdf->stream($nombre . '.pdf', ['Attachment' => true]);
 exit;

@@ -808,10 +808,9 @@ document.getElementById('btn-descargar-lista-pdf')?.addEventListener('click', fu
 });
 document.getElementById('btn-descargar-fichas-pdf')?.addEventListener('click', function () {
     // PDF con la ficha técnica de cada edificación (una hoja por ficha),
-    // respetando los filtros activos del dashboard. Se abre en pestaña nueva
-    // porque puede tardar en generarse.
+    // respetando los filtros activos. Se descarga directo (no abre pestaña).
     const qs = paramsDescargaActual();
-    window.open('<?= APP_URL_BASE ?>dashboard/export_fichas_masivo.php' + (qs ? '?' + qs : ''), '_blank');
+    window.location.href = '<?= APP_URL_BASE ?>dashboard/export_fichas_masivo.php' + (qs ? '?' + qs : '');
 });
 
 async function cargarDashboard() {
