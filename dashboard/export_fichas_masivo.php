@@ -34,10 +34,14 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 
 // ------------------------------------------------------------------
-// Filtros
+// Filtros (los mismos que usa el dashboard)
 // ------------------------------------------------------------------
 $estadoFiltro    = trim((string)($_GET['estado'] ?? ''));
+$municipioFiltro = trim((string)($_GET['municipio'] ?? ''));
 $parroquiaFiltro = trim((string)($_GET['parroquia'] ?? ''));
+$usoFiltro       = trim((string)($_GET['uso'] ?? ''));
+$fotosFiltro     = trim((string)($_GET['fotos'] ?? ''));
+$decisionFiltro  = trim((string)($_GET['decision'] ?? ''));
 
 $condiciones = [];
 $params = [];
@@ -45,9 +49,31 @@ if ($estadoFiltro !== '') {
     $condiciones[] = 'i.estado = :estado';
     $params['estado'] = $estadoFiltro;
 }
+if ($municipioFiltro !== '') {
+    $condiciones[] = 'i.municipio = :municipio';
+    $params['municipio'] = $municipioFiltro;
+}
 if ($parroquiaFiltro !== '') {
     $condiciones[] = 'i.parroquia = :parroquia';
     $params['parroquia'] = $parroquiaFiltro;
+}
+if ($usoFiltro === '__SIN_USO__') {
+    $condiciones[] = "(i.uso_edificacion IS NULL OR TRIM(i.uso_edificacion) = '')";
+} elseif ($usoFiltro !== '') {
+    $condiciones[] = 'i.uso_edificacion = :uso';
+    $params['uso'] = $usoFiltro;
+}
+// El filtro por decisión llega como el texto corto (ej. "Acceso Permitido");
+// se traduce a la clave larga del catálogo.
+if ($decisionFiltro !== '') {
+    foreach (catalogoDecisionFinal() as $clave => $meta) {
+        if ($meta['corto'] === $decisionFiltro) { $condiciones[] = 'i.decision_final = :dec'; $params['dec'] = $clave; break; }
+    }
+}
+// El filtro por fotos se resuelve con EXISTS sobre inspeccion_fotos.
+if (($fotosFiltro === 'con' || $fotosFiltro === 'sin') && tablaFotosExiste()) {
+    $op = ($fotosFiltro === 'con') ? 'EXISTS' : 'NOT EXISTS';
+    $condiciones[] = "$op (SELECT 1 FROM inspeccion_fotos ff WHERE ff.inspeccion_id = i.id)";
 }
 $whereSql = $condiciones ? ('WHERE ' . implode(' AND ', $condiciones)) : '';
 

@@ -124,7 +124,10 @@ include __DIR__ . '/../includes/header.php';
                 <i class="bi bi-file-earmark-excel"></i> Excel
             </button>
             <button id="btn-descargar-lista-pdf" type="button" class="btn btn-outline btn-sm" title="Descarga en PDF la lista con los filtros que tengas activos ahora">
-                <i class="bi bi-file-earmark-pdf"></i> PDF
+                <i class="bi bi-file-earmark-pdf"></i> Lista PDF
+            </button>
+            <button id="btn-descargar-fichas-pdf" type="button" class="btn btn-outline btn-sm" title="Genera un PDF con la ficha técnica de cada edificación (una hoja por ficha), según los filtros activos">
+                <i class="bi bi-file-earmark-text"></i> Fichas PDF
             </button>
         </div>
         <?php endif; ?>
@@ -802,6 +805,13 @@ document.getElementById('btn-descargar-lista')?.addEventListener('click', functi
 document.getElementById('btn-descargar-lista-pdf')?.addEventListener('click', function () {
     const qs = paramsDescargaActual();
     window.location.href = EXPORTAR_PDF_URL + (qs ? '?' + qs : '');
+});
+document.getElementById('btn-descargar-fichas-pdf')?.addEventListener('click', function () {
+    // PDF con la ficha técnica de cada edificación (una hoja por ficha),
+    // respetando los filtros activos del dashboard. Se abre en pestaña nueva
+    // porque puede tardar en generarse.
+    const qs = paramsDescargaActual();
+    window.open('<?= APP_URL_BASE ?>dashboard/export_fichas_masivo.php' + (qs ? '?' + qs : ''), '_blank');
 });
 
 async function cargarDashboard() {
