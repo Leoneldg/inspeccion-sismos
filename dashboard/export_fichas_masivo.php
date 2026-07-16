@@ -211,12 +211,13 @@ $css = '
     * { box-sizing: border-box; }
     body { font-family: DejaVu Sans, Arial, sans-serif; margin: 0; color: #1f2430; }
 
-    /* Cada ficha ocupa exactamente una hoja. Se usa un alto fijo un poco menor
-       que el A4 útil para que el contenido nunca empuje una segunda página. */
-    /* Cada ficha ocupa una hoja. wkhtmltopdf respeta bien los saltos, así que
-       se usa la altura de una A4 (menos los márgenes) y el salto tras cada una. */
-    .ficha { page-break-after: always; padding: 24px 30px; height: 1080px; position: relative; overflow: hidden; box-sizing: border-box; }
-    .ficha:last-child { page-break-after: auto; }
+    /* Dos fichas por hoja: cada una ocupa media A4. El salto de página se da
+       después de cada PAR de fichas (ver .par-fichas), aprovechando toda la hoja. */
+    .par-fichas { page-break-after: always; }
+    .par-fichas:last-child { page-break-after: auto; }
+    .ficha { padding: 18px 30px 10px; height: 528px; position: relative; overflow: hidden; box-sizing: border-box; }
+    /* Separador sutil entre las dos fichas de una misma hoja */
+    .ficha.superior { border-bottom: 1px dashed #cfd4e0; }
 
     /* Portada de sección (con fotos / sin fotos, y parroquia) */
     .portada { page-break-after: always; padding: 120px 40px 0; text-align: center; }
@@ -251,13 +252,12 @@ $css = '
     .fotos-wrap { margin-top: 6px; }
     .fotos-tabla { width: 100%; border-collapse: collapse; }
     .fotos-tabla td { width: 50%; padding: 3px; vertical-align: top; }
-    .fotos-tabla img { width: 100%; height: 118px; object-fit: cover; border: 1px solid #d8dce6; border-radius: 3px; }
+    .fotos-tabla img { width: 100%; height: 88px; object-fit: cover; border: 1px solid #d8dce6; border-radius: 3px; }
     .foto-cap { font-size: 8px; color: #888; text-align: center; margin-top: 2px; }
     .sin-fotos { border: 1px dashed #cfd4e0; border-radius: 6px; padding: 26px; text-align: center;
                  color: #9aa1b4; font-size: 12px; margin-top: 6px; }
 
-    .pie { position: absolute; bottom: 14px; left: 30px; right: 30px; border-top: 1px solid #e2e6ef;
-           padding-top: 5px; font-size: 8.5px; color: #9aa1b4; }
+    .pie { margin-top: 10px; border-top: 1px solid #e2e6ef; padding-top: 4px; font-size: 8px; color: #9aa1b4; overflow: hidden; }
     .pie .der { float: right; }
 </style>';
 
@@ -289,12 +289,22 @@ foreach (['con', 'sin'] as $bloque) {
            . '<div class="sub">' . e($ambitoTxt) . '<br>' . $totalBloque . ' edificaciones</div>'
            . '</div>';
 
+    // Se recorren todas las fichas del bloque en orden (por parroquia) y se
+    // colocan de DOS en DOS por hoja. El salto de página cae tras cada par.
+    $buffer = [];   // acumula fichas hasta completar un par
     foreach ($grupos[$bloque] as $parroquia => $items) {
         foreach ($items as $item) {
-            $insp  = $item['insp'];
-            $fotos = $item['fotos'];
-            $html .= construirFicha($insp, $fotos, $parroquia, $catalogo, $bloque);
+            $buffer[] = construirFicha($item['insp'], $item['fotos'], $parroquia, $catalogo, $bloque, count($buffer) === 0);
+            if (count($buffer) === 2) {
+                $html .= '<div class="par-fichas">' . implode('', $buffer) . '</div>';
+                $buffer = [];
+            }
         }
+    }
+    // Si quedó una ficha suelta (número impar), se emite sola en su hoja.
+    if ($buffer) {
+        $html .= '<div class="par-fichas">' . implode('', $buffer) . '</div>';
+        $buffer = [];
     }
 }
 
@@ -303,7 +313,7 @@ $html .= '</body></html>';
 /**
  * Construye el HTML de UNA ficha (una hoja).
  */
-function construirFicha(array $r, array $fotos, string $parroquia, array $catalogo, string $bloque): string
+function construirFicha(array $r, array $fotos, string $parroquia, array $catalogo, string $bloque, bool $esSuperior = true): string
 {
     $meta = $catalogo[$r['decision_final']] ?? ['color' => '#767c94', 'corto' => $r['decision_final']];
 
@@ -323,7 +333,7 @@ function construirFicha(array $r, array $fotos, string $parroquia, array $catalo
     ]);
     $ubicTxt = $ubic ? implode(', ', $ubic) : '';
 
-    $h  = '<div class="ficha">';
+    $h  = '<div class="ficha' . ($esSuperior ? ' superior' : '') . '">';
 
     // Cabecera
     $h .= '<div class="cab">';
