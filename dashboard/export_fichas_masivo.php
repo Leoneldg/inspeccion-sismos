@@ -42,7 +42,7 @@ if (!is_file($wkBin)) {
 $estadoFiltro    = trim((string)($_GET['estado'] ?? ''));
 $municipioFiltro = trim((string)($_GET['municipio'] ?? ''));
 $parroquiaFiltro = trim((string)($_GET['parroquia'] ?? ''));
-$usoFiltro       = trim((string)($_GET['uso'] ?? ''));
+$usoEtiqueta     = '';   // se llena más abajo con la etiqueta de los usos elegidos
 $fotosFiltro     = trim((string)($_GET['fotos'] ?? ''));
 $decisionFiltro  = trim((string)($_GET['decision'] ?? ''));
 
@@ -60,11 +60,11 @@ if ($parroquiaFiltro !== '') {
     $condiciones[] = 'i.parroquia = :parroquia';
     $params['parroquia'] = $parroquiaFiltro;
 }
-if ($usoFiltro === '__SIN_USO__') {
-    $condiciones[] = "(i.uso_edificacion IS NULL OR TRIM(i.uso_edificacion) = '')";
-} elseif ($usoFiltro !== '') {
-    $condiciones[] = 'i.uso_edificacion = :uso';
-    $params['uso'] = $usoFiltro;
+$usoResultado = filtroUsoSql($_GET['uso'] ?? '', 'i.uso_edificacion', 'uso');
+if ($usoResultado !== null) {
+    $condiciones[] = $usoResultado[0];
+    $params = array_merge($params, $usoResultado[1]);
+    $usoEtiqueta = $usoResultado[2];
 }
 // El filtro por decisión llega como el texto corto (ej. "Acceso Permitido");
 // se traduce a la clave larga del catálogo.

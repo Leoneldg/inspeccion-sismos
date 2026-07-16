@@ -52,6 +52,21 @@ include __DIR__ . '/../includes/header.php';
     @media (max-width: 820px) {
         #barra-filtros .grupo-filtros { background: transparent; padding: 0; }
     }
+
+    /* Filtro de uso con selección múltiple (checkboxes en un desplegable) */
+    .uso-multi { position: relative; display: inline-block; }
+    .uso-multi-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 160px;
+        justify-content: space-between; cursor: pointer; text-align: left; }
+    .uso-multi-panel { display: none; position: absolute; z-index: 1200; top: calc(100% + 4px); left: 0;
+        min-width: 250px; max-height: 320px; overflow-y: auto; background: #fff; color: #1f2430;
+        border: 1px solid #d4d9e6; border-radius: 9px; box-shadow: 0 8px 26px rgba(20,30,60,.18); padding: 6px; }
+    .uso-multi-panel.abierto { display: block; }
+    .uso-opt { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 6px;
+        font-size: 13px; cursor: pointer; color: #2a3140; }
+    .uso-opt:hover { background: #f2f5fc; }
+    .uso-opt input { margin: 0; }
+    .uso-multi-sep { height: 1px; background: #eceef4; margin: 4px 0; }
+    .uso-multi-foot { border-top: 1px solid #eceef4; margin-top: 4px; padding-top: 6px; text-align: right; }
 </style>
 
 <div class="dashboard-tv-header">
@@ -99,13 +114,27 @@ include __DIR__ . '/../includes/header.php';
         <!-- Grupo FILTROS de datos: qué inspecciones se ven -->
         <div class="grupo-filtros" title="Filtros de datos">
             <span class="grupo-filtros-lbl"><i class="bi bi-funnel"></i></span>
-            <select id="filtro-uso" class="form-control" style="width:auto;min-width:160px;">
-                <option value="">Todos los usos</option>
-                <option value="__SIN_USO__">— Sin uso (vacío) —</option>
-                <?php foreach (catalogoUsoEdificacion() as $__u): ?>
-                <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
-                <?php endforeach; ?>
-            </select>
+
+            <!-- Filtro de USO: permite elegir uno o VARIOS usos (checkboxes) -->
+            <div class="uso-multi" id="uso-multi">
+                <button type="button" class="form-control uso-multi-btn" id="uso-multi-btn">
+                    <span id="uso-multi-label">Todos los usos</span>
+                    <i class="bi bi-chevron-down" style="font-size:11px;"></i>
+                </button>
+                <div class="uso-multi-panel" id="uso-multi-panel">
+                    <label class="uso-opt"><input type="checkbox" value="__SIN_USO__"> — Sin uso (vacío) —</label>
+                    <div class="uso-multi-sep"></div>
+                    <?php foreach (catalogoUsoEdificacion() as $__u): ?>
+                    <label class="uso-opt"><input type="checkbox" value="<?= e($__u) ?>"> <?= e($__u) ?></label>
+                    <?php endforeach; ?>
+                    <div class="uso-multi-foot">
+                        <button type="button" class="btn btn-sm btn-outline" id="uso-multi-limpiar">Limpiar</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Se mantiene un input oculto para conservar compatibilidad con el resto del código -->
+            <select id="filtro-uso" style="display:none;"><option value="">Todos los usos</option></select>
+
             <select id="filtro-fotos" class="form-control" style="width:auto;min-width:150px;" title="Filtra según tengan o no fotos/archivos adjuntos">
                 <option value="">Con o sin fotos</option>
                 <option value="con">Con fotos / adjuntos</option>
@@ -488,7 +517,10 @@ function poblarFiltroParroquia(lista) {
 function descripcionFiltroActivo() {
     const partes = [];
     if (parroquiaSeleccionada) partes.push(parroquiaSeleccionada);
-    if (usoSeleccionado) partes.push(usoSeleccionado === '__SIN_USO__' ? 'Sin uso' : usoSeleccionado);
+    if (usoSeleccionado) {
+        const lista = usoSeleccionado.split(',').map(u => u === '__SIN_USO__' ? 'Sin uso' : u);
+        partes.push(lista.length > 1 ? lista.length + ' usos' : lista[0]);
+    }
     if (fotosSeleccionado) partes.push(fotosSeleccionado === 'con' ? 'Con fotos' : 'Sin fotos');
     if (decisionSeleccionada) partes.push(decisionSeleccionada);
     return partes.join(' · ');
@@ -497,8 +529,6 @@ function descripcionFiltroActivo() {
 function actualizarIndicadoresFiltro() {
     const activo = !!parroquiaSeleccionada;
     document.getElementById('filtro-parroquia').value = parroquiaSeleccionada;
-    const selUso = document.getElementById('filtro-uso');
-    if (selUso) selUso.value = usoSeleccionado;
     const selFotos = document.getElementById('filtro-fotos');
     if (selFotos) selFotos.value = fotosSeleccionado;
     document.getElementById('btn-quitar-filtro').style.display = (activo || usoSeleccionado || fotosSeleccionado || decisionSeleccionada) ? 'inline-flex' : 'none';
@@ -584,8 +614,7 @@ function renderListaEdificios(lista) {
         seleccionarParroquia('');
         seleccionarDecision('');
         usoSeleccionado = '';
-        const selUso = document.getElementById('filtro-uso');
-        if (selUso) selUso.value = '';
+        if (window.__resetUsoMulti) window.__resetUsoMulti();
         fotosSeleccionado = '';
         const selFotos = document.getElementById('filtro-fotos');
         if (selFotos) selFotos.value = '';
@@ -708,10 +737,51 @@ function seleccionarDecision(nombre) {
 document.getElementById('filtro-parroquia').addEventListener('change', function () {
     seleccionarParroquia(this.value);
 });
-document.getElementById('filtro-uso').addEventListener('change', function () {
-    usoSeleccionado = this.value;
-    cargarDashboard();
-});
+/* ---------- Filtro de USO con selección múltiple ----------
+   usoSeleccionado guarda los usos elegidos separados por coma (ej.
+   "Vivienda Multifamiliar,Comercio"). El backend ya entiende ese formato,
+   tanto para el mapa como para las descargas. */
+(function initUsoMulti() {
+    const cont  = document.getElementById('uso-multi');
+    const btn   = document.getElementById('uso-multi-btn');
+    const panel = document.getElementById('uso-multi-panel');
+    const label = document.getElementById('uso-multi-label');
+    if (!cont) return;
+    const checks = () => Array.from(panel.querySelectorAll('input[type=checkbox]'));
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.classList.toggle('abierto');
+    });
+    // Cerrar al hacer clic fuera.
+    document.addEventListener('click', (e) => {
+        if (!cont.contains(e.target)) panel.classList.remove('abierto');
+    });
+
+    function actualizar() {
+        const marcados = checks().filter(c => c.checked).map(c => c.value);
+        usoSeleccionado = marcados.join(',');
+        // Etiqueta del botón según cuántos haya.
+        if (marcados.length === 0) {
+            label.textContent = 'Todos los usos';
+        } else if (marcados.length === 1) {
+            label.textContent = marcados[0] === '__SIN_USO__' ? 'Sin uso' : marcados[0];
+        } else {
+            label.textContent = marcados.length + ' usos seleccionados';
+        }
+        cargarDashboard();
+    }
+    checks().forEach(c => c.addEventListener('change', actualizar));
+
+    document.getElementById('uso-multi-limpiar').addEventListener('click', () => {
+        checks().forEach(c => c.checked = false);
+        actualizar();
+    });
+
+    // Permite que "Quitar filtro" y otros sitios reseteen el dropdown.
+    window.__resetUsoMulti = () => { checks().forEach(c => c.checked = false);
+        label.textContent = 'Todos los usos'; };
+})();
 document.getElementById('filtro-fotos').addEventListener('change', function () {
     fotosSeleccionado = this.value;
     cargarDashboard();
@@ -778,8 +848,7 @@ document.addEventListener('keydown', (ev) => {
 document.getElementById('btn-quitar-filtro').addEventListener('click', function () {
     parroquiaSeleccionada = '';
     usoSeleccionado = '';
-    const selUso = document.getElementById('filtro-uso');
-    if (selUso) selUso.value = '';
+    if (window.__resetUsoMulti) window.__resetUsoMulti();
     fotosSeleccionado = '';
     const selFotos = document.getElementById('filtro-fotos');
     if (selFotos) selFotos.value = '';

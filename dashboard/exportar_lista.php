@@ -49,12 +49,11 @@ if ($parroquiaFiltro !== '') {
     $params['parroquia'] = $parroquiaFiltro;
 }
 
-$usoFiltro = trim((string)($_GET['uso'] ?? ''));
-if ($usoFiltro === '__SIN_USO__') {
-    $condiciones[] = "(uso_edificacion IS NULL OR TRIM(uso_edificacion) = '')";
-} elseif ($usoFiltro !== '') {
-    $condiciones[] = 'uso_edificacion = :uso';
-    $params['uso'] = $usoFiltro;
+$usoResultado = filtroUsoSql($_GET['uso'] ?? '', 'uso_edificacion', 'uso');
+$usoFiltro = $usoResultado[2] ?? '';   // etiqueta legible (para el nombre del archivo)
+if ($usoResultado !== null) {
+    $condiciones[] = $usoResultado[0];
+    $params = array_merge($params, $usoResultado[1]);
 }
 
 $fotosFiltro = trim((string)($_GET['fotos'] ?? ''));

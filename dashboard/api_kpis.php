@@ -84,14 +84,11 @@ try {
     // Se trata como un filtro "de alcance" -- igual que estado/municipio,
     // afecta a TODO el dashboard (KPIs, mapa, semáforo, rankings), no solo
     // a un widget puntual como pasa con el filtro de decisión.
-    $usoFiltro = trim((string)($_GET['uso'] ?? ''));
-    $tieneUso = $usoFiltro !== '';
-    // Opción especial "Sin uso": trae los registros con uso_edificacion en NULL
-    // o vacío. Se usa un valor centinela para no chocar con ningún uso real.
-    $usoEsSinValor = ($usoFiltro === '__SIN_USO__');
-    $sqlUso = $usoEsSinValor
-        ? '(uso_edificacion IS NULL OR TRIM(uso_edificacion) = \'\')'
-        : 'uso_edificacion = :uso';
+    // Admite UNO o VARIOS usos (el parámetro puede venir separado por comas).
+    $usoResultado = filtroUsoSql($_GET['uso'] ?? '', 'uso_edificacion', 'uso');
+    $tieneUso = $usoResultado !== null;
+    $sqlUso = $tieneUso ? $usoResultado[0] : '';
+    $paramsUso = $tieneUso ? $usoResultado[1] : [];
 
     // Filtro por presencia de fotos / archivos adjuntos. Se maneja aparte de
     // $condiciones porque algunas consultas prefijan las condiciones con "i."
@@ -113,7 +110,7 @@ try {
     $paramsFiltro = [];
     if ($tieneEstado)    { $condiciones[] = 'estado = :estado'; $paramsFiltro['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condiciones[] = 'municipio = :municipio'; $paramsFiltro['municipio'] = $municipioFiltro; }
-    if ($tieneUso)        { $condiciones[] = $sqlUso; if (!$usoEsSinValor) $paramsFiltro['uso'] = $usoFiltro; }
+    if ($tieneUso)        { $condiciones[] = $sqlUso; $paramsFiltro = array_merge($paramsFiltro, $paramsUso); }
     if ($tieneFiltro) { $condiciones[] = 'parroquia = :p'; $paramsFiltro['p'] = $parroquiaFiltro; }
     if ($tieneDecisionFiltro) { $condiciones[] = 'decision_final = :d'; $paramsFiltro['d'] = $decisionFiltroClave; }
     if ($tieneFotosFiltro) { $condiciones[] = $sqlFotosPlano; }
@@ -129,7 +126,7 @@ try {
     $paramsTerritorio = [];
     if ($tieneEstado)    { $condTerritorio[] = 'estado = :estado'; $paramsTerritorio['estado'] = $estadoFiltro; }
     if ($tieneMunicipio) { $condTerritorio[] = 'municipio = :municipio'; $paramsTerritorio['municipio'] = $municipioFiltro; }
-    if ($tieneUso)        { $condTerritorio[] = $sqlUso; if (!$usoEsSinValor) $paramsTerritorio['uso'] = $usoFiltro; }
+    if ($tieneUso)        { $condTerritorio[] = $sqlUso; $paramsTerritorio = array_merge($paramsTerritorio, $paramsUso); }
     if ($tieneFotosFiltro) { $condTerritorio[] = $sqlFotosPlano; }
 
     // ---- KPIs agregados (respeta ambos filtros) ----
@@ -373,7 +370,7 @@ try {
     $condEstadoNal = [];
     $paramsEstadoNal = [];
     if ($tieneDecisionFiltro) { $condEstadoNal[] = 'decision_final = :d'; $paramsEstadoNal['d'] = $decisionFiltroClave; }
-    if ($tieneUso) { $condEstadoNal[] = $sqlUso; if (!$usoEsSinValor) $paramsEstadoNal['uso'] = $usoFiltro; }
+    if ($tieneUso) { $condEstadoNal[] = $sqlUso; $paramsEstadoNal = array_merge($paramsEstadoNal, $paramsUso); }
     if ($tieneFotosFiltro) { $condEstadoNal[] = $sqlFotosPlano; }
     $sqlEstado = 'SELECT estado, COUNT(*) AS total FROM inspecciones' .
         ($condEstadoNal ? (' WHERE ' . implode(' AND ', $condEstadoNal)) : '') .
@@ -459,7 +456,7 @@ try {
         'kpis_custom'     => $kpisCustom,
         'parroquia_filtro'=> $tieneFiltro ? $parroquiaFiltro : null,
         'decision_filtro' => $tieneDecisionFiltro ? $decisionFiltroCorto : null,
-        'uso_filtro'      => $tieneUso ? $usoFiltro : null,
+        'uso_filtro'      => $tieneUso ? $usoResultado[2] : null,
         // Contexto de navegación nacional para el frontend
         'nivel'           => (!$tieneEstado ? 'nacional' : ($tieneMunicipio || $unidadBase === 'parroquia' ? 'parroquia' : 'municipio')),
         'estado_filtro'   => $tieneEstado ? $estadoFiltro : null,

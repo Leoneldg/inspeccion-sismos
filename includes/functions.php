@@ -1399,3 +1399,59 @@ function segUbicarEnParroquia(string $estado, string $parroquia, int $semilla, a
     // --- 3) Último recurso: aleatorio dentro del polígono ---
     return segPuntoEnParroquia($estado, $parroquia, $semilla);
 }
+
+/**
+ * Construye la condición SQL para el filtro de "uso de edificación", que ahora
+ * admite UNO o VARIOS usos a la vez. El parámetro puede llegar como:
+ *   - uso=Vivienda                      (uno solo, compatible con lo anterior)
+ *   - uso[]=Vivienda&uso[]=Comercio     (varios)
+ *   - uso=Vivienda,Comercio             (varios separados por coma)
+ *   - uso=__SIN_USO__                   (los que no tienen uso)
+ *
+ * Devuelve [sqlCondicion, params, etiqueta] o null si no hay filtro de uso.
+ * $col es el nombre de la columna (con o sin alias, ej. "i.uso_edificacion").
+ * $prefijo evita choques de nombres de parámetros entre distintos filtros.
+ */
+function filtroUsoSql($usoParam, string $col = 'uso_edificacion', string $prefijo = 'uso'): ?array
+{
+    // Normalizar a lista de usos.
+    $usos = [];
+    if (is_array($usoParam)) {
+        $usos = $usoParam;
+    } elseif (is_string($usoParam) && $usoParam !== '') {
+        // Permite "A,B,C" separado por comas.
+        $usos = explode(',', $usoParam);
+    }
+    $usos = array_values(array_filter(array_map('trim', $usos), fn($u) => $u !== ''));
+
+    if (!$usos) return null;
+
+    // Caso "Sin uso": si está entre los seleccionados, se maneja aparte.
+    $incluyeSinUso = in_array('__SIN_USO__', $usos, true);
+    $usosReales = array_values(array_filter($usos, fn($u) => $u !== '__SIN_USO__'));
+
+    $ors = [];
+    $params = [];
+
+    if ($usosReales) {
+        $placeholders = [];
+        foreach ($usosReales as $i => $u) {
+            $ph = ':' . $prefijo . '_' . $i;
+            $placeholders[] = $ph;
+            $params[$prefijo . '_' . $i] = $u;
+        }
+        $ors[] = "$col IN (" . implode(', ', $placeholders) . ")";
+    }
+    if ($incluyeSinUso) {
+        $ors[] = "($col IS NULL OR TRIM($col) = '')";
+    }
+
+    $sql = '(' . implode(' OR ', $ors) . ')';
+
+    // Etiqueta legible para títulos/nombres de archivo.
+    $etiquetas = $usosReales;
+    if ($incluyeSinUso) $etiquetas[] = 'Sin uso';
+    $etiqueta = implode(' + ', $etiquetas);
+
+    return [$sql, $params, $etiqueta];
+}
