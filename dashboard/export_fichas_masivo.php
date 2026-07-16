@@ -23,15 +23,18 @@ require_once __DIR__ . '/../includes/functions.php';
 
 requierePermiso('import_export', 'ver');
 
-$autoload = __DIR__ . '/../vendor/autoload.php';
-if (!file_exists($autoload)) {
-    flash('error', 'No se encontró Composer autoload. Instale dependencias: composer require dompdf/dompdf');
-    header('Location: ' . APP_URL_BASE . 'dashboard/import_export.php');
-    exit;
+// Este reporte se genera con wkhtmltopdf (binario del sistema), mucho más
+// rápido que Dompdf para documentos grandes. Se verifica que esté disponible.
+$wkBin = '/usr/bin/wkhtmltopdf';
+if (!is_file($wkBin)) {
+    $which = trim((string)@shell_exec('which wkhtmltopdf 2>/dev/null'));
+    if ($which === '') {
+        flash('error', 'No se encontró wkhtmltopdf en el servidor. Instálelo con: apt install wkhtmltopdf');
+        header('Location: ' . APP_URL_BASE . 'dashboard/import_export.php');
+        exit;
+    }
+    $wkBin = $which;
 }
-require_once $autoload;
-use Dompdf\Dompdf;
-use Dompdf\Options;
 
 // ------------------------------------------------------------------
 // Filtros (los mismos que usa el dashboard)
@@ -137,36 +140,32 @@ foreach ($grupos as $b => $_) {
 // Helpers de presentación
 // ------------------------------------------------------------------
 /**
- * Convierte una foto en data URI para incrustarla en el PDF, REDIMENSIONÁNDOLA
- * a miniatura. Para acelerar, la versión reducida se GUARDA EN CACHÉ en disco:
- * la primera vez se genera, y las siguientes se lee directamente (instantáneo),
- * en vez de re-procesar la foto original cada vez que se genera un PDF.
+ * Devuelve la ruta de imagen que usará wkhtmltopdf. En vez de incrustar la foto
+ * en base64 (lo que hace el HTML enorme y lento), se apunta al archivo en disco:
+ * wkhtmltopdf lo lee directamente, lo que es MUCHÍSIMO más rápido.
+ *
+ * Para no cargar fotos de varios MB, se genera (y cachea) una miniatura en disco
+ * la primera vez, y se devuelve la ruta de ESA miniatura.
  */
-function fotoDataUri(array $f): ?string
+function fotoRutaMini(array $f): ?string
 {
     $rutaAbs = __DIR__ . '/../' . ($f['ruta'] ?? '');
     if (!is_file($rutaAbs) || filesize($rutaAbs) === 0) return null;
 
-    // Si no está disponible GD, método simple (sin redimensionar).
+    // Sin GD: se usa la foto original tal cual.
     if (!function_exists('imagecreatetruecolor')) {
-        $mime = mime_content_type($rutaAbs) ?: 'image/jpeg';
-        return 'data:' . $mime . ';base64,' . base64_encode((string)file_get_contents($rutaAbs));
+        return 'file://' . $rutaAbs;
     }
 
-    // --- Caché en disco ---
-    // La miniatura se identifica por la ruta + fecha de modificación del archivo,
-    // así que si la foto cambia, se regenera; si no, se reutiliza.
     $cacheDir = __DIR__ . '/../storage/cache_fichas';
     if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
     $clave = md5($rutaAbs . '|' . @filemtime($rutaAbs)) . '.jpg';
     $cacheFile = $cacheDir . '/' . $clave;
 
-    if (is_file($cacheFile)) {
-        return 'data:image/jpeg;base64,' . base64_encode((string)file_get_contents($cacheFile));
-    }
+    if (is_file($cacheFile)) return 'file://' . $cacheFile;
 
     $info = @getimagesize($rutaAbs);
-    if (!$info) return null;
+    if (!$info) return 'file://' . $rutaAbs;
     [$ancho, $alto] = $info;
     $tipo = $info[2];
 
@@ -177,10 +176,8 @@ function fotoDataUri(array $f): ?string
         case IMAGETYPE_GIF:  $src = @imagecreatefromgif($rutaAbs);  break;
         case IMAGETYPE_WEBP: if (function_exists('imagecreatefromwebp')) $src = @imagecreatefromwebp($rutaAbs); break;
     }
-    if (!$src) return null;
+    if (!$src) return 'file://' . $rutaAbs;
 
-    // Escalar para que el lado mayor sea como máximo 380 px (suficiente para
-    // la miniatura de la ficha; más pequeño = más rápido y más liviano).
     $max = 380;
     $escala = min(1, $max / max($ancho, $alto));
     $nw = max(1, (int)round($ancho * $escala));
@@ -192,16 +189,10 @@ function fotoDataUri(array $f): ?string
     imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ancho, $alto);
     imagedestroy($src);
 
-    // Exportar como JPEG de calidad media.
-    ob_start();
-    imagejpeg($dst, null, 68);
-    $datos = ob_get_clean();
+    imagejpeg($dst, $cacheFile, 68);
     imagedestroy($dst);
 
-    // Guardar en caché para la próxima vez (así no se re-procesa la foto).
-    @file_put_contents($cacheFile, $datos);
-
-    return 'data:image/jpeg;base64,' . base64_encode($datos);
+    return 'file://' . (is_file($cacheFile) ? $cacheFile : $rutaAbs);
 }
 
 /** Fila de dato "etiqueta: valor" para las tablas de la ficha. */
@@ -222,7 +213,9 @@ $css = '
 
     /* Cada ficha ocupa exactamente una hoja. Se usa un alto fijo un poco menor
        que el A4 útil para que el contenido nunca empuje una segunda página. */
-    .ficha { page-break-after: always; page-break-inside: avoid; padding: 24px 30px; height: 1020px; position: relative; overflow: hidden; }
+    /* Cada ficha ocupa una hoja. wkhtmltopdf respeta bien los saltos, así que
+       se usa la altura de una A4 (menos los márgenes) y el salto tras cada una. */
+    .ficha { page-break-after: always; padding: 24px 30px; height: 1080px; position: relative; overflow: hidden; box-sizing: border-box; }
     .ficha:last-child { page-break-after: auto; }
 
     /* Portada de sección (con fotos / sin fotos, y parroquia) */
@@ -398,7 +391,7 @@ function construirFicha(array $r, array $fotos, string $parroquia, array $catalo
         $i = 0;
         foreach ($sel as $f) {
             if ($i % 2 === 0) $h .= '<tr>';
-            $src = fotoDataUri($f);
+            $src = fotoRutaMini($f);
             $h .= '<td>';
             if ($src) {
                 $h .= '<img src="' . $src . '">';
@@ -435,19 +428,59 @@ function construirFicha(array $r, array $fotos, string $parroquia, array $catalo
 }
 
 // ------------------------------------------------------------------
-// Render
+// Render con wkhtmltopdf
 // ------------------------------------------------------------------
-$options = new Options();
-$options->set('isRemoteEnabled', true);
-$options->set('isHtml5ParserEnabled', true);
-$dompdf = new Dompdf($options);
-$dompdf->loadHtml($html, 'UTF-8');
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
+// wkhtmltopdf usa un motor WebKit real: es mucho más rápido que Dompdf con
+// documentos grandes y lee las imágenes del disco sin cargarlas en memoria PHP.
+// Se escribe el HTML a un archivo temporal y se invoca el binario.
 
 $nombre = 'fichas_' . ($estadoFiltro ?: 'todas');
 if ($parroquiaFiltro !== '') $nombre .= '_' . $parroquiaFiltro;
 $nombre = preg_replace('/[^A-Za-z0-9_]+/', '_', $nombre);
 
-$dompdf->stream($nombre . '.pdf', ['Attachment' => true]);
+$tmpHtml = tempnam(sys_get_temp_dir(), 'fichas_') . '.html';
+$tmpPdf  = tempnam(sys_get_temp_dir(), 'fichas_') . '.pdf';
+file_put_contents($tmpHtml, $html);
+
+// Ubicar el binario (ya validado al inicio).
+$bin = $wkBin;
+
+$cmd = escapeshellarg($bin)
+     . ' --quiet'
+     . ' --enable-local-file-access'      // necesario para leer las fotos file://
+     . ' --disable-smart-shrinking'
+     . ' --page-size A4'
+     . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
+     . ' --image-quality 72'
+     . ' ' . escapeshellarg($tmpHtml)
+     . ' ' . escapeshellarg($tmpPdf)
+     . ' 2>&1';
+
+$salida = [];
+$codigo = 0;
+exec($cmd, $salida, $codigo);
+
+// wkhtmltopdf a veces devuelve código != 0 por advertencias aunque genere bien
+// el PDF; por eso se valida que el archivo exista y tenga contenido.
+if (!is_file($tmpPdf) || filesize($tmpPdf) < 1000) {
+    @unlink($tmpHtml);
+    @unlink($tmpPdf);
+    $msg = 'No se pudo generar el PDF con wkhtmltopdf.';
+    if (APP_DEBUG) $msg .= ' Detalle: ' . implode(' | ', $salida);
+    flash('error', $msg);
+    header('Location: ' . APP_URL_BASE . 'dashboard/import_export.php');
+    exit;
+}
+
+// Entregar el PDF como descarga.
+header('Content-Type: application/pdf');
+header('Content-Disposition: attachment; filename="' . $nombre . '.pdf"');
+header('Content-Length: ' . filesize($tmpPdf));
+header('Cache-Control: private, max-age=0, must-revalidate');
+header('Pragma: public');
+readfile($tmpPdf);
+
+// Limpiar temporales.
+@unlink($tmpHtml);
+@unlink($tmpPdf);
 exit;
