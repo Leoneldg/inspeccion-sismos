@@ -16,6 +16,11 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+// Generar muchas fichas con fotos consume memoria y tiempo: se amplían los
+// límites solo para este proceso (las fotos ya se incrustan reducidas).
+@ini_set('memory_limit', '512M');
+@set_time_limit(300);
+
 requierePermiso('import_export', 'ver');
 
 $autoload = __DIR__ . '/../vendor/autoload.php';
@@ -91,13 +96,58 @@ foreach ($grupos as $b => $_) {
 // ------------------------------------------------------------------
 // Helpers de presentación
 // ------------------------------------------------------------------
-/** Convierte una foto en data URI para incrustarla en el PDF. */
+/**
+ * Convierte una foto en data URI para incrustarla en el PDF, REDIMENSIONÁNDOLA
+ * a un tamaño de miniatura. Incrustar las fotos a resolución completa agota la
+ * memoria cuando hay muchas fichas; como en la ficha se ven pequeñas, basta con
+ * una versión reducida (máx 500 px de lado y JPEG de calidad media).
+ */
 function fotoDataUri(array $f): ?string
 {
     $rutaAbs = __DIR__ . '/../' . ($f['ruta'] ?? '');
     if (!is_file($rutaAbs) || filesize($rutaAbs) === 0) return null;
-    $mime = mime_content_type($rutaAbs) ?: 'image/jpeg';
-    return 'data:' . $mime . ';base64,' . base64_encode((string)file_get_contents($rutaAbs));
+
+    // Si no está disponible la librería GD, se cae al método simple (sin redimensionar).
+    if (!function_exists('imagecreatetruecolor')) {
+        $mime = mime_content_type($rutaAbs) ?: 'image/jpeg';
+        return 'data:' . $mime . ';base64,' . base64_encode((string)file_get_contents($rutaAbs));
+    }
+
+    $info = @getimagesize($rutaAbs);
+    if (!$info) return null;
+    [$ancho, $alto] = $info;
+    $tipo = $info[2];
+
+    // Cargar según el tipo.
+    $src = null;
+    switch ($tipo) {
+        case IMAGETYPE_JPEG: $src = @imagecreatefromjpeg($rutaAbs); break;
+        case IMAGETYPE_PNG:  $src = @imagecreatefrompng($rutaAbs);  break;
+        case IMAGETYPE_GIF:  $src = @imagecreatefromgif($rutaAbs);  break;
+        case IMAGETYPE_WEBP: if (function_exists('imagecreatefromwebp')) $src = @imagecreatefromwebp($rutaAbs); break;
+    }
+    if (!$src) return null;
+
+    // Escalar para que el lado mayor sea como máximo 500 px.
+    $max = 500;
+    $escala = min(1, $max / max($ancho, $alto));
+    $nw = max(1, (int)round($ancho * $escala));
+    $nh = max(1, (int)round($alto * $escala));
+
+    $dst = imagecreatetruecolor($nw, $nh);
+    // Fondo blanco (evita transparencias negras en PNG).
+    $blanco = imagecolorallocate($dst, 255, 255, 255);
+    imagefilledrectangle($dst, 0, 0, $nw, $nh, $blanco);
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ancho, $alto);
+    imagedestroy($src);
+
+    // Exportar como JPEG de calidad media.
+    ob_start();
+    imagejpeg($dst, null, 70);
+    $datos = ob_get_clean();
+    imagedestroy($dst);
+
+    return 'data:image/jpeg;base64,' . base64_encode($datos);
 }
 
 /** Fila de dato "etiqueta: valor" para las tablas de la ficha. */
@@ -116,8 +166,9 @@ $css = '
     * { box-sizing: border-box; }
     body { font-family: DejaVu Sans, Arial, sans-serif; margin: 0; color: #1f2430; }
 
-    /* Cada ficha ocupa exactamente una hoja */
-    .ficha { page-break-after: always; padding: 26px 30px; height: 100%; position: relative; }
+    /* Cada ficha ocupa exactamente una hoja. Se usa un alto fijo un poco menor
+       que el A4 útil para que el contenido nunca empuje una segunda página. */
+    .ficha { page-break-after: always; page-break-inside: avoid; padding: 24px 30px; height: 1020px; position: relative; overflow: hidden; }
     .ficha:last-child { page-break-after: auto; }
 
     /* Portada de sección (con fotos / sin fotos, y parroquia) */

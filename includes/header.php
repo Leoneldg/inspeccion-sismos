@@ -106,6 +106,11 @@ $flashes = obtenerFlashes();
             </div>
             <div class="nav-group-items">
                 <?php if (puede('import_export','ver')): ?>
+                <a href="<?= APP_URL_BASE ?>dashboard/informes.php" class="nav-item <?= $activeModule==='informes'?'active':'' ?>" title="Informes">
+                    <i class="bi bi-file-earmark-bar-graph"></i> <span>Informes</span>
+                </a>
+                <?php endif; ?>
+                <?php if (puede('import_export','ver')): ?>
                 <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item <?= $activeModule==='import_export'?'active':'' ?>" title="Importar / Exportar">
                     <i class="bi bi-arrow-left-right"></i> <span>Importar / Exportar</span>
                 </a>

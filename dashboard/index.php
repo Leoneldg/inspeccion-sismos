@@ -38,8 +38,21 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+    /* Agrupación visual de la barra de filtros: separa navegación, filtros
+       de datos y acciones, para que no se vea todo amontonado. */
+    #barra-filtros .grupo-filtros {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 8px; border-radius: 8px; background: rgba(255,255,255,.06);
+    }
+    #barra-filtros .grupo-filtros-lbl { color: #9fb0d6; font-size: 14px; display: inline-flex; }
+    #barra-filtros .grupo-acciones { background: transparent; padding-left: 0; }
+    @media (max-width: 820px) {
+        #barra-filtros .grupo-filtros { background: transparent; padding: 0; }
+    }
+</style>
 
 <div class="dashboard-tv-header">
     <div class="flex items-center gap-12">
@@ -61,42 +74,59 @@ include __DIR__ . '/../includes/header.php';
         <!-- Migas de navegación territorial (nacional → estado → municipio) -->
         <span id="breadcrumb-territorio" class="breadcrumb-territorio" style="display:none;"></span>
         <?php if ($esMasterDash): ?>
-        <!-- Selector de estado: solo para usuarios master (acceso nacional) -->
-        <select id="filtro-estado" class="form-control" style="width:auto;min-width:170px;">
-            <option value="">🇻🇪 Todo el país</option>
-            <?php
-                require_once __DIR__ . '/../includes/territorial.php';
-                foreach (catalogoEstados() as $__e) {
-                    echo '<option value="' . e($__e) . '">' . e($__e) . '</option>';
-                }
-            ?>
+        <!-- Grupo NAVEGACIÓN territorial: dónde se está mirando -->
+        <div class="grupo-filtros" title="Navegación territorial">
+            <span class="grupo-filtros-lbl"><i class="bi bi-geo-alt"></i></span>
+            <select id="filtro-estado" class="form-control" style="width:auto;min-width:160px;">
+                <option value="">🇻🇪 Todo el país</option>
+                <?php
+                    require_once __DIR__ . '/../includes/territorial.php';
+                    foreach (catalogoEstados() as $__e) {
+                        echo '<option value="' . e($__e) . '">' . e($__e) . '</option>';
+                    }
+                ?>
+            </select>
+            <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:180px;">
+                <option value="">Ver por unidad</option>
+            </select>
+        </div>
+        <?php else: ?>
+        <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:180px;">
+            <option value="">Ver por unidad</option>
         </select>
         <?php endif; ?>
-        <select id="filtro-parroquia" class="form-control" style="width:auto;min-width:190px;">
-            <option value="">Seleccione una unidad</option>
-        </select>
-        <select id="filtro-uso" class="form-control" style="width:auto;min-width:170px;">
-            <option value="">Todos los usos</option>
-            <option value="__SIN_USO__">— Sin uso (vacío) —</option>
-            <?php foreach (catalogoUsoEdificacion() as $__u): ?>
-            <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
-            <?php endforeach; ?>
-        </select>
-        <select id="filtro-fotos" class="form-control" style="width:auto;min-width:170px;" title="Filtra según tengan o no fotos/archivos adjuntos">
-            <option value="">Con o sin fotos</option>
-            <option value="con">Con fotos / adjuntos</option>
-            <option value="sin">Sin fotos / adjuntos</option>
-        </select>
+
+        <!-- Grupo FILTROS de datos: qué inspecciones se ven -->
+        <div class="grupo-filtros" title="Filtros de datos">
+            <span class="grupo-filtros-lbl"><i class="bi bi-funnel"></i></span>
+            <select id="filtro-uso" class="form-control" style="width:auto;min-width:160px;">
+                <option value="">Todos los usos</option>
+                <option value="__SIN_USO__">— Sin uso (vacío) —</option>
+                <?php foreach (catalogoUsoEdificacion() as $__u): ?>
+                <option value="<?= e($__u) ?>"><?= e($__u) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select id="filtro-fotos" class="form-control" style="width:auto;min-width:150px;" title="Filtra según tengan o no fotos/archivos adjuntos">
+                <option value="">Con o sin fotos</option>
+                <option value="con">Con fotos / adjuntos</option>
+                <option value="sin">Sin fotos / adjuntos</option>
+            </select>
+        </div>
+
         <button id="btn-quitar-filtro" class="btn btn-outline btn-sm" style="display:none;">
             <i class="bi bi-x-lg"></i> Quitar filtro
         </button>
+
+        <!-- Grupo ACCIONES: descargas y presentación -->
         <?php if (puede('import_export', 'ver') || puede('dashboard', 'ver')): ?>
-        <button id="btn-descargar-lista" type="button" class="btn btn-outline btn-sm" title="Descarga en Excel la lista con los filtros que tengas activos ahora">
-            <i class="bi bi-file-earmark-excel"></i> Descargar Excel
-        </button>
-        <button id="btn-descargar-lista-pdf" type="button" class="btn btn-outline btn-sm" title="Descarga en PDF la lista con los filtros que tengas activos ahora">
-            <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
-        </button>
+        <div class="grupo-filtros grupo-acciones">
+            <button id="btn-descargar-lista" type="button" class="btn btn-outline btn-sm" title="Descarga en Excel la lista con los filtros que tengas activos ahora">
+                <i class="bi bi-file-earmark-excel"></i> Excel
+            </button>
+            <button id="btn-descargar-lista-pdf" type="button" class="btn btn-outline btn-sm" title="Descarga en PDF la lista con los filtros que tengas activos ahora">
+                <i class="bi bi-file-earmark-pdf"></i> PDF
+            </button>
+        </div>
         <?php endif; ?>
         <button id="btn-presentacion" type="button" class="btn btn-outline btn-sm"
                 title="Oculta filtros y lista para dejar solo el mapa y los KPIs (ideal para capturas)">
@@ -249,7 +279,6 @@ include __DIR__ . '/../includes/header.php';
 <div id="lightbox-foto" class="lightbox-overlay" style="display:none;"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>window.APP_URL_BASE = '<?= APP_URL_BASE ?>';</script>
@@ -437,9 +466,9 @@ function poblarFiltroParroquia(lista) {
     const nombres = [...(lista || [])].map(p => p.parroquia).sort((a, b) => (a || '').localeCompare(b || '', 'es'));
     // Etiqueta del placeholder según nivel
     const nivel = (ultimoDatosDashboard && ultimoDatosDashboard.nivel) || 'parroquia';
-    const etiqueta = nivel === 'nacional' ? 'Seleccione un estado'
-                   : nivel === 'municipio' ? 'Seleccione un municipio'
-                   : 'Seleccione una parroquia';
+    const etiqueta = nivel === 'nacional' ? 'Ver por estado'
+                   : nivel === 'municipio' ? 'Ver por municipio'
+                   : 'Ver por parroquia';
     select.innerHTML = '<option value="">' + etiqueta + '</option>';
     for (const nombre of nombres) {
         const opt = document.createElement('option');
