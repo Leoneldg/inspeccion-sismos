@@ -126,6 +126,7 @@ foreach ($edificios as $ed) {
         'avance'      => round((float)($ed['avance_pct'] ?? 0)),
         'fase'        => $fase,
         'ficha_url'   => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'],
+        'levantamiento_url' => APP_URL_BASE . 'seguimiento/levantamiento.php?inspeccion=' . (int)$ed['inspeccion_id'],
     ];
 }
 
@@ -326,6 +327,9 @@ include __DIR__ . '/../includes/header.php';
                     <a href="#" id="sp-ficha" class="btn btn-outline btn-sm" style="width:100%;margin-top:8px;justify-content:center;">
                         <i class="bi bi-clipboard-data"></i> Ver ficha completa
                     </a>
+                    <a href="#" id="sp-levantamiento" class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;justify-content:center;">
+                        <i class="bi bi-building-gear"></i> Levantamiento técnico
+                    </a>
                 </div>
             </div>
         </div>
@@ -503,6 +507,7 @@ function abrirPanel(p) {
     document.getElementById('sp-nombre').textContent = p.nombre;
     document.getElementById('sp-codigo').textContent = p.codigo;
     document.getElementById('sp-ficha').href = p.ficha_url;
+    document.getElementById('sp-levantamiento').href = p.levantamiento_url;
 
     const f = FASES[p.fase];
     document.getElementById('sp-chips').innerHTML =

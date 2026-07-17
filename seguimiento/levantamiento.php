@@ -194,11 +194,45 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ============ PASO 3: APARTAMENTOS (próximamente) ============ -->
+<!-- ============ PASO 3: APARTAMENTOS ============ -->
 <div class="wz-panel hidden" id="paso-3">
-    <h3>Apartamentos</h3>
-    <p class="sub">Esta sección se construye en el siguiente paso del desarrollo.</p>
-    <button type="button" class="btn btn-outline" onclick="irPaso(2)"><i class="bi bi-arrow-left"></i> Volver a pisos</button>
+    <h3>Apartamentos por piso</h3>
+    <p class="sub">Seleccione un piso, genere sus apartamentos e indique los ambientes de cada uno.</p>
+
+    <?php if (!$pisos): ?>
+        <p class="text-muted">Primero complete los datos generales (Paso 1) para generar los pisos.</p>
+    <?php else: ?>
+        <div class="field" style="max-width:320px;">
+            <label class="text-sm">Piso</label>
+            <select id="apto-piso-sel" class="form-control" onchange="cargarAptosDePiso()">
+                <option value="">Seleccione un piso…</option>
+                <?php foreach ($pisos as $piso): ?>
+                    <option value="<?= (int)$piso['id'] ?>" data-num="<?= (int)$piso['numero_piso'] ?>">
+                        Piso <?= (int)$piso['numero_piso'] ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
+        <!-- Generador de apartamentos -->
+        <div id="apto-generador" style="display:none;margin:12px 0;padding:12px 14px;background:#f7f9fd;border-radius:10px;">
+            <label class="text-sm">¿Cuántos apartamentos tiene este piso?</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+                <input type="number" id="apto-cantidad" class="form-control" min="1" max="100"
+                       value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>" style="width:100px;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="generarAptos()">
+                    <i class="bi bi-grid-3x3-gap"></i> Generar apartamentos
+                </button>
+            </div>
+        </div>
+
+        <!-- Lista de apartamentos del piso seleccionado -->
+        <div id="apto-lista"></div>
+    <?php endif; ?>
+
+    <div style="margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="irPaso(2)"><i class="bi bi-arrow-left"></i> Volver a pisos</button>
+    </div>
 </div>
 
 <!-- Input de archivo oculto, compartido para subir fotos de elementos -->
@@ -321,13 +355,15 @@ async function _onFotoElegida(input) {
     if (_fotoDestino.parte) fd.append('parte', _fotoDestino.parte);
     fd.append('foto', input.files[0]);
 
-    const cont = _fotoDestino.row.querySelector('.elem-fotos') || (() => {
-        const d = document.createElement('div');
-        d.className = 'elem-fotos';
-        d.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;width:100%;';
-        _fotoDestino.row.appendChild(d);
-        return d;
-    })();
+    // El contenedor de miniaturas depende del nivel: elementos de piso usan
+    // .elem-fotos; ambientes usan .amb-fotos (ya existe en la fila).
+    let cont = _fotoDestino.row.querySelector('.amb-fotos') || _fotoDestino.row.querySelector('.elem-fotos');
+    if (!cont) {
+        cont = document.createElement('div');
+        cont.className = 'elem-fotos';
+        cont.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;width:100%;';
+        _fotoDestino.row.appendChild(cont);
+    }
     cont.insertAdjacentHTML('beforeend', '<span class="subiendo" style="font-size:12px;color:#767c94;">Subiendo…</span>');
 
     try {
@@ -347,6 +383,161 @@ async function _onFotoElegida(input) {
     }
     input.value = '';
     _fotoDestino = null;
+}
+
+// ================= PASO 3: APARTAMENTOS Y AMBIENTES =================
+function cargarAptosDePiso() {
+    const sel = document.getElementById('apto-piso-sel');
+    const gen = document.getElementById('apto-generador');
+    const lista = document.getElementById('apto-lista');
+    lista.innerHTML = '';
+    if (!sel.value) { gen.style.display = 'none'; return; }
+    gen.style.display = 'block';
+    // Cargar apartamentos ya existentes de ese piso.
+    fetch(URL_BASE + 'listar_rec_aptos.php?piso_id=' + sel.value)
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok && data.apartamentos.length) {
+                data.apartamentos.forEach(a => pintarApartamento(a));
+            }
+        });
+}
+
+async function generarAptos() {
+    const sel = document.getElementById('apto-piso-sel');
+    const opt = sel.options[sel.selectedIndex];
+    const cantidad = parseInt(document.getElementById('apto-cantidad').value) || 0;
+    if (!sel.value || cantidad < 1) { alert('Indique el piso y la cantidad.'); return; }
+    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accion:'generar', piso_id: sel.value, cantidad, numero_piso: opt.dataset.num })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        document.getElementById('apto-lista').innerHTML = '';
+        data.apartamentos.forEach(a => pintarApartamento(a));
+    } else alert(data.mensaje || 'Error al generar.');
+}
+
+function pintarApartamento(a) {
+    const lista = document.getElementById('apto-lista');
+    const card = document.createElement('div');
+    card.className = 'piso-card';
+    card.style.cssText = 'border:1px solid #e6e9f2;border-radius:12px;margin-bottom:12px;overflow:hidden;';
+    card.innerHTML = `
+        <div class="piso-head" style="padding:12px 16px;background:#f2f5fc;cursor:pointer;font-weight:600;color:#22366F;"
+             onclick="this.nextElementSibling.classList.toggle('hidden')">
+            <i class="bi bi-door-open"></i> Apartamento ${a.identificador}
+        </div>
+        <div class="hidden" style="padding:14px 16px;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                ${['habitaciones','salas','balcones','cocinas'].map(t => `
+                    <div class="field" style="width:110px;">
+                        <label class="text-sm" style="text-transform:capitalize;">${t}</label>
+                        <input type="number" min="0" max="30" class="form-control amb-${t}"
+                               value="${a['num_'+t] || 0}">
+                    </div>`).join('')}
+                <button type="button" class="btn btn-primary btn-sm" onclick="guardarApto(this, ${a.id})">
+                    <i class="bi bi-check-lg"></i> Generar ambientes
+                </button>
+            </div>
+            <div class="amb-lista" style="margin-top:14px;"></div>
+        </div>`;
+    lista.appendChild(card);
+    // Si el apartamento ya tenía ambientes, cargarlos.
+    if ((a.num_habitaciones + a.num_salas + a.num_balcones + a.num_cocinas) > 0) {
+        cargarAmbientes(a.id, card.querySelector('.amb-lista'));
+    }
+}
+
+async function guardarApto(btn, aptoId) {
+    const cont = btn.closest('div').parentElement;
+    const payload = {
+        accion: 'guardar_apto', apartamento_id: aptoId,
+        num_habitaciones: cont.querySelector('.amb-habitaciones').value,
+        num_salas:        cont.querySelector('.amb-salas').value,
+        num_balcones:     cont.querySelector('.amb-balcones').value,
+        num_cocinas:      cont.querySelector('.amb-cocinas').value,
+    };
+    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) pintarAmbientes(data.ambientes, cont.querySelector('.amb-lista'));
+    else alert(data.mensaje || 'Error.');
+}
+
+async function cargarAmbientes(aptoId, contenedor) {
+    const res = await fetch(URL_BASE + 'listar_rec_aptos.php?ambientes_de=' + aptoId);
+    const data = await res.json();
+    if (data.ok) pintarAmbientes(data.ambientes, contenedor);
+}
+
+function pintarAmbientes(ambientes, contenedor) {
+    if (!ambientes || !ambientes.length) { contenedor.innerHTML = ''; return; }
+    // Agrupar por tipo
+    const iconos = {'Habitación':'bi-door-closed','Sala':'bi-tv','Balcón':'bi-flower1','Cocina':'bi-fire'};
+    let html = '';
+    ambientes.forEach(am => {
+        const rep = am.necesita_reparacion == 1;
+        html += `
+        <div class="amb-row" data-amb="${am.id}" style="border:1px solid #e8ebf3;border-radius:9px;padding:10px 12px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="font-weight:600;color:#2a3140;"><i class="bi ${iconos[am.tipo]||'bi-square'}"></i> ${am.tipo} ${am.numero}</span>
+                <label class="seg-radio"><input type="checkbox" class="amb-reparar" ${rep?'checked':''}
+                    onchange="toggleReparar(this, ${am.id})"> Necesita reparación</label>
+                <button type="button" class="btn btn-outline btn-sm" onclick="fotoAmbiente(this, ${am.id})">
+                    <i class="bi bi-camera"></i> Foto${rep?'s':''}
+                </button>
+                <span class="amb-hint text-sm" style="color:#767c94;">${rep?'Suba varias fotos indicando la parte':'Suba 1 foto del estado'}</span>
+            </div>
+            <div class="amb-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+        </div>`;
+    });
+    contenedor.innerHTML = html;
+    // Cargar fotos existentes de cada ambiente
+    ambientes.forEach(am => {
+        fetch(URL_BASE + 'listar_rec_aptos.php?fotos_de=' + am.id)
+            .then(r=>r.json()).then(d=>{
+                if (d.ok && d.fotos.length) {
+                    const row = contenedor.querySelector('.amb-row[data-amb="'+am.id+'"] .amb-fotos');
+                    d.fotos.forEach(f => agregarMiniFoto(row, f));
+                }
+            });
+    });
+}
+
+async function toggleReparar(chk, ambId) {
+    const row = chk.closest('.amb-row');
+    row.querySelector('.amb-hint').textContent = chk.checked
+        ? 'Suba varias fotos indicando la parte' : 'Suba 1 foto del estado';
+    await fetch(URL_BASE + 'guardar_rec_apto.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accion:'guardar_ambiente', ambiente_id: ambId, necesita_reparacion: chk.checked?1:0 })
+    });
+}
+
+function fotoAmbiente(btn, ambId) {
+    const row = btn.closest('.amb-row');
+    const necesitaReparar = row.querySelector('.amb-reparar').checked;
+    // Sin reparación: 1 sola foto. Si ya tiene una, avisar.
+    if (!necesitaReparar && row.querySelectorAll('.amb-fotos img').length >= 1) {
+        alert('Este ambiente no necesita reparación: basta con una foto del estado. Marque "Necesita reparación" si quiere agregar más.');
+        return;
+    }
+    let parte = null;
+    if (necesitaReparar) {
+        parte = prompt('¿Qué parte muestra la foto? (ej: pared norte, closet, techo, piso)');
+        if (parte === null) return;
+    }
+    _fotoDestino = { nivel:'ambiente', refId: ambId, parte, row };
+    document.getElementById('rec-file-input').click();
+}
+
+function agregarMiniFoto(cont, f) {
+    const parte = f.parte ? '<div style="font-size:10px;color:#55617f;text-align:center;">'+f.parte+'</div>' : '';
+    cont.insertAdjacentHTML('beforeend',
+        '<div style="text-align:center;"><img src="'+f.ruta+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #d8dce6;">'+parte+'</div>');
 }
 
 // Si venimos de guardar el paso 1, abrir directo el paso 2.

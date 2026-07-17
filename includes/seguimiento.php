@@ -917,3 +917,93 @@ function recFotos(string $nivel, int $refId): array
 }
 
 // =====================================================================
+
+// ---------------------------------------------------------------------
+// APARTAMENTOS Y AMBIENTES (Paso 3 del levantamiento)
+// ---------------------------------------------------------------------
+
+/** Lista los apartamentos de un piso. */
+function recApartamentos(int $pisoId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_apartamento WHERE piso_id = :p ORDER BY id');
+    $st->execute(['p' => $pisoId]);
+    return $st->fetchAll();
+}
+
+/** Genera los apartamentos de un piso según una cantidad (si no existen ya). */
+function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): array
+{
+    $existentes = recApartamentos($pisoId);
+    $faltan = $cantidad - count($existentes);
+    for ($i = count($existentes) + 1; $i <= $cantidad; $i++) {
+        // Identificador tipo "3-A", "3-B"… (piso + letra)
+        $letra = chr(64 + $i); // A, B, C…
+        $ident = $numeroPiso . '-' . ($i <= 26 ? $letra : $i);
+        db()->prepare(
+            'INSERT INTO rec_apartamento (piso_id, identificador) VALUES (:p, :id)'
+        )->execute(['p' => $pisoId, 'id' => $ident]);
+    }
+    return recApartamentos($pisoId);
+}
+
+/** Actualiza las cantidades de ambientes de un apartamento y los genera. */
+function recGuardarApartamento(int $apartamentoId, array $d): void
+{
+    $nh = max(0, (int)($d['num_habitaciones'] ?? 0));
+    $ns = max(0, (int)($d['num_salas'] ?? 0));
+    $nb = max(0, (int)($d['num_balcones'] ?? 0));
+    $nc = max(0, (int)($d['num_cocinas'] ?? 0));
+
+    db()->prepare(
+        'UPDATE rec_apartamento SET num_habitaciones=:h, num_salas=:s, num_balcones=:b, num_cocinas=:c, completado=1 WHERE id=:id'
+    )->execute(['h'=>$nh, 's'=>$ns, 'b'=>$nb, 'c'=>$nc, 'id'=>$apartamentoId]);
+
+    // Generar los ambientes según las cantidades (sin duplicar los existentes).
+    $tipos = [
+        'Habitación' => $nh,
+        'Sala'       => $ns,
+        'Balcón'     => $nb,
+        'Cocina'     => $nc,
+    ];
+    foreach ($tipos as $tipo => $cant) {
+        $st = db()->prepare('SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t');
+        $st->execute(['a'=>$apartamentoId, 't'=>$tipo]);
+        $ya = (int)$st->fetchColumn();
+        // Crear los que falten
+        for ($n = $ya + 1; $n <= $cant; $n++) {
+            db()->prepare(
+                'INSERT INTO rec_ambiente (apartamento_id, tipo, numero) VALUES (:a, :t, :n)'
+            )->execute(['a'=>$apartamentoId, 't'=>$tipo, 'n'=>$n]);
+        }
+        // Si redujeron la cantidad, borrar los sobrantes (y sus fotos por cascada lógica).
+        if ($cant < $ya) {
+            $del = db()->prepare('SELECT id FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t AND numero > :c');
+            $del->execute(['a'=>$apartamentoId, 't'=>$tipo, 'c'=>$cant]);
+            foreach ($del->fetchAll(PDO::FETCH_COLUMN) as $ambId) {
+                db()->prepare("DELETE FROM rec_foto WHERE nivel='ambiente' AND ref_id=:r")->execute(['r'=>$ambId]);
+            }
+            db()->prepare('DELETE FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t AND numero > :c')
+                ->execute(['a'=>$apartamentoId, 't'=>$tipo, 'c'=>$cant]);
+        }
+    }
+}
+
+/** Lista los ambientes de un apartamento, agrupados por tipo. */
+function recAmbientes(int $apartamentoId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_ambiente WHERE apartamento_id = :a ORDER BY tipo, numero');
+    $st->execute(['a' => $apartamentoId]);
+    return $st->fetchAll();
+}
+
+/** Marca si un ambiente necesita reparación (y observación). */
+function recGuardarAmbiente(int $ambienteId, array $d): void
+{
+    db()->prepare(
+        'UPDATE rec_ambiente SET necesita_reparacion=:r, observaciones=:o, completado=1 WHERE id=:id'
+    )->execute([
+        'r'  => !empty($d['necesita_reparacion']) ? 1 : 0,
+        'o'  => trim($d['observaciones'] ?? '') ?: null,
+        'id' => $ambienteId,
+    ]);
+}
