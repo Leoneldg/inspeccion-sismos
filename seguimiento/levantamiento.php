@@ -225,29 +225,32 @@ include __DIR__ . '/../includes/header.php';
             <label class="seg-radio"><input type="checkbox" id="tiene_areas_comunes" <?= $ed['tiene_areas_comunes'] ? 'checked' : '' ?>> Sí</label>
         </div>
         <div id="wrap-areas" style="<?= $ed['tiene_areas_comunes'] ? '' : 'display:none;' ?>">
-            <label class="text-sm" style="font-weight:600;">Marque las áreas comunes que tiene el edificio e indique su estado:</label>
+            <label class="text-sm" style="font-weight:600;display:block;margin-bottom:8px;">Marque las áreas comunes que tiene el edificio:</label>
             <?php
             $areasCat = recAreasComunesTipicas();
             $areasGuardadas = recAreasComunes((int)$ed['id']);
             ?>
-            <div style="margin-top:8px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
                 <?php foreach ($areasCat as $ak => $albl):
                     $ac = $areasGuardadas[$ak] ?? null;
                     $marcada = $ac !== null;
                 ?>
-                <div class="area-row" data-area="<?= $ak ?>" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid #f0f2f7;">
-                    <label class="seg-radio" style="min-width:170px;font-weight:<?= $marcada ? '600' : '400' ?>;">
+                <div class="area-row" data-area="<?= $ak ?>" style="border:1px solid #eef0f5;border-radius:8px;overflow:hidden;">
+                    <label class="area-chk-lbl" style="display:flex;align-items:center;gap:7px;padding:9px 11px;cursor:pointer;font-size:13px;<?= $marcada ? 'background:#eef2fb;font-weight:600;color:#22366F;' : '' ?>">
                         <input type="checkbox" class="area-check" <?= $marcada ? 'checked' : '' ?>> <?= e($albl) ?>
                     </label>
-                    <select class="form-control area-estado" style="width:auto;<?= $marcada ? '' : 'display:none;' ?>">
-                        <option value="">Estado…</option>
-                        <?php foreach (['Buena','Regular','Requiere reparación','No aplica'] as $es): ?>
-                        <option value="<?= $es ?>" <?= ($ac && $ac['estado'] === $es) ? 'selected' : '' ?>><?= $es ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <label class="seg-radio area-rep-wrap" style="<?= $marcada ? '' : 'display:none;' ?>">
-                        <input type="checkbox" class="area-reparar" <?= ($ac && $ac['necesita_reparacion']) ? 'checked' : '' ?>> Reparación
-                    </label>
+                    <!-- Estado y reparación: solo visibles si el área está marcada -->
+                    <div class="area-detalle" style="padding:8px 11px;background:#f9fafd;display:<?= $marcada ? 'flex' : 'none' ?>;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <select class="form-control area-estado" style="flex:1;min-width:110px;padding:6px 8px;font-size:12.5px;">
+                            <option value="">Estado…</option>
+                            <?php foreach (['Buena','Regular','Requiere reparación','No aplica'] as $es): ?>
+                            <option value="<?= $es ?>" <?= ($ac && $ac['estado'] === $es) ? 'selected' : '' ?>><?= $es ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <label class="seg-radio area-rep-wrap" style="font-size:12px;">
+                            <input type="checkbox" class="area-reparar" <?= ($ac && $ac['necesita_reparacion']) ? 'checked' : '' ?>> Reparar
+                        </label>
+                    </div>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -414,13 +417,23 @@ document.getElementById('tiene_areas_comunes')?.addEventListener('change', funct
     document.getElementById('wrap-areas').style.display = this.checked ? '' : 'none';
 });
 
-// Al marcar/desmarcar un área común, mostrar u ocultar su estado.
+// Al marcar/desmarcar un área común, mostrar u ocultar su estado y resaltar.
 document.querySelectorAll('.area-row .area-check').forEach(chk => {
     chk.addEventListener('change', function(){
         const row = this.closest('.area-row');
-        const mostrar = this.checked ? '' : 'none';
-        row.querySelector('.area-estado').style.display = mostrar;
-        row.querySelector('.area-rep-wrap').style.display = mostrar;
+        const detalle = row.querySelector('.area-detalle');
+        const lbl = row.querySelector('.area-chk-lbl');
+        if (this.checked) {
+            detalle.style.display = 'flex';
+            lbl.style.background = '#eef2fb';
+            lbl.style.fontWeight = '600';
+            lbl.style.color = '#22366F';
+        } else {
+            detalle.style.display = 'none';
+            lbl.style.background = '';
+            lbl.style.fontWeight = '';
+            lbl.style.color = '';
+        }
     });
 });
 

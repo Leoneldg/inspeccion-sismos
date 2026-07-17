@@ -498,9 +498,10 @@ function descargarPdfParroquia(estado, parroquia) {
 }
 
 (function initMapa() {
-    if (!PUNTOS.length) return;
+    // Centro y zoom inicial: Caracas (Distrito Capital).
+    const CARACAS = [10.5061, -66.9146];
 
-    map = L.map('seg-map', { zoomControl: true });
+    map = L.map('seg-map', { zoomControl: true }).setView(CARACAS, 13);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
         attribution: 'Esri'
@@ -511,7 +512,7 @@ function descargarPdfParroquia(estado, parroquia) {
     fetch(APP_URL_BASE + 'assets/geo/parroquias/distrito_capital.geojson')
         .then(r => r.json())
         .then(geo => {
-            L.geoJSON(geo, {
+            const capaParr = L.geoJSON(geo, {
                 style: { color:'#C9A227', weight:1.5, fillColor:'#22366F', fillOpacity:0.06 },
                 onEachFeature: (feature, layer) => {
                     const nombre = feature.properties.parroquia || '';
@@ -522,6 +523,10 @@ function descargarPdfParroquia(estado, parroquia) {
                     layer.bindTooltip(nombre, { sticky:true });
                 }
             }).addTo(map);
+            // Si no hay puntos, encuadrar el mapa a las parroquias de Caracas.
+            if (!PUNTOS.length) {
+                try { map.fitBounds(capaParr.getBounds().pad(0.05)); } catch(e) {}
+            }
         }).catch(()=>{});
 
     // Sin agrupamiento: todos los puntos se dibujan individualmente.
@@ -534,8 +539,10 @@ function descargarPdfParroquia(estado, parroquia) {
         capa.addLayer(m);
     });
 
-    capa.addTo(map);
-    map.fitBounds(capa.getBounds().pad(0.15));
+    if (PUNTOS.length) {
+        capa.addTo(map);
+        map.fitBounds(capa.getBounds().pad(0.15));
+    }
 
     document.getElementById('seg-panel-close').addEventListener('click', () => {
         document.getElementById('seg-panel').classList.remove('open');
