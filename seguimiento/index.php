@@ -301,34 +301,16 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="seg-panel-body" id="sp-datos"></div>
                 <div class="seg-panel-foot">
-                    <a class="btn-fase" id="sp-btn-fase" href="#"></a>
+                    <!-- Mensaje de estado / confirmación -->
+                    <div id="sp-msg" style="display:none;margin-bottom:10px;padding:10px 11px;border-radius:8px;font-size:13px;line-height:1.4;"></div>
 
-                    <!-- Selección de ente (fase 2). Oculto hasta que se pulsa el botón. -->
-                    <div id="sp-entes" style="display:none;margin-top:10px;">
-                        <label class="text-sm" style="display:block;margin-bottom:5px;color:#55617f;font-weight:600;">
-                            Seleccione el ente responsable de la recuperación
-                        </label>
-                        <select id="sp-ente-sel" class="form-control" style="width:100%;">
-                            <option value="">— Elegir ente —</option>
-                        </select>
-                        <div style="display:flex;gap:7px;margin-top:8px;">
-                            <button class="btn btn-primary btn-sm" id="sp-ente-ok" style="flex:1;justify-content:center;">
-                                <i class="bi bi-check-lg"></i> Asignar
-                            </button>
-                            <button class="btn btn-outline btn-sm" id="sp-ente-cancel" style="justify-content:center;">
-                                Cancelar
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Mensaje de confirmación / error -->
-                    <div id="sp-msg" style="display:none;margin-top:10px;padding:10px 11px;border-radius:8px;font-size:13px;line-height:1.4;"></div>
-
-                    <a href="#" id="sp-ficha" class="btn btn-outline btn-sm" style="width:100%;margin-top:8px;justify-content:center;">
-                        <i class="bi bi-clipboard-data"></i> Ver ficha completa
-                    </a>
-                    <a href="#" id="sp-levantamiento" class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;justify-content:center;">
+                    <!-- Acción principal: levantamiento técnico (paso inicial) -->
+                    <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;">
                         <i class="bi bi-building-gear"></i> Levantamiento técnico
+                    </a>
+                    <!-- Ficha de seguimiento (después del levantamiento) -->
+                    <a href="#" id="sp-ficha" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
+                        <i class="bi bi-clipboard-data"></i> Ficha de seguimiento
                     </a>
                 </div>
             </div>
@@ -341,9 +323,7 @@ include __DIR__ . '/../includes/header.php';
 <script>
 const PUNTOS       = <?= json_encode($puntos, JSON_UNESCAPED_UNICODE) ?>;
 const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
-const ENTES        = <?= json_encode(array_map(fn($x) => ['id' => (int)$x['id'], 'nombre' => $x['nombre']], $entes), JSON_UNESCAPED_UNICODE) ?>;
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
-const URL_ENTE     = '<?= APP_URL_BASE ?>seguimiento/asignar_ente.php';
 
 let map;
 let marcadores = {};      // id -> marker
@@ -370,124 +350,6 @@ function iconoPunto(p) {
                  ${mant}
                </div>`
     });
-}
-
-/* ---------- Configura el botón grande según el estado de la edificación ----------
-   - Si aún NO tiene ente asignado  -> el botón despliega el listado de entes
-     ahí mismo en el mapa (asignación rápida, sin salir a la ficha).
-   - Si YA tiene ente asignado      -> el botón lleva a la ficha completa,
-     que es donde el responsable carga el plan y las fotos de seguimiento. */
-function pintarBoton(p) {
-    const btn    = document.getElementById('sp-btn-fase');
-    const bloque = document.getElementById('sp-entes');
-    const msg    = document.getElementById('sp-msg');
-
-    // Cada vez que se abre un punto, se parte de cero.
-    bloque.style.display = 'none';
-    msg.style.display    = 'none';
-    btn.style.display    = 'flex';
-
-    // Sin permiso de edición: solo consulta.
-    if (!PUEDE_EDITAR) {
-        btn.href = p.ficha_url;
-        btn.style.background = '#767c94';
-        btn.innerHTML = '<i class="bi bi-clipboard-data"></i><span>Ver ficha completa</span>';
-        btn.onclick = null;
-        return;
-    }
-
-    const tieneEnte = !!p.ente;
-
-    if (!tieneEnte) {
-        // --- Falta asignar el ente: el botón abre el listado ---
-        btn.href = '#';
-        btn.style.background = '#2d4488';
-        btn.innerHTML = '<i class="bi bi-building-add"></i><span>Asignar ente de recuperación'
-                      + '<span class="btn-fase-sub">Seleccione el ente responsable</span></span>';
-        btn.onclick = (ev) => {
-            ev.preventDefault();
-            abrirSelectorEntes(p);
-        };
-    } else if (p.fase === 3) {
-        // --- Culminada ---
-        btn.href = p.ficha_url;
-        btn.style.background = '#2E7D32';
-        btn.innerHTML = '<i class="bi bi-check-circle-fill"></i><span>Recuperación culminada'
-                      + '<span class="btn-fase-sub">' + p.ente + ' · Ver ficha</span></span>';
-        btn.onclick = null;
-    } else {
-        // --- Ya tiene ente: en fase de recuperación. Ícono de mantenimiento. ---
-        btn.href = p.ficha_url;
-        btn.style.background = '#2d4488';
-        btn.innerHTML = '<i class="bi bi-tools"></i><span>En fase de recuperación'
-                      + '<span class="btn-fase-sub">' + p.ente + ' · Abrir ficha y cargar seguimiento</span></span>';
-        btn.onclick = null;
-    }
-}
-
-/* ---------- Despliega el listado de entes para asignar ---------- */
-function abrirSelectorEntes(p) {
-    const bloque = document.getElementById('sp-entes');
-    const sel    = document.getElementById('sp-ente-sel');
-    const msg    = document.getElementById('sp-msg');
-
-    // Llenar el listado de entes.
-    sel.innerHTML = '<option value="">— Elegir ente —</option>'
-        + ENTES.map(en => `<option value="${en.id}">${en.nombre}</option>`).join('');
-    sel.value = '';
-
-    msg.style.display = 'none';
-    bloque.style.display = 'block';
-    document.getElementById('sp-btn-fase').style.display = 'none';
-
-    document.getElementById('sp-ente-cancel').onclick = () => {
-        bloque.style.display = 'none';
-        document.getElementById('sp-btn-fase').style.display = 'flex';
-    };
-    document.getElementById('sp-ente-ok').onclick = () => asignarEnte(p, sel.value);
-}
-
-/* ---------- Envía la asignación del ente al servidor ---------- */
-async function asignarEnte(p, enteId) {
-    const msg = document.getElementById('sp-msg');
-    const ok  = document.getElementById('sp-ente-ok');
-
-    if (!enteId) {
-        mostrarMsg('Seleccione un ente de la lista.', false);
-        return;
-    }
-
-    const textoOriginal = ok.innerHTML;
-    ok.disabled  = true;
-    ok.innerHTML = '<i class="bi bi-arrow-repeat"></i> Asignando…';
-
-    try {
-        const res = await fetch(URL_ENTE, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body:    new URLSearchParams({ inspeccion_id: p.id, ente_id: enteId }).toString()
-        });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.mensaje || 'No se pudo asignar el ente.');
-
-        // Actualiza el punto en memoria: ya tiene ente y entra en recuperación.
-        p.ente = data.ente_nombre;
-        if (p.fase === 0) p.fase = 2;                       // pasa a fase de recuperación
-        if (!p.estado_obra || p.estado_obra === 'Sin iniciar') p.estado_obra = 'En ejecución';
-
-        // Repinta el marcador (ahora lleva el ícono de mantenimiento).
-        const m = marcadores[p.id];
-        if (m) m.setIcon(iconoPunto(p));
-
-        // Repinta el panel y muestra la confirmación.
-        abrirPanel(p);
-        mostrarMsg(data.mensaje, true);
-
-    } catch (err) {
-        ok.disabled  = false;
-        ok.innerHTML = textoOriginal;
-        mostrarMsg(err.message, false);
-    }
 }
 
 /* ---------- Mensaje de confirmación / error dentro del panel ---------- */
@@ -533,7 +395,6 @@ function abrirPanel(p) {
         ([k, v]) => `<div class="seg-panel-row"><span>${k}</span><span>${v}</span></div>`
     ).join('');
 
-    pintarBoton(p);
     document.getElementById('seg-panel').classList.add('open');
 }
 
