@@ -1380,3 +1380,61 @@ function esSistematizador(?int $userId = null): bool
     $st->execute(['u' => $userId]);
     return (bool)$st->fetchColumn();
 }
+
+// =====================================================================
+// MAPA POR PARROQUIA (rendimiento): conteo agregado + puntos bajo demanda
+// =====================================================================
+
+/**
+ * Conteo de edificaciones por parroquia (para las burbujas del mapa).
+ * Rápido: no trae los puntos, solo cuántos hay por parroquia y su color
+ * predominante. Respeta el scope territorial del usuario.
+ */
+function segConteoPorParroquia(): array
+{
+    $pdo = db();
+    $conds = ["i.parroquia IS NOT NULL", "i.parroquia <> ''"];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    $where = 'WHERE ' . implode(' AND ', $conds);
+
+    $sql = "SELECT i.estado, i.parroquia,
+                   COUNT(*) AS total,
+                   SUM(i.decision_final = 'Edificación Insegura - Acceso No Permitido') AS rojos,
+                   SUM(i.decision_final = 'Acceso Restringido - Precaución al Entrar') AS amarillos,
+                   SUM(i.decision_final = 'Edificación Inspeccionada - Acceso Permitido') AS verdes,
+                   SUM(i.decision_final = 'Derrumbado') AS derrumbados
+              FROM inspecciones i
+              $where
+             GROUP BY i.estado, i.parroquia";
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
+/**
+ * Puntos (edificaciones) de UNA parroquia. Se carga bajo demanda cuando
+ * el usuario selecciona la parroquia en el mapa, para no dibujar miles a la vez.
+ */
+function segPuntosDeParroquia(string $estado, string $parroquia): array
+{
+    $pdo = db();
+    $conds = ['i.parroquia = :p', 'i.estado = :e'];
+    $params = ['p' => $parroquia, 'e' => $estado];
+    aplicarScopeEstado($conds, $params, 'i');
+    $where = 'WHERE ' . implode(' AND ', $conds);
+
+    $sql = "SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio,
+                   i.latitud, i.longitud, i.parroquia, i.municipio, i.estado,
+                   i.uso_edificacion, i.num_pisos, i.numero_personas,
+                   i.decision_final, i.fecha_inspeccion,
+                   so.estado_obra, so.avance_pct,
+                   re.id AS rec_edificio_id, re.completado
+              FROM inspecciones i
+              LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where";
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return $st->fetchAll();
+}

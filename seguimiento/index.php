@@ -38,97 +38,12 @@ $puedeEditar = puede('seguimiento', 'editar');
 //   3) Si no hay forma de ubicarla (sin parroquia), no se muestra.
 // ---------------------------------------------------------------------
 
-// Primero se detectan las coordenadas repetidas en masa: si un mismo par
-// lat/lng aparece en muchas inspecciones, no es una ubicación real.
-$umbralDuplicadas = 5;   // a partir de aquí se considera valor por defecto
-$conteoCoords = [];
-foreach ($edificios as $ed) {
-    $lat = $ed['latitud'] ?? null;
-    $lng = $ed['longitud'] ?? null;
-    if ($lat === null || $lng === null || $lat === '' || $lng === '') continue;
-    $k = round((float)$lat, 5) . ',' . round((float)$lng, 5);
-    $conteoCoords[$k] = ($conteoCoords[$k] ?? 0) + 1;
-}
-$coordsPorDefecto = [];
-foreach ($conteoCoords as $k => $n) {
-    if ($n >= $umbralDuplicadas) $coordsPorDefecto[$k] = true;
-}
-
-// Anclas por parroquia: inspecciones con coordenada propia fiable. Sirven de
-// referencia de dónde hay edificaciones reales, para no colocar los puntos
-// aproximados en zonas deshabitadas (montañas) de parroquias muy extensas.
-$anclas = [];
-foreach ($edificios as $ed) {
-    $la = $ed['latitud'] ?? null; $ln = $ed['longitud'] ?? null;
-    if ($la === null || $ln === null || $la === '' || $ln === '') continue;
-    if ((float)$la == 0.0 && (float)$ln == 0.0) continue;
-    $k = round((float)$la, 5) . ',' . round((float)$ln, 5);
-    if (isset($coordsPorDefecto[$k])) continue;
-    $pq = segNorm((string)($ed['estado'] ?? '')) . '|' . segNorm((string)($ed['parroquia'] ?? ''));
-    $anclas[$pq][] = [(float)$la, (float)$ln];
-}
-
-$puntos       = [];
-$sinUbicacion = 0;   // ni coordenadas ni parroquia ubicable
-$aproximados  = 0;   // ubicadas por parroquia (no por GPS propio)
-
-foreach ($edificios as $ed) {
-    $lat = $ed['latitud'] ?? null;
-    $lng = $ed['longitud'] ?? null;
-
-    // ¿Tiene coordenadas propias utilizables?
-    $tieneGps = ($lat !== null && $lng !== null && $lat !== '' && $lng !== ''
-                 && !((float)$lat == 0.0 && (float)$lng == 0.0));
-
-    // Si su coordenada es una de las repetidas en masa, no es real: se descarta.
-    if ($tieneGps) {
-        $k = round((float)$lat, 5) . ',' . round((float)$lng, 5);
-        if (isset($coordsPorDefecto[$k])) $tieneGps = false;
-    }
-
-    $aprox = false;
-    if (!$tieneGps) {
-        // Se ubica dentro de su parroquia.
-        $pqKey = segNorm((string)($ed['estado'] ?? '')) . '|' . segNorm((string)($ed['parroquia'] ?? ''));
-        $pt = segUbicarEnParroquia(
-            (string)($ed['estado'] ?? ''),
-            (string)($ed['parroquia'] ?? ''),
-            (int)$ed['inspeccion_id'],         // semilla: siempre cae en el mismo punto
-            $anclas[$pqKey] ?? []
-        );
-        if ($pt === null) { $sinUbicacion++; continue; }   // sin parroquia -> no se muestra
-        [$lat, $lng] = $pt;
-        $aprox = true;
-        $aproximados++;
-    }
-
-    $fase = segFaseDe($ed['estado_obra'] ?? null, $ed['avance_pct'] ?? 0);
-    $meta = $decisiones[$ed['decision_final']] ?? ['color' => '#767c94', 'corto' => '—'];
-
-    $puntos[] = [
-        'id'          => (int)$ed['inspeccion_id'],
-        'codigo'      => $ed['codigo'],
-        'nombre'      => $ed['nombre_edificio'],
-        'lat'         => (float)$lat,
-        'lng'         => (float)$lng,
-        'aprox'       => $aprox,     // true = ubicación aproximada por parroquia
-        'color'       => $meta['color'],
-        'decision'    => $meta['corto'],
-        'estado'      => $ed['estado'] ?: '—',
-        'municipio'   => $ed['municipio'] ?: '—',
-        'parroquia'   => $ed['parroquia'] ?: '—',
-        'uso'         => $ed['uso_edificacion'] ?: '—',
-        'pisos'       => (int)($ed['num_pisos'] ?? 0),
-        'personas'    => (int)($ed['personas'] ?? 0),
-        'fecha'       => $ed['fecha_inspeccion'] ?: '—',
-        'ente'        => $ed['ente_nombre'] ?: null,
-        'estado_obra' => $ed['estado_obra'] ?: null,
-        'avance'      => round((float)($ed['avance_pct'] ?? 0)),
-        'fase'        => $fase,
-        'ficha_url'   => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'],
-        'levantamiento_url' => APP_URL_BASE . 'seguimiento/levantamiento.php?inspeccion=' . (int)$ed['inspeccion_id'],
-    ];
-}
+// ---------------------------------------------------------------------
+// RENDIMIENTO: en vez de dibujar miles de puntos de golpe (lento), el mapa
+// muestra un conteo por parroquia (burbujas). Los puntos individuales se
+// cargan bajo demanda al seleccionar una parroquia (puntos_parroquia.php).
+// ---------------------------------------------------------------------
+$conteoParroquias = segConteoPorParroquia();
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -329,11 +244,12 @@ include __DIR__ . '/../includes/header.php';
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const PUNTOS       = <?= json_encode($puntos, JSON_UNESCAPED_UNICODE) ?>;
+const CONTEO_PARROQUIAS = <?= json_encode($conteoParroquias, JSON_UNESCAPED_UNICODE) ?>;
 const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const APP_URL_BASE = '<?= APP_URL_BASE ?>';
 const PARROQUIA_URL = APP_URL_BASE + 'dashboard/api_parroquia.php';
+const PUNTOS_URL = APP_URL_BASE + 'seguimiento/puntos_parroquia.php';
 
 let map;
 let marcadores = {};      // id -> marker
@@ -497,69 +413,99 @@ function descargarPdfParroquia(estado, parroquia) {
     window.location.href = APP_URL_BASE + 'dashboard/pdf_parroquia.php?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia);
 }
 
-(function initMapa() {
-    // Centro y zoom inicial: Caracas (Distrito Capital).
-    const CARACAS = [10.5061, -66.9146];
+// Mapa normaliza texto para casar parroquia del geojson con la del conteo.
+function normTxt(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
 
-    map = L.map('seg-map', { zoomControl: true }).setView(CARACAS, 13);
+// Índice de conteo por parroquia (normalizado).
+const CONTEO_IDX = {};
+CONTEO_PARROQUIAS.forEach(c => { CONTEO_IDX[normTxt(c.parroquia)] = c; });
+
+let capaPuntos = null;       // capa de puntos de la parroquia seleccionada
+let capaBurbujas = null;     // capa de burbujas de conteo
+let parroquiaActiva = null;
+
+(function initMapa() {
+    const CARACAS = [10.5061, -66.9146];
+    map = L.map('seg-map', { zoomControl: true }).setView(CARACAS, 12);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 19,
-        attribution: 'Esri'
+        maxZoom: 19, attribution: 'Esri'
     }).addTo(map);
 
-    // Dibujar los polígonos de las parroquias del Distrito Capital.
-    // Al hacer clic en una parroquia, se abre el panel de su encargado.
+    capaBurbujas = L.featureGroup().addTo(map);
+    capaPuntos = L.featureGroup().addTo(map);
+
+    // Dibujar parroquias del DC + una burbuja de conteo en el centro de cada una.
     fetch(APP_URL_BASE + 'assets/geo/parroquias/distrito_capital.geojson')
         .then(r => r.json())
         .then(geo => {
-            const capaParr = L.geoJSON(geo, {
-                style: { color:'#C9A227', weight:1.5, fillColor:'#22366F', fillOpacity:0.06 },
+            L.geoJSON(geo, {
+                style: { color:'#C9A227', weight:1.5, fillColor:'#22366F', fillOpacity:0.08 },
                 onEachFeature: (feature, layer) => {
                     const nombre = feature.properties.parroquia || '';
                     const estado = feature.properties.estado || 'Distrito Capital';
                     layer.on('mouseover', () => layer.setStyle({ fillOpacity:0.20, weight:2.5 }));
-                    layer.on('mouseout', () => layer.setStyle({ fillOpacity:0.06, weight:1.5 }));
-                    layer.on('click', () => abrirPanelParroquia(estado, nombre));
-                    layer.bindTooltip(nombre, { sticky:true });
+                    layer.on('mouseout', () => layer.setStyle({ fillOpacity:0.08, weight:1.5 }));
+                    layer.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
+
+                    // Burbuja con el conteo de la parroquia.
+                    const c = CONTEO_IDX[normTxt(nombre)];
+                    const total = c ? parseInt(c.total) : 0;
+                    if (total > 0) {
+                        const centro = layer.getBounds().getCenter();
+                        const size = 34 + Math.min(26, Math.round(total/40));
+                        const burbuja = L.marker(centro, {
+                            icon: L.divIcon({
+                                className: 'parr-burbuja',
+                                html: `<div style="width:${size}px;height:${size}px;background:#22366F;border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.3);cursor:pointer;">${total}</div>
+                                       <div style="text-align:center;font-size:10px;color:#fff;text-shadow:0 1px 2px #000;font-weight:600;margin-top:1px;">${nombre}</div>`,
+                                iconSize: [size, size], iconAnchor: [size/2, size/2],
+                            })
+                        });
+                        burbuja.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
+                        capaBurbujas.addLayer(burbuja);
+                    }
                 }
             }).addTo(map);
-            // El mapa ya arranca en Caracas por setView. No reencuadramos aquí
-            // salvo que no haya ningún punto en Caracas (se maneja abajo).
-            window.__capaParroquias = capaParr;
         }).catch(()=>{});
-
-    // Sin agrupamiento: todos los puntos se dibujan individualmente.
-    const capa = L.featureGroup();
-    // Límites aproximados del Distrito Capital / Gran Caracas, para encuadrar
-    // solo a puntos que caen en la zona (evita que una coordenada errónea
-    // en otro país arrastre el mapa a "toda América").
-    const CARACAS_MIN_LAT = 10.35, CARACAS_MAX_LAT = 10.65;
-    const CARACAS_MIN_LNG = -67.10, CARACAS_MAX_LNG = -66.75;
-    const puntosEnCaracas = [];
-
-    PUNTOS.forEach(p => {
-        const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
-        m.on('click', () => abrirPanel(p));
-        marcadores[p.id] = m;
-        capa.addLayer(m);
-        if (p.lat >= CARACAS_MIN_LAT && p.lat <= CARACAS_MAX_LAT &&
-            p.lng >= CARACAS_MIN_LNG && p.lng <= CARACAS_MAX_LNG) {
-            puntosEnCaracas.push([p.lat, p.lng]);
-        }
-    });
-
-    capa.addTo(map);
-    // Encuadrar SOLO a los puntos que están en Caracas. Si no hay ninguno
-    // válido, el mapa se queda en la vista fija de Caracas (setView de arriba).
-    if (puntosEnCaracas.length) {
-        map.fitBounds(L.latLngBounds(puntosEnCaracas).pad(0.15));
-    }
 
     document.getElementById('seg-panel-close').addEventListener('click', () => {
         document.getElementById('seg-panel').classList.remove('open');
         seleccionado = null;
     });
 })();
+
+// Al seleccionar una parroquia: cargar SOLO sus puntos y abrir el panel.
+async function seleccionarParroquia(estado, parroquia, bounds) {
+    parroquiaActiva = parroquia;
+    // Ocultar burbujas y hacer zoom a la parroquia.
+    if (bounds) map.fitBounds(bounds.pad(0.05));
+    capaBurbujas.setStyle ? null : null;
+    // Cargar los puntos de esta parroquia (bajo demanda).
+    capaPuntos.clearLayers();
+    marcadores = {};
+    try {
+        const res = await fetch(PUNTOS_URL + '?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia));
+        const d = await res.json();
+        if (d.ok && d.puntos.length) {
+            d.puntos.forEach(p => {
+                const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
+                m.on('click', () => abrirPanel(p));
+                marcadores[p.id] = m;
+                capaPuntos.addLayer(m);
+            });
+        }
+    } catch(e) {}
+    // Abrir el panel de la parroquia (encargado + resumen).
+    abrirPanelParroquia(estado, parroquia);
+}
+
+// Botón para volver a la vista general (burbujas).
+function volverVistaParroquias() {
+    parroquiaActiva = null;
+    capaPuntos.clearLayers();
+    map.setView([10.5061, -66.9146], 12);
+    cerrarPanelParroquia();
+}
 </script>
 
 <!-- Panel lateral de parroquia (encargado + resumen) -->
