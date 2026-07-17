@@ -523,25 +523,36 @@ function descargarPdfParroquia(estado, parroquia) {
                     layer.bindTooltip(nombre, { sticky:true });
                 }
             }).addTo(map);
-            // Si no hay puntos, encuadrar el mapa a las parroquias de Caracas.
-            if (!PUNTOS.length) {
-                try { map.fitBounds(capaParr.getBounds().pad(0.05)); } catch(e) {}
-            }
+            // El mapa ya arranca en Caracas por setView. No reencuadramos aquí
+            // salvo que no haya ningún punto en Caracas (se maneja abajo).
+            window.__capaParroquias = capaParr;
         }).catch(()=>{});
 
     // Sin agrupamiento: todos los puntos se dibujan individualmente.
     const capa = L.featureGroup();
+    // Límites aproximados del Distrito Capital / Gran Caracas, para encuadrar
+    // solo a puntos que caen en la zona (evita que una coordenada errónea
+    // en otro país arrastre el mapa a "toda América").
+    const CARACAS_MIN_LAT = 10.35, CARACAS_MAX_LAT = 10.65;
+    const CARACAS_MIN_LNG = -67.10, CARACAS_MAX_LNG = -66.75;
+    const puntosEnCaracas = [];
 
     PUNTOS.forEach(p => {
         const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
         m.on('click', () => abrirPanel(p));
         marcadores[p.id] = m;
         capa.addLayer(m);
+        if (p.lat >= CARACAS_MIN_LAT && p.lat <= CARACAS_MAX_LAT &&
+            p.lng >= CARACAS_MIN_LNG && p.lng <= CARACAS_MAX_LNG) {
+            puntosEnCaracas.push([p.lat, p.lng]);
+        }
     });
 
-    if (PUNTOS.length) {
-        capa.addTo(map);
-        map.fitBounds(capa.getBounds().pad(0.15));
+    capa.addTo(map);
+    // Encuadrar SOLO a los puntos que están en Caracas. Si no hay ninguno
+    // válido, el mapa se queda en la vista fija de Caracas (setView de arriba).
+    if (puntosEnCaracas.length) {
+        map.fitBounds(L.latLngBounds(puntosEnCaracas).pad(0.15));
     }
 
     document.getElementById('seg-panel-close').addEventListener('click', () => {
