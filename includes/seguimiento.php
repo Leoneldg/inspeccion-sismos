@@ -666,3 +666,254 @@ function segAsignarEnte(int $inspeccionId, int $enteId): array
 
     return ['id' => (int)$ente['id'], 'nombre' => $ente['nombre']];
 }
+
+// =====================================================================
+// REPRESENTANTES POR PARROQUIA (Fase 1 de Reconstrucción)
+// =====================================================================
+
+/** Lista todos los representantes activos con sus parroquias asignadas. */
+function repListar(): array
+{
+    $pdo = db();
+    $reps = $pdo->query('SELECT * FROM representantes WHERE activo = 1 ORDER BY nombre')->fetchAll();
+    if (!$reps) return [];
+    // Cargar las parroquias de cada uno.
+    $ids = array_column($reps, 'id');
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT * FROM representante_parroquia WHERE representante_id IN ($in) ORDER BY parroquia");
+    $st->execute($ids);
+    $porRep = [];
+    foreach ($st->fetchAll() as $rp) {
+        $porRep[$rp['representante_id']][] = $rp;
+    }
+    foreach ($reps as &$r) {
+        $r['parroquias'] = $porRep[$r['id']] ?? [];
+    }
+    return $reps;
+}
+
+/** Representantes asignados a una parroquia dada. */
+function repDeParroquia(string $estado, string $parroquia): array
+{
+    $st = db()->prepare(
+        'SELECT r.*
+           FROM representantes r
+           JOIN representante_parroquia rp ON rp.representante_id = r.id
+          WHERE r.activo = 1 AND rp.estado = :e AND rp.parroquia = :p
+          ORDER BY r.nombre'
+    );
+    $st->execute(['e' => $estado, 'p' => $parroquia]);
+    return $st->fetchAll();
+}
+
+/** Crea un representante y devuelve su id. */
+function repCrear(array $datos): int
+{
+    $st = db()->prepare(
+        'INSERT INTO representantes (nombre, cedula, telefono, email, cargo, creado_por)
+         VALUES (:n, :c, :t, :e, :ca, :u)'
+    );
+    $st->execute([
+        'n'  => trim($datos['nombre'] ?? ''),
+        'c'  => trim($datos['cedula'] ?? '') ?: null,
+        't'  => trim($datos['telefono'] ?? '') ?: null,
+        'e'  => trim($datos['email'] ?? '') ?: null,
+        'ca' => trim($datos['cargo'] ?? '') ?: null,
+        'u'  => $_SESSION['user_id'] ?? null,
+    ]);
+    return (int)db()->lastInsertId();
+}
+
+/** Asigna un representante a una parroquia (idempotente). */
+function repAsignarParroquia(int $representanteId, string $estado, string $municipio, string $parroquia): void
+{
+    $st = db()->prepare(
+        'INSERT IGNORE INTO representante_parroquia
+            (representante_id, estado, municipio, parroquia, asignado_por)
+         VALUES (:r, :e, :m, :p, :u)'
+    );
+    $st->execute([
+        'r' => $representanteId,
+        'e' => $estado,
+        'm' => $municipio ?: null,
+        'p' => $parroquia,
+        'u' => $_SESSION['user_id'] ?? null,
+    ]);
+}
+
+/** Quita la asignación de un representante a una parroquia. */
+function repQuitarParroquia(int $representanteId, string $estado, string $parroquia): void
+{
+    $st = db()->prepare(
+        'DELETE FROM representante_parroquia
+          WHERE representante_id = :r AND estado = :e AND parroquia = :p'
+    );
+    $st->execute(['r' => $representanteId, 'e' => $estado, 'p' => $parroquia]);
+}
+
+/** Desactiva (borrado lógico) un representante. */
+function repDesactivar(int $representanteId): void
+{
+    db()->prepare('UPDATE representantes SET activo = 0 WHERE id = :id')
+        ->execute(['id' => $representanteId]);
+}
+
+// =====================================================================
+// LEVANTAMIENTO TÉCNICO DEL EDIFICIO (Reconstrucción)
+// =====================================================================
+
+/** Devuelve el registro rec_edificio de una inspección, creándolo vacío si no existe. */
+function recEdificio(int $inspeccionId): array
+{
+    $pdo = db();
+    $st = $pdo->prepare('SELECT * FROM rec_edificio WHERE inspeccion_id = :i');
+    $st->execute(['i' => $inspeccionId]);
+    $ed = $st->fetch();
+    if ($ed) return $ed;
+
+    $pdo->prepare('INSERT INTO rec_edificio (inspeccion_id, creado_por) VALUES (:i, :u)')
+        ->execute(['i' => $inspeccionId, 'u' => $_SESSION['user_id'] ?? null]);
+    $st->execute(['i' => $inspeccionId]);
+    return $st->fetch();
+}
+
+/** Guarda los datos generales del edificio (Paso 1). */
+function recGuardarEdificio(int $inspeccionId, array $d): int
+{
+    $ed = recEdificio($inspeccionId);
+    $estados = ['Buena','Regular','Requiere reparación','No aplica'];
+    $norm = fn($v) => in_array($v, $estados, true) ? $v : null;
+
+    db()->prepare(
+        'UPDATE rec_edificio SET
+            num_pisos = :np, aptos_por_piso = :app,
+            tiene_areas_comunes = :tac, areas_comunes_desc = :acd,
+            azotea_estado = :ae, azotea_obs = :ao,
+            tanques_estado = :te, tanques_obs = :to,
+            impermeabilizacion_estado = :ie, impermeabilizacion_obs = :io,
+            completado = 1
+         WHERE id = :id'
+    )->execute([
+        'np'  => ($d['num_pisos'] ?? '') !== '' ? (int)$d['num_pisos'] : null,
+        'app' => ($d['aptos_por_piso'] ?? '') !== '' ? (int)$d['aptos_por_piso'] : null,
+        'tac' => !empty($d['tiene_areas_comunes']) ? 1 : 0,
+        'acd' => trim($d['areas_comunes_desc'] ?? '') ?: null,
+        'ae'  => $norm($d['azotea_estado'] ?? null),
+        'ao'  => trim($d['azotea_obs'] ?? '') ?: null,
+        'te'  => $norm($d['tanques_estado'] ?? null),
+        'to'  => trim($d['tanques_obs'] ?? '') ?: null,
+        'ie'  => $norm($d['impermeabilizacion_estado'] ?? null),
+        'io'  => trim($d['impermeabilizacion_obs'] ?? '') ?: null,
+        'id'  => $ed['id'],
+    ]);
+    return (int)$ed['id'];
+}
+
+/** Genera automáticamente los pisos del edificio según num_pisos (si no existen). */
+function recGenerarPisos(int $edificioId, int $numPisos): void
+{
+    $pdo = db();
+    $existentes = $pdo->prepare('SELECT numero_piso FROM rec_piso WHERE edificio_id = :e');
+    $existentes->execute(['e' => $edificioId]);
+    $ya = array_column($existentes->fetchAll(), 'numero_piso');
+
+    $ins = $pdo->prepare('INSERT IGNORE INTO rec_piso (edificio_id, numero_piso) VALUES (:e, :n)');
+    for ($n = 1; $n <= $numPisos; $n++) {
+        if (!in_array($n, $ya)) $ins->execute(['e' => $edificioId, 'n' => $n]);
+    }
+}
+
+/** Lista los pisos de un edificio. */
+function recPisos(int $edificioId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_piso WHERE edificio_id = :e ORDER BY numero_piso');
+    $st->execute(['e' => $edificioId]);
+    return $st->fetchAll();
+}
+
+/** Guarda datos de un piso (áreas comunes del piso). */
+function recGuardarPiso(int $pisoId, array $d): void
+{
+    db()->prepare(
+        'UPDATE rec_piso SET tiene_areas_comunes = :tac, areas_comunes_desc = :acd, completado = 1 WHERE id = :id'
+    )->execute([
+        'tac' => !empty($d['tiene_areas_comunes']) ? 1 : 0,
+        'acd' => trim($d['areas_comunes_desc'] ?? '') ?: null,
+        'id'  => $pisoId,
+    ]);
+}
+
+/** Catálogo de elementos que puede tener un piso. */
+function recTiposElementoPiso(): array
+{
+    return [
+        'ascensor'       => 'Ascensor',
+        'escaleras'      => 'Escaleras',
+        'bajante_basura' => 'Bajante de basura',
+        'jardinera'      => 'Jardineras',
+        'pasillo'        => 'Pasillos',
+        'iluminacion'    => 'Iluminación común',
+    ];
+}
+
+/** Elementos registrados de un piso. */
+function recElementosPiso(int $pisoId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_elemento_piso WHERE piso_id = :p');
+    $st->execute(['p' => $pisoId]);
+    $out = [];
+    foreach ($st->fetchAll() as $e) $out[$e['tipo']] = $e;
+    return $out;
+}
+
+/** Guarda un elemento de piso (presente, estado, si necesita reparación). */
+function recGuardarElementoPiso(int $pisoId, string $tipo, array $d): int
+{
+    $pdo = db();
+    $st = $pdo->prepare('SELECT id FROM rec_elemento_piso WHERE piso_id = :p AND tipo = :t');
+    $st->execute(['p' => $pisoId, 't' => $tipo]);
+    $existe = $st->fetchColumn();
+
+    $estados = ['Bueno','Regular','Requiere reparación','No funciona'];
+    $estado = in_array($d['estado'] ?? '', $estados, true) ? $d['estado'] : null;
+    $params = [
+        'pres' => !empty($d['presente']) ? 1 : 0,
+        'est'  => $estado,
+        'rep'  => !empty($d['necesita_reparacion']) ? 1 : 0,
+        'obs'  => trim($d['observaciones'] ?? '') ?: null,
+    ];
+
+    if ($existe) {
+        $params['id'] = $existe;
+        $pdo->prepare('UPDATE rec_elemento_piso SET presente=:pres, estado=:est, necesita_reparacion=:rep, observaciones=:obs WHERE id=:id')
+            ->execute($params);
+        return (int)$existe;
+    }
+    $params['p'] = $pisoId; $params['t'] = $tipo;
+    $pdo->prepare('INSERT INTO rec_elemento_piso (piso_id, tipo, presente, estado, necesita_reparacion, observaciones) VALUES (:p,:t,:pres,:est,:rep,:obs)')
+        ->execute($params);
+    return (int)$pdo->lastInsertId();
+}
+
+/** Guarda una foto del levantamiento, en cualquier nivel. */
+function recGuardarFoto(string $nivel, int $refId, string $ruta, ?string $parte = null, ?string $desc = null): int
+{
+    db()->prepare(
+        'INSERT INTO rec_foto (nivel, ref_id, parte, ruta, descripcion, subido_por)
+         VALUES (:n, :r, :p, :ru, :d, :u)'
+    )->execute([
+        'n' => $nivel, 'r' => $refId, 'p' => $parte, 'ru' => $ruta,
+        'd' => $desc, 'u' => $_SESSION['user_id'] ?? null,
+    ]);
+    return (int)db()->lastInsertId();
+}
+
+/** Fotos de un registro de un nivel. */
+function recFotos(string $nivel, int $refId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_foto WHERE nivel = :n AND ref_id = :r ORDER BY creado_en');
+    $st->execute(['n' => $nivel, 'r' => $refId]);
+    return $st->fetchAll();
+}
+
+// =====================================================================

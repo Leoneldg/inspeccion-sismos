@@ -89,6 +89,9 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
                 </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/representantes.php" class="nav-item <?= $activeModule==='representantes'?'active':'' ?>" title="Representantes por parroquia">
+                    <i class="bi bi-people-fill"></i> <span>Representantes</span>
+                </a>
                 <?php endif; ?>
             </div>
         </div>
