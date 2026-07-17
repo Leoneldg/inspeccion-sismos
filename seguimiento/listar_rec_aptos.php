@@ -37,6 +37,11 @@ try {
         resp(true, ['fotos' => $fotos]);
     }
 
+    // Reparaciones (m² por superficie) de un ambiente
+    if (isset($_GET['reparaciones_de'])) {
+        resp(true, ['reparaciones' => recReparaciones('ambiente', (int)$_GET['reparaciones_de'])]);
+    }
+
     resp(false, ['mensaje' => 'Parámetro no reconocido.']);
 } catch (Throwable $e) {
     resp(false, ['mensaje' => APP_DEBUG ? $e->getMessage() : 'Error.']);

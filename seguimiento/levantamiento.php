@@ -475,7 +475,6 @@ async function cargarAmbientes(aptoId, contenedor) {
 
 function pintarAmbientes(ambientes, contenedor) {
     if (!ambientes || !ambientes.length) { contenedor.innerHTML = ''; return; }
-    // Agrupar por tipo
     const iconos = {'Habitación':'bi-door-closed','Sala':'bi-tv','Balcón':'bi-flower1','Cocina':'bi-fire'};
     let html = '';
     ambientes.forEach(am => {
@@ -491,17 +490,44 @@ function pintarAmbientes(ambientes, contenedor) {
                 </button>
                 <span class="amb-hint text-sm" style="color:#767c94;">${rep?'Suba varias fotos indicando la parte':'Suba 1 foto del estado'}</span>
             </div>
+            <!-- Bloque de reparación: m² por superficie (solo si necesita reparación) -->
+            <div class="amb-reparacion" style="${rep?'':'display:none;'}margin-top:10px;padding:10px;background:#fbf8ef;border-radius:8px;">
+                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
+                    <i class="bi bi-rulers"></i> Metros cuadrados a reparar por superficie
+                </div>
+                <div class="amb-superficies" style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${['pared','techo','piso','closet'].map(sup => `
+                        <div style="width:120px;">
+                            <label class="text-sm" style="text-transform:capitalize;">${sup} (m²)</label>
+                            <input type="number" min="0" step="0.01" class="form-control sup-${sup}"
+                                   data-sup="${sup}" value="0" onchange="guardarReparacion(${am.id}, this)">
+                        </div>`).join('')}
+                </div>
+                <div class="amb-materiales text-sm" style="margin-top:8px;color:#55617f;"></div>
+            </div>
             <div class="amb-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
         </div>`;
     });
     contenedor.innerHTML = html;
-    // Cargar fotos existentes de cada ambiente
+    // Cargar fotos y reparaciones existentes de cada ambiente
     ambientes.forEach(am => {
         fetch(URL_BASE + 'listar_rec_aptos.php?fotos_de=' + am.id)
             .then(r=>r.json()).then(d=>{
                 if (d.ok && d.fotos.length) {
                     const row = contenedor.querySelector('.amb-row[data-amb="'+am.id+'"] .amb-fotos');
                     d.fotos.forEach(f => agregarMiniFoto(row, f));
+                }
+            });
+        // Cargar los m² de reparación ya guardados
+        fetch(URL_BASE + 'listar_rec_aptos.php?reparaciones_de=' + am.id)
+            .then(r=>r.json()).then(d=>{
+                if (d.ok && d.reparaciones && d.reparaciones.length) {
+                    const row = contenedor.querySelector('.amb-row[data-amb="'+am.id+'"]');
+                    d.reparaciones.forEach(rep => {
+                        const inp = row.querySelector('.sup-'+rep.tipo_superficie);
+                        if (inp) inp.value = rep.metros_cuadrados;
+                    });
+                    recalcularMateriales(row);
                 }
             });
     });
@@ -511,10 +537,51 @@ async function toggleReparar(chk, ambId) {
     const row = chk.closest('.amb-row');
     row.querySelector('.amb-hint').textContent = chk.checked
         ? 'Suba varias fotos indicando la parte' : 'Suba 1 foto del estado';
+    // Mostrar/ocultar el bloque de m² a reparar.
+    const bloque = row.querySelector('.amb-reparacion');
+    if (bloque) bloque.style.display = chk.checked ? 'block' : 'none';
     await fetch(URL_BASE + 'guardar_rec_apto.php', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ accion:'guardar_ambiente', ambiente_id: ambId, necesita_reparacion: chk.checked?1:0 })
     });
+}
+
+/* Guarda los m² de todas las superficies de un ambiente y recalcula materiales. */
+async function guardarReparacion(ambId, input) {
+    const row = input.closest('.amb-row');
+    const reparaciones = [];
+    row.querySelectorAll('[data-sup]').forEach(inp => {
+        const m2 = parseFloat(inp.value) || 0;
+        if (m2 > 0) reparaciones.push({ tipo_superficie: inp.dataset.sup, metros_cuadrados: m2 });
+    });
+    await fetch(URL_BASE + 'guardar_rec_apto.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accion:'guardar_reparaciones', nivel:'ambiente', ref_id: ambId, reparaciones })
+    });
+    recalcularMateriales(row);
+}
+
+/* Pide al servidor el cálculo de materiales de este ambiente y lo muestra. */
+async function recalcularMateriales(row) {
+    const m2 = {};
+    row.querySelectorAll('[data-sup]').forEach(inp => {
+        const v = parseFloat(inp.value) || 0;
+        if (v > 0) m2[inp.dataset.sup] = v;
+    });
+    const cont = row.querySelector('.amb-materiales');
+    if (!cont) return;
+    if (Object.keys(m2).length === 0) { cont.innerHTML = ''; return; }
+    const res = await fetch(URL_BASE + 'calcular_materiales.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ m2 })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        const items = Object.entries(data.materiales).map(([m,c]) =>
+            `<span style="display:inline-block;background:#eef2fb;border-radius:14px;padding:2px 9px;margin:2px;">${m}: <b>${c}</b></span>`
+        ).join('');
+        cont.innerHTML = '<div style="margin-top:4px;"><i class="bi bi-box-seam"></i> Materiales estimados: ' + items + '</div>';
+    }
 }
 
 function fotoAmbiente(btn, ambId) {

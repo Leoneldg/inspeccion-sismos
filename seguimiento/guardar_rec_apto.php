@@ -56,6 +56,16 @@ try {
         resp(true, 'Ambiente guardado.');
     }
 
+    // --- Guardar las reparaciones (m² por superficie) de un ambiente/elemento ---
+    if ($accion === 'guardar_reparaciones') {
+        $nivel = $b['nivel'] ?? 'ambiente';
+        $refId = (int)($b['ref_id'] ?? 0);
+        if ($refId <= 0) resp(false, 'Referencia no válida.');
+        if (!in_array($nivel, ['ambiente','elemento_piso'], true)) $nivel = 'ambiente';
+        recGuardarReparaciones($nivel, $refId, $b['reparaciones'] ?? []);
+        resp(true, 'Reparaciones guardadas.');
+    }
+
     resp(false, 'Acción no reconocida.');
 
 } catch (Throwable $e) {

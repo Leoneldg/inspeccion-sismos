@@ -1007,3 +1007,149 @@ function recGuardarAmbiente(int $ambienteId, array $d): void
         'id' => $ambienteId,
     ]);
 }
+
+// =====================================================================
+// MÉTRICAS DE REPARACIÓN Y CÁLCULO DE MATERIALES
+// =====================================================================
+
+/** Tipos de superficie que se pueden reparar. */
+function recTiposSuperficie(): array
+{
+    return ['pared' => 'Pared', 'techo' => 'Techo', 'piso' => 'Piso', 'closet' => 'Clóset'];
+}
+
+/** Guarda (reemplaza) las reparaciones de un ambiente o elemento. */
+function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones): void
+{
+    $pdo = db();
+    // Se reemplazan las existentes por las nuevas.
+    $pdo->prepare('DELETE FROM rec_reparacion WHERE nivel = :n AND ref_id = :r')
+        ->execute(['n' => $nivel, 'r' => $refId]);
+
+    $tipos = array_keys(recTiposSuperficie());
+    $ins = $pdo->prepare(
+        'INSERT INTO rec_reparacion (nivel, ref_id, tipo_superficie, metros_cuadrados, observaciones)
+         VALUES (:n, :r, :t, :m, :o)'
+    );
+    foreach ($reparaciones as $rep) {
+        $tipo = $rep['tipo_superficie'] ?? '';
+        $m2   = (float)($rep['metros_cuadrados'] ?? 0);
+        if (!in_array($tipo, $tipos, true) || $m2 <= 0) continue;
+        $ins->execute([
+            'n' => $nivel, 'r' => $refId, 't' => $tipo, 'm' => $m2,
+            'o' => trim($rep['observaciones'] ?? '') ?: null,
+        ]);
+    }
+}
+
+/** Reparaciones de un ambiente o elemento. */
+function recReparaciones(string $nivel, int $refId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_reparacion WHERE nivel = :n AND ref_id = :r ORDER BY tipo_superficie');
+    $st->execute(['n' => $nivel, 'r' => $refId]);
+    return $st->fetchAll();
+}
+
+/** Recetas de materiales, indexadas por tipo de superficie. */
+function recRecetas(): array
+{
+    $rows = db()->query('SELECT * FROM rec_material_receta WHERE activo = 1')->fetchAll();
+    $out = [];
+    foreach ($rows as $r) $out[$r['tipo_superficie']][] = $r;
+    return $out;
+}
+
+/**
+ * Calcula los materiales necesarios a partir de una lista de m² por superficie.
+ * $m2PorSuperficie = ['pared' => 40.5, 'techo' => 12, ...]
+ * Devuelve materiales sumados: ['Cemento (saco)' => 8.1, 'Bloques (unidad)' => 506, ...]
+ */
+function recCalcularMateriales(array $m2PorSuperficie): array
+{
+    $recetas = recRecetas();
+    $totales = [];
+    foreach ($m2PorSuperficie as $tipo => $m2) {
+        if (empty($recetas[$tipo])) continue;
+        foreach ($recetas[$tipo] as $ing) {
+            $clave = $ing['material'] . ' (' . $ing['unidad'] . ')';
+            $totales[$clave] = ($totales[$clave] ?? 0) + $m2 * (float)$ing['cantidad_por_m2'];
+        }
+    }
+    // Redondear hacia arriba las unidades enteras (bloques, sacos…).
+    foreach ($totales as $k => $v) {
+        $totales[$k] = ceil($v * 100) / 100; // 2 decimales hacia arriba
+    }
+    ksort($totales);
+    return $totales;
+}
+
+/**
+ * Suma todos los m² por tipo de superficie de un edificio completo,
+ * recorriendo sus ambientes (y elementos de piso) con reparaciones.
+ */
+function recM2PorSuperficieEdificio(int $edificioId): array
+{
+    // Ambientes con reparación del edificio (a través de piso -> apto -> ambiente).
+    $sql = "
+        SELECT rr.tipo_superficie, SUM(rr.metros_cuadrados) AS m2
+        FROM rec_reparacion rr
+        WHERE rr.nivel = 'ambiente' AND rr.ref_id IN (
+            SELECT am.id FROM rec_ambiente am
+            JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+            JOIN rec_piso pi ON pi.id = ap.piso_id
+            WHERE pi.edificio_id = :e
+        )
+        GROUP BY rr.tipo_superficie
+    ";
+    $st = db()->prepare($sql);
+    $st->execute(['e' => $edificioId]);
+    $out = [];
+    foreach ($st->fetchAll() as $row) {
+        $out[$row['tipo_superficie']] = (float)$row['m2'];
+    }
+    return $out;
+}
+
+/** Resumen de materiales de todo el edificio (para el formulario final). */
+function recResumenMaterialesEdificio(int $edificioId): array
+{
+    $m2 = recM2PorSuperficieEdificio($edificioId);
+    return [
+        'm2_por_superficie' => $m2,
+        'materiales'        => recCalcularMateriales($m2),
+        'total_m2'          => array_sum($m2),
+    ];
+}
+
+/** Guarda el plan de tiempo estimado del edificio (inicio/fin). */
+function recGuardarPlan(int $edificioId, array $d): void
+{
+    $st = db()->prepare('SELECT id FROM rec_plan_edificio WHERE edificio_id = :e');
+    $st->execute(['e' => $edificioId]);
+    $existe = $st->fetchColumn();
+
+    $ini = $d['fecha_inicio_estimada'] ?? null;
+    $fin = $d['fecha_fin_estimada'] ?? null;
+    $ini = ($ini && DateTime::createFromFormat('Y-m-d', $ini)) ? $ini : null;
+    $fin = ($fin && DateTime::createFromFormat('Y-m-d', $fin)) ? $fin : null;
+    $obs = trim($d['observaciones'] ?? '') ?: null;
+
+    if ($existe) {
+        db()->prepare(
+            'UPDATE rec_plan_edificio SET fecha_inicio_estimada=:i, fecha_fin_estimada=:f, observaciones=:o WHERE edificio_id=:e'
+        )->execute(['i' => $ini, 'f' => $fin, 'o' => $obs, 'e' => $edificioId]);
+    } else {
+        db()->prepare(
+            'INSERT INTO rec_plan_edificio (edificio_id, fecha_inicio_estimada, fecha_fin_estimada, observaciones, creado_por)
+             VALUES (:e, :i, :f, :o, :u)'
+        )->execute(['e' => $edificioId, 'i' => $ini, 'f' => $fin, 'o' => $obs, 'u' => $_SESSION['user_id'] ?? null]);
+    }
+}
+
+/** Plan de tiempo del edificio. */
+function recPlan(int $edificioId): ?array
+{
+    $st = db()->prepare('SELECT * FROM rec_plan_edificio WHERE edificio_id = :e');
+    $st->execute(['e' => $edificioId]);
+    return $st->fetch() ?: null;
+}
