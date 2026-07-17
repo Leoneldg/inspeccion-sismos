@@ -69,6 +69,22 @@ include __DIR__ . '/../includes/header.php';
     .apto-head { padding:10px 14px; background:#f2f5fc; cursor:pointer; font-weight:600; color:#22366F; }
     .apto-body { padding:12px 14px; }
     .subiendo { font-size:12px; color:#767c94; }
+
+    /* --- Ajustes para teléfono: compactar para que no se colapse --- */
+    @media (max-width: 620px) {
+        .wz-panel { padding:16px 14px; }
+        .wz-step { min-width:0; font-size:11px; padding:8px 6px; flex-basis:30%; }
+        .wz-step .n { width:18px; height:18px; line-height:18px; margin-right:3px; }
+        /* Cada elemento del piso se apila en vertical, ocupando el ancho */
+        .elem-row { flex-direction:column; align-items:stretch; gap:6px; padding:12px 0; }
+        .elem-nom { min-width:0; font-size:14px; }
+        .elem-row .el-estado { width:100% !important; }
+        .elem-row .seg-radio { margin-right:0; }
+        .elem-row .btn { width:100%; justify-content:center; }
+        /* Los campos de m² a reparar, 2 por fila */
+        .amb-reparacion [style*="width:110px"], .amb-reparacion [style*="width:120px"] { width:calc(50% - 4px) !important; }
+        .apto-body .field { width:calc(50% - 5px) !important; }
+    }
 </style>
 
 <div class="wz-wrap">
@@ -88,8 +104,56 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- ============ PASO 1: DATOS DEL EDIFICIO ============ -->
 <div class="wz-panel" id="paso-1">
+
+    <?php
+    // --- Encabezado con los datos de la inspección (solo lectura) ---
+    $cat = catalogoDecisionFinal();
+    $dec = $insp['decision_final'] ?? '';
+    $colorDec = $cat[$dec]['color'] ?? '#767c94';
+    $cortoDec = $cat[$dec]['corto'] ?? ($dec ?: 'Sin clasificar');
+    $ubic = array_filter([
+        $insp['avenida_calle'] ?? '', $insp['parroquia'] ?? '',
+        $insp['municipio'] ?? '', $insp['estado'] ?? ''
+    ]);
+    ?>
+    <div style="border:1px solid #e6e9f2;border-radius:12px;overflow:hidden;margin-bottom:22px;">
+        <div style="background:<?= $colorDec ?>;color:#fff;padding:14px 18px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.85;">Edificación a intervenir</div>
+            <div style="font-size:19px;font-weight:700;"><?= e($insp['nombre_edificio'] ?: 'Sin nombre') ?></div>
+            <div style="font-size:12px;opacity:.9;margin-top:2px;"><i class="bi bi-circle-fill" style="font-size:8px;"></i> <?= e($cortoDec) ?></div>
+        </div>
+        <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;">
+            <?php
+            $datos = [
+                ['Código', $insp['codigo'] ?? '—', 'bi-upc-scan'],
+                ['Uso', $insp['uso_edificacion'] ?? '—', 'bi-buildings'],
+                ['Parroquia', $insp['parroquia'] ?? '—', 'bi-geo-alt'],
+                ['Municipio', $insp['municipio'] ?? '—', 'bi-map'],
+                ['Familias', $insp['familias'] ?? '—', 'bi-people'],
+                ['Personas', $insp['numero_personas'] ?? '—', 'bi-person'],
+                ['Pisos (inspección)', $insp['num_pisos'] ?? '—', 'bi-layers'],
+                ['Ubicación', implode(', ', $ubic) ?: '—', 'bi-pin-map'],
+            ];
+            foreach ($datos as [$lbl, $val, $ico]):
+            ?>
+            <div style="font-size:13px;">
+                <div style="color:#8b91a3;font-size:11px;"><i class="bi <?= $ico ?>"></i> <?= $lbl ?></div>
+                <div style="color:#2a3140;font-weight:600;"><?= e((string)$val) ?></div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
+    <!-- Foto de la etiqueta de la edificación -->
+    <div class="bloque-tit"><i class="bi bi-tag"></i> Foto de la etiqueta</div>
+    <p class="sub" style="margin-bottom:8px;">Tome la foto de la etiqueta pegada en la fachada de la edificación.</p>
+    <button type="button" class="btn btn-outline" onclick="subirFotoEtiqueta(this)" style="margin-bottom:6px;">
+        <i class="bi bi-camera"></i> Foto de la etiqueta
+    </button>
+    <div id="etiqueta-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;"></div>
+
     <h3>Datos del edificio</h3>
-    <p class="sub">Al llegar, corrobore la información básica. Esto genera los pisos que va a recorrer.</p>
+    <p class="sub">Corrobore la información básica. Esto genera los pisos que va a recorrer.</p>
     <form id="form-edificio" onsubmit="return guardarEdificio(event)">
         <div class="flex gap-8" style="flex-wrap:wrap;">
             <div class="field" style="flex:1;min-width:180px;">
@@ -108,9 +172,33 @@ include __DIR__ . '/../includes/header.php';
             <label class="tit">¿Tiene áreas comunes generales?</label>
             <label class="seg-radio"><input type="checkbox" id="tiene_areas_comunes" <?= $ed['tiene_areas_comunes'] ? 'checked' : '' ?>> Sí</label>
         </div>
-        <div class="field" id="wrap-areas" style="<?= $ed['tiene_areas_comunes'] ? '' : 'display:none;' ?>">
-            <label class="text-sm">¿Cuáles?</label>
-            <input type="text" id="areas_comunes_desc" class="form-control" value="<?= e($ed['areas_comunes_desc'] ?? '') ?>" placeholder="Ej: lobby, estacionamiento, salón de fiestas">
+        <div id="wrap-areas" style="<?= $ed['tiene_areas_comunes'] ? '' : 'display:none;' ?>">
+            <label class="text-sm" style="font-weight:600;">Marque las áreas comunes que tiene el edificio e indique su estado:</label>
+            <?php
+            $areasCat = recAreasComunesTipicas();
+            $areasGuardadas = recAreasComunes((int)$ed['id']);
+            ?>
+            <div style="margin-top:8px;">
+                <?php foreach ($areasCat as $ak => $albl):
+                    $ac = $areasGuardadas[$ak] ?? null;
+                    $marcada = $ac !== null;
+                ?>
+                <div class="area-row" data-area="<?= $ak ?>" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid #f0f2f7;">
+                    <label class="seg-radio" style="min-width:170px;font-weight:<?= $marcada ? '600' : '400' ?>;">
+                        <input type="checkbox" class="area-check" <?= $marcada ? 'checked' : '' ?>> <?= e($albl) ?>
+                    </label>
+                    <select class="form-control area-estado" style="width:auto;<?= $marcada ? '' : 'display:none;' ?>">
+                        <option value="">Estado…</option>
+                        <?php foreach (['Buena','Regular','Requiere reparación','No aplica'] as $es): ?>
+                        <option value="<?= $es ?>" <?= ($ac && $ac['estado'] === $es) ? 'selected' : '' ?>><?= $es ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label class="seg-radio area-rep-wrap" style="<?= $marcada ? '' : 'display:none;' ?>">
+                        <input type="checkbox" class="area-reparar" <?= ($ac && $ac['necesita_reparacion']) ? 'checked' : '' ?>> Reparación
+                    </label>
+                </div>
+                <?php endforeach; ?>
+            </div>
         </div>
 
         <?php if ($puedeEditar): ?>
@@ -178,12 +266,12 @@ include __DIR__ . '/../includes/header.php';
                 <!-- Apartamentos de este piso -->
                 <div class="bloque-tit" style="margin-top:20px;"><i class="bi bi-door-open"></i> Apartamentos de este piso</div>
                 <div class="apto-generador" style="margin-bottom:10px;padding:10px 12px;background:#f7f9fd;border-radius:9px;">
-                    <label class="text-sm">¿Cuántos apartamentos tiene este piso?</label>
-                    <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+                    <label class="text-sm">Este piso tiene <b><?= (int)($ed['aptos_por_piso'] ?: 1) ?></b> apartamentos (se crean solos). Si este piso es diferente, ajuste y regenere:</label>
+                    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
                         <input type="number" class="form-control apto-cantidad" min="1" max="100"
-                               value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>" style="width:90px;">
-                        <button type="button" class="btn btn-primary btn-sm" onclick="generarAptos(this, <?= (int)$piso['id'] ?>, <?= (int)$piso['numero_piso'] ?>)">
-                            <i class="bi bi-grid-3x3-gap"></i> Generar apartamentos
+                               value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>" data-num="<?= (int)$piso['numero_piso'] ?>" style="width:90px;">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="generarAptos(this, <?= (int)$piso['id'] ?>, <?= (int)$piso['numero_piso'] ?>)">
+                            <i class="bi bi-arrow-repeat"></i> Regenerar
                         </button>
                     </div>
                 </div>
@@ -252,8 +340,8 @@ include __DIR__ . '/../includes/header.php';
 
 </div><!-- /wz-wrap -->
 
-<!-- Input de archivo oculto, compartido para subir fotos -->
-<input type="file" id="rec-file-input" accept="image/jpeg,image/png,image/webp" style="display:none;" onchange="_onFotoElegida(this)">
+<!-- Input de archivo oculto. Sin 'capture' para que el móvil ofrezca cámara Y galería. -->
+<input type="file" id="rec-file-input" accept="image/*" style="display:none;" onchange="_onFotoElegida(this)">
 
 <script>
 const INSPECCION_ID = <?= $inspeccionId ?>;
@@ -274,6 +362,16 @@ document.getElementById('tiene_areas_comunes')?.addEventListener('change', funct
     document.getElementById('wrap-areas').style.display = this.checked ? '' : 'none';
 });
 
+// Al marcar/desmarcar un área común, mostrar u ocultar su estado.
+document.querySelectorAll('.area-row .area-check').forEach(chk => {
+    chk.addEventListener('change', function(){
+        const row = this.closest('.area-row');
+        const mostrar = this.checked ? '' : 'none';
+        row.querySelector('.area-estado').style.display = mostrar;
+        row.querySelector('.area-rep-wrap').style.display = mostrar;
+    });
+});
+
 // ================= PASO 1: DATOS DEL EDIFICIO =================
 async function guardarEdificio(ev) {
     ev.preventDefault();
@@ -283,8 +381,18 @@ async function guardarEdificio(ev) {
         num_pisos: document.getElementById('num_pisos').value,
         aptos_por_piso: document.getElementById('aptos_por_piso').value,
         tiene_areas_comunes: document.getElementById('tiene_areas_comunes').checked ? 1 : 0,
-        areas_comunes_desc: document.getElementById('areas_comunes_desc').value,
+        areas_comunes: [],
     };
+    // Recolectar las áreas comunes marcadas.
+    document.querySelectorAll('.area-row').forEach(row => {
+        if (row.querySelector('.area-check').checked) {
+            payload.areas_comunes.push({
+                tipo: row.dataset.area,
+                estado: row.querySelector('.area-estado').value,
+                necesita_reparacion: row.querySelector('.area-reparar').checked ? 1 : 0,
+            });
+        }
+    });
     const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
@@ -298,7 +406,47 @@ async function guardarEdificio(ev) {
 
 // ================= PASO 2: PISOS =================
 function togglePiso(head) {
-    head.nextElementSibling.classList.toggle('hidden');
+    const body = head.nextElementSibling;
+    body.classList.toggle('hidden');
+    // Al abrir un piso por primera vez, si tiene apartamentos guardados los carga;
+    // si no tiene ninguno pero el edificio definió aptos por piso, los genera solo.
+    if (!body.classList.contains('hidden') && !body.dataset.cargado) {
+        body.dataset.cargado = '1';
+        const card = head.closest('.piso-card');
+        cargarAptosDelPiso(card);
+    }
+}
+
+async function cargarAptosDelPiso(card) {
+    const pisoId = parseInt(card.dataset.piso);
+    const numeroPiso = parseInt(card.querySelector('.apto-cantidad')?.dataset.num || '1');
+    const lista = card.querySelector('.apto-lista');
+    // Ver si ya hay apartamentos guardados en este piso.
+    const res = await fetch(URL_BASE + 'listar_rec_aptos.php?piso_id=' + pisoId);
+    const data = await res.json();
+    if (data.ok && data.apartamentos && data.apartamentos.length) {
+        lista.innerHTML = '';
+        data.apartamentos.forEach(a => pintarApartamento(a, lista));
+    } else {
+        // No hay apartamentos: generarlos automáticamente según el paso 1.
+        const cantidad = parseInt(card.querySelector('.apto-cantidad').value) || 0;
+        if (cantidad > 0) {
+            generarAptosAuto(card, pisoId, numeroPiso, cantidad);
+        }
+    }
+}
+
+async function generarAptosAuto(card, pisoId, numeroPiso, cantidad) {
+    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accion:'generar', piso_id: pisoId, cantidad, numero_piso: numeroPiso })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        const lista = card.querySelector('.apto-lista');
+        lista.innerHTML = '';
+        data.apartamentos.forEach(a => pintarApartamento(a, lista));
+    }
 }
 
 async function guardarPiso(btn, pisoId) {
@@ -492,7 +640,21 @@ async function recalcularMateriales(row) {
 }
 
 // ================= FOTOS (compartido) =================
+// Al tocar "Foto" se abre el selector nativo del teléfono INMEDIATAMENTE
+// (cámara o galería, el móvil pregunta). La "parte" (pared, techo…) se pide
+// DESPUÉS de elegir la imagen, con botones — nunca con prompt, porque eso
+// bloqueaba la apertura de la cámara en el móvil.
 let _fotoDestino = null;
+
+function subirFotoEtiqueta(btn) {
+    // La etiqueta se guarda a nivel 'edificio', con parte 'etiqueta'.
+    _fotoDestino = {
+        nivel:'edificio', refId: EDIFICIO_ID,
+        pideParte: false, parteFija: 'etiqueta',
+        cont: document.getElementById('etiqueta-fotos')
+    };
+    document.getElementById('rec-file-input').click();
+}
 
 function subirFotoElemento(btn, pisoId, tipo) {
     const row = btn.closest('.elem-row');
@@ -500,12 +662,11 @@ function subirFotoElemento(btn, pisoId, tipo) {
         alert('Primero guarde los elementos del piso para poder adjuntar fotos.');
         return;
     }
-    let parte = null;
-    if (row.querySelector('.el-reparar').checked) {
-        parte = prompt('¿Qué parte muestra la foto? (ej: motor, cabina, estructura)');
-        if (parte === null) return;
-    }
-    _fotoDestino = { nivel:'elemento_piso', refId: row.dataset.elemId, parte, cont: row.querySelector('.elem-fotos') };
+    _fotoDestino = {
+        nivel:'elemento_piso', refId: row.dataset.elemId,
+        pideParte: row.querySelector('.el-reparar').checked,
+        cont: row.querySelector('.elem-fotos')
+    };
     document.getElementById('rec-file-input').click();
 }
 
@@ -516,23 +677,69 @@ function fotoAmbiente(btn, ambId) {
         alert('Este ambiente no necesita reparación: basta con una foto. Marque "Necesita reparación" para agregar más.');
         return;
     }
-    let parte = null;
-    if (necesitaReparar) {
-        parte = prompt('¿Qué parte muestra la foto? (ej: pared norte, closet, techo, piso)');
-        if (parte === null) return;
-    }
-    _fotoDestino = { nivel:'ambiente', refId: ambId, parte, cont: row.querySelector('.amb-fotos') };
+    _fotoDestino = {
+        nivel:'ambiente', refId: ambId,
+        pideParte: necesitaReparar,
+        cont: row.querySelector('.amb-fotos')
+    };
     document.getElementById('rec-file-input').click();
 }
 
 async function _onFotoElegida(input) {
     if (!input.files || !input.files[0] || !_fotoDestino) { input.value=''; return; }
+    const archivo = input.files[0];
+    const destino = _fotoDestino;
+    input.value = '';            // liberar el input para la próxima
+    _fotoDestino = null;
+
+    // Si el elemento necesita reparación, preguntar la parte DESPUÉS de tener la foto.
+    if (destino.parteFija) {
+        enviarFoto(archivo, destino, destino.parteFija);
+    } else if (destino.pideParte) {
+        pedirParte(parte => enviarFoto(archivo, destino, parte));
+    } else {
+        enviarFoto(archivo, destino, null);
+    }
+}
+
+/* Muestra un pequeño panel con botones de parte (pared, techo, piso, closet…)
+   más un campo "otra". Llama al callback con la parte elegida. */
+function pedirParte(callback) {
+    const partes = ['Pared','Techo','Piso','Closet','Puerta','Ventana','Baño','Otra'];
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center;';
+    ov.innerHTML = `
+      <div style="background:#fff;width:100%;max-width:480px;border-radius:16px 16px 0 0;padding:18px 18px 26px;">
+        <div style="font-weight:700;color:#22366F;font-size:15px;margin-bottom:4px;">¿Qué parte muestra la foto?</div>
+        <div style="font-size:12px;color:#767c94;margin-bottom:12px;">Toque una opción</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${partes.map(p=>`<button type="button" class="pp-btn" data-p="${p}" style="flex:1;min-width:90px;padding:12px;border:1px solid #d4d9e6;border-radius:10px;background:#f7f9fd;font-size:14px;font-weight:600;color:#2a3140;">${p}</button>`).join('')}
+        </div>
+        <input type="text" id="pp-otra" placeholder="Especifique si eligió Otra…" style="width:100%;margin-top:10px;padding:11px;border:1px solid #d4d9e6;border-radius:10px;font-size:14px;display:none;">
+        <button type="button" id="pp-cancel" style="width:100%;margin-top:12px;padding:11px;border:0;border-radius:10px;background:#eef0f5;color:#55617f;font-size:14px;">Cancelar</button>
+      </div>`;
+    document.body.appendChild(ov);
+
+    ov.querySelectorAll('.pp-btn').forEach(b => b.onclick = () => {
+        if (b.dataset.p === 'Otra') {
+            const inp = ov.querySelector('#pp-otra');
+            inp.style.display = 'block'; inp.focus();
+            inp.onkeydown = (e) => { if (e.key==='Enter' && inp.value.trim()) { document.body.removeChild(ov); callback(inp.value.trim()); } };
+        } else {
+            document.body.removeChild(ov);
+            callback(b.dataset.p);
+        }
+    });
+    ov.querySelector('#pp-cancel').onclick = () => document.body.removeChild(ov);
+}
+
+async function enviarFoto(archivo, destino, parte) {
     const fd = new FormData();
-    fd.append('nivel', _fotoDestino.nivel);
-    fd.append('ref_id', _fotoDestino.refId);
-    if (_fotoDestino.parte) fd.append('parte', _fotoDestino.parte);
-    fd.append('foto', input.files[0]);
-    const cont = _fotoDestino.cont;
+    fd.append('nivel', destino.nivel);
+    fd.append('ref_id', destino.refId);
+    if (parte) fd.append('parte', parte);
+    fd.append('foto', archivo);
+    const cont = destino.cont;
     cont.insertAdjacentHTML('beforeend', '<span class="subiendo">Subiendo…</span>');
     try {
         const res = await fetch(URL_BASE + 'subir_foto_rec.php', { method:'POST', body: fd });
@@ -544,8 +751,6 @@ async function _onFotoElegida(input) {
         cont.querySelector('.subiendo')?.remove();
         alert('Error de red al subir la foto.');
     }
-    input.value = '';
-    _fotoDestino = null;
 }
 
 function agregarMiniFoto(cont, f) {
@@ -600,6 +805,17 @@ async function cargarResumen() {
     html += '</div>';
     cont.innerHTML = html;
 }
+
+// Cargar la foto de etiqueta si ya existe.
+(function cargarEtiqueta() {
+    fetch(URL_BASE + 'listar_rec_aptos.php?fotos_nivel=edificio&ref_id=' + EDIFICIO_ID)
+        .then(r => r.json()).then(d => {
+            if (d.ok && d.fotos && d.fotos.length) {
+                const cont = document.getElementById('etiqueta-fotos');
+                d.fotos.filter(f => f.parte === 'etiqueta').forEach(f => agregarMiniFoto(cont, f));
+            }
+        }).catch(()=>{});
+})();
 
 // Si venimos de guardar el paso 1, abrir directo el recorrido.
 <?php if (($_GET['paso'] ?? '') === '2'): ?>

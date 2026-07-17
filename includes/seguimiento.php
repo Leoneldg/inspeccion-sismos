@@ -1153,3 +1153,76 @@ function recPlan(int $edificioId): ?array
     $st->execute(['e' => $edificioId]);
     return $st->fetch() ?: null;
 }
+
+// =====================================================================
+// ÁREAS COMUNES DEL EDIFICIO (lista de áreas típicas con estado)
+// =====================================================================
+
+/** Catálogo de áreas comunes típicas de un edificio (Venezuela). */
+function recAreasComunesTipicas(): array
+{
+    return [
+        'lobby'            => 'Lobby / Recepción',
+        'ascensor'         => 'Ascensor(es)',
+        'escaleras'        => 'Escaleras',
+        'pasillos'         => 'Pasillos',
+        'estacionamiento'  => 'Estacionamiento',
+        'deposito_basura'  => 'Depósito de basura',
+        'cuarto_maquinas'  => 'Cuarto de máquinas',
+        'tanque_agua'      => 'Tanque de agua',
+        'planta_electrica' => 'Planta eléctrica',
+        'jardines'         => 'Jardines / Áreas verdes',
+        'patio'            => 'Patio',
+        'azotea'           => 'Azotea / Terraza',
+        'salon_fiestas'    => 'Salón de fiestas',
+        'piscina'          => 'Piscina',
+        'gimnasio'         => 'Gimnasio',
+        'parque_infantil'  => 'Parque infantil',
+        'lavanderia'       => 'Lavandería',
+        'porton_electrico' => 'Portón eléctrico / Acceso',
+        'garita'           => 'Garita de vigilancia',
+    ];
+}
+
+/** Áreas comunes registradas de un edificio, indexadas por tipo. */
+function recAreasComunes(int $edificioId): array
+{
+    $st = db()->prepare('SELECT * FROM rec_area_comun WHERE edificio_id = :e');
+    $st->execute(['e' => $edificioId]);
+    $out = [];
+    foreach ($st->fetchAll() as $a) $out[$a['tipo']] = $a;
+    return $out;
+}
+
+/** Guarda (reemplaza) las áreas comunes seleccionadas de un edificio. */
+function recGuardarAreasComunes(int $edificioId, array $areas): void
+{
+    $tipos = array_keys(recAreasComunesTipicas());
+    $estados = ['Buena','Regular','Requiere reparación','No aplica'];
+    $st = db()->prepare(
+        'INSERT INTO rec_area_comun (edificio_id, tipo, presente, estado, necesita_reparacion, observaciones)
+         VALUES (:e, :t, 1, :es, :nr, :o)
+         ON DUPLICATE KEY UPDATE presente=1, estado=VALUES(estado),
+            necesita_reparacion=VALUES(necesita_reparacion), observaciones=VALUES(observaciones)'
+    );
+    foreach ($areas as $a) {
+        $tipo = $a['tipo'] ?? '';
+        if (!in_array($tipo, $tipos, true)) continue;
+        $st->execute([
+            'e'  => $edificioId,
+            't'  => $tipo,
+            'es' => in_array($a['estado'] ?? '', $estados, true) ? $a['estado'] : null,
+            'nr' => !empty($a['necesita_reparacion']) ? 1 : 0,
+            'o'  => trim($a['observaciones'] ?? '') ?: null,
+        ]);
+    }
+    // Quitar las que se deseleccionaron.
+    $marcados = array_column($areas, 'tipo');
+    if ($marcados) {
+        $in = implode(',', array_fill(0, count($marcados), '?'));
+        $params = array_merge([$edificioId], $marcados);
+        db()->prepare("DELETE FROM rec_area_comun WHERE edificio_id = ? AND tipo NOT IN ($in)")->execute($params);
+    } else {
+        db()->prepare('DELETE FROM rec_area_comun WHERE edificio_id = ?')->execute([$edificioId]);
+    }
+}

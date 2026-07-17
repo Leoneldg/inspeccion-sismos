@@ -46,15 +46,18 @@ try {
     // --- Modo PASO 1: datos básicos + generar pisos ---
     // Solo actualiza los campos básicos, sin tocar la azotea (que va en el cierre).
     db()->prepare(
-        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac,
-            areas_comunes_desc=:acd, completado=1 WHERE id=:id'
+        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac, completado=1 WHERE id=:id'
     )->execute([
         'np'  => ($b['num_pisos'] ?? '') !== '' ? (int)$b['num_pisos'] : null,
         'app' => ($b['aptos_por_piso'] ?? '') !== '' ? (int)$b['aptos_por_piso'] : null,
         'tac' => !empty($b['tiene_areas_comunes']) ? 1 : 0,
-        'acd' => trim($b['areas_comunes_desc'] ?? '') ?: null,
         'id'  => $edificioId,
     ]);
+
+    // Guardar las áreas comunes seleccionadas.
+    if (isset($b['areas_comunes']) && is_array($b['areas_comunes'])) {
+        recGuardarAreasComunes($edificioId, $b['areas_comunes']);
+    }
 
     $numPisos = (int)($b['num_pisos'] ?? 0);
     if ($numPisos > 0 && $numPisos <= 200) {
