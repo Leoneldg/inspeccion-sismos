@@ -37,10 +37,16 @@ try {
     // --- Eliminar ---
     if (($_POST['accion'] ?? '') === 'eliminar') {
         $fotoId = (int)($_POST['foto_id'] ?? 0);
-        $st = db()->prepare('SELECT ruta FROM rec_foto WHERE id = :id');
+        $st = db()->prepare('SELECT ruta, parte FROM rec_foto WHERE id = :id');
         $st->execute(['id' => $fotoId]);
         $f = $st->fetch();
         if ($f) {
+            // Las fotos del "Antes" (levantamiento) son inmutables: NO se borran.
+            // Solo se pueden eliminar fotos del "durante" o "despues".
+            $parte = $f['parte'] ?? '';
+            if ($parte !== 'durante' && $parte !== 'despues') {
+                jresp(false, 'Las fotos del levantamiento (Antes) no se pueden eliminar.');
+            }
             $abs = dirname(__DIR__) . '/' . $f['ruta'];
             if (is_file($abs)) @unlink($abs);
             db()->prepare('DELETE FROM rec_foto WHERE id = :id')->execute(['id' => $fotoId]);

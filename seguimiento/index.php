@@ -308,9 +308,17 @@ include __DIR__ . '/../includes/header.php';
                     <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;">
                         <i class="bi bi-building-gear"></i> Levantamiento técnico
                     </a>
+                    <!-- Seguimiento de avance (remodelación Antes/Durante/Después) -->
+                    <a href="#" id="sp-remodelacion" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
+                        <i class="bi bi-clock-history"></i> Seguimiento de avance
+                    </a>
                     <!-- Ficha de seguimiento (después del levantamiento) -->
                     <a href="#" id="sp-ficha" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
                         <i class="bi bi-clipboard-data"></i> Ficha de seguimiento
+                    </a>
+                    <!-- Seguimiento de remodelación (fase durante/después) -->
+                    <a href="#" id="sp-remodelacion" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
+                        <i class="bi bi-hammer"></i> Seguimiento de remodelación
                     </a>
                 </div>
             </div>
@@ -372,6 +380,8 @@ function abrirPanel(p) {
     document.getElementById('sp-codigo').textContent = p.codigo;
     document.getElementById('sp-ficha').href = p.ficha_url;
     document.getElementById('sp-levantamiento').href = p.levantamiento_url;
+    document.getElementById('sp-remodelacion').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
+    document.getElementById('sp-remodelacion').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
 
     const f = FASES[p.fase];
     document.getElementById('sp-chips').innerHTML =
@@ -458,10 +468,13 @@ function pintarPanelParroquia(d) {
                 <div style="display:flex;align-items:center;gap:7px;">
                     <span style="width:11px;height:11px;border-radius:50%;background:${e.color};display:inline-block;"></span>
                     <span style="font-weight:600;color:#2a3140;flex:1;">${e.nombre||'Edificación'}</span>
-                    <a href="${APP_URL_BASE}seguimiento/levantamiento.php?inspeccion=${e.inspeccion_id}" style="font-size:11px;">Abrir</a>
                 </div>
                 <div style="font-size:11px;color:#767c94;margin-top:3px;"><i class="bi bi-tools"></i> ${estadoTxt}</div>
                 ${barra}
+                <div style="margin-top:7px;display:flex;gap:6px;">
+                    <a href="${APP_URL_BASE}seguimiento/levantamiento.php?inspeccion=${e.inspeccion_id}" style="font-size:11px;">Levantamiento</a>
+                    ${e.completado ? `<a href="${APP_URL_BASE}seguimiento/remodelacion.php?inspeccion=${e.inspeccion_id}" style="font-size:11px;color:#2E7D32;">Seguimiento de avance</a>` : ''}
+                </div>
             </div>`;
         }).join('');
     } else {

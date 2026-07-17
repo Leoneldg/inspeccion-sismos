@@ -1310,23 +1310,73 @@ function recPanelParroquia(string $estado, string $parroquia): array
  */
 function recAvanceEdificio(int $edificioId): int
 {
+    // Promedio simple del avance de todos los apartamentos del edificio.
     $pdo = db();
-    // Ambientes que necesitan reparación en el edificio.
-    $sql = "SELECT COUNT(*) FROM rec_ambiente am
-              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
-              JOIN rec_piso pi ON pi.id = ap.piso_id
-             WHERE pi.edificio_id = :e AND am.necesita_reparacion = 1";
-    $st = $pdo->prepare($sql);
+    $st = $pdo->prepare(
+        "SELECT ap.id FROM rec_apartamento ap
+           JOIN rec_piso pi ON pi.id = ap.piso_id
+          WHERE pi.edificio_id = :e"
+    );
     $st->execute(['e' => $edificioId]);
-    $totalReparar = (int)$st->fetchColumn();
-    if ($totalReparar === 0) {
-        // Si no hay nada que reparar, el avance depende de si está completado.
+    $aptos = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$aptos) {
         $c = $pdo->prepare('SELECT completado FROM rec_edificio WHERE id = :e');
         $c->execute(['e' => $edificioId]);
-        return (int)$c->fetchColumn() === 1 ? 100 : 0;
+        return (int)$c->fetchColumn() === 1 ? 0 : 0;
     }
-    // Ambientes con avance registrado (tienen foto de nivel 'ambiente' con parte 'durante' o 'despues').
-    // Placeholder hasta el módulo de avance: se cuenta 0 por ahora.
-    // Cuando exista rec_avance, aquí se calculará el promedio real.
-    return 0;
+    $suma = 0; $n = 0;
+    foreach ($aptos as $aptoId) {
+        $suma += recAvanceApartamento((int)$aptoId);
+        $n++;
+    }
+    return $n ? (int)round($suma / $n) : 0;
+}
+
+/** Avance de un apartamento = promedio simple del avance de sus ambientes. */
+function recAvanceApartamento(int $apartamentoId): int
+{
+    $st = db()->prepare(
+        "SELECT COALESCE(av.porcentaje, 0) AS pct
+           FROM rec_ambiente am
+           LEFT JOIN rec_avance_ambiente av ON av.ambiente_id = am.id
+          WHERE am.apartamento_id = :a"
+    );
+    $st->execute(['a' => $apartamentoId]);
+    $vals = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$vals) return 0;
+    return (int)round(array_sum($vals) / count($vals));
+}
+
+/** Avance de un ambiente (0 si no tiene registro). */
+function recAvanceAmbiente(int $ambienteId): int
+{
+    $st = db()->prepare('SELECT porcentaje FROM rec_avance_ambiente WHERE ambiente_id = :a');
+    $st->execute(['a' => $ambienteId]);
+    $v = $st->fetchColumn();
+    return $v === false ? 0 : (int)$v;
+}
+
+/** Guarda el % de avance de un ambiente (solo sistematizador). */
+function recGuardarAvanceAmbiente(int $ambienteId, int $porcentaje, ?string $obs = null): void
+{
+    $porcentaje = max(0, min(100, $porcentaje));
+    db()->prepare(
+        'INSERT INTO rec_avance_ambiente (ambiente_id, porcentaje, observaciones, actualizado_por)
+         VALUES (:a, :p, :o, :u)
+         ON DUPLICATE KEY UPDATE porcentaje=VALUES(porcentaje), observaciones=VALUES(observaciones), actualizado_por=VALUES(actualizado_por)'
+    )->execute([
+        'a' => $ambienteId, 'p' => $porcentaje, 'o' => $obs, 'u' => $_SESSION['user_id'] ?? null,
+    ]);
+}
+
+/** ¿El usuario actual es sistematizador? (puede cargar avance/fotos durante) */
+function esSistematizador(?int $userId = null): bool
+{
+    $userId = $userId ?? ($_SESSION['user_id'] ?? 0);
+    if (!$userId) return false;
+    // Los master siempre pueden.
+    if (function_exists('usuarioEsMaster') && usuarioEsMaster()) return true;
+    $st = db()->prepare('SELECT 1 FROM rec_sistematizador WHERE user_id = :u AND activo = 1');
+    $st->execute(['u' => $userId]);
+    return (bool)$st->fetchColumn();
 }
