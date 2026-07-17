@@ -179,14 +179,10 @@ include __DIR__ . '/../includes/header.php';
 <!-- Mapa -->
 <div class="card">
     <div class="card-header">
-        <h2><i class="bi bi-geo-alt-fill"></i> Mapa de recuperación (<?= count($puntos) ?>)</h2>
+        <?php $totalConteo = array_sum(array_map(fn($c) => (int)$c['total'], $conteoParroquias)); ?>
+        <h2><i class="bi bi-geo-alt-fill"></i> Mapa de recuperación (<?= $totalConteo ?>)</h2>
         <span class="text-sm text-muted">
-            <?php if ($aproximados > 0): ?>
-                <i class="bi bi-geo"></i> <?= $aproximados ?> ubicadas por parroquia (aprox.)
-            <?php endif; ?>
-            <?php if ($sinUbicacion > 0): ?>
-                &nbsp;·&nbsp; <?= $sinUbicacion ?> sin ubicación (no se muestran)
-            <?php endif; ?>
+            <i class="bi bi-geo"></i> <?= count($conteoParroquias) ?> parroquias con edificaciones
         </span>
     </div>
 
@@ -200,7 +196,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 
     <div class="card-body">
-        <?php if (!$puntos): ?>
+        <?php if (!$conteoParroquias): ?>
             <div class="empty-state"><i class="bi bi-geo-alt"></i> No hay edificaciones con coordenadas para mostrar en el mapa.</div>
         <?php else: ?>
         <div class="seg-map-wrap">
