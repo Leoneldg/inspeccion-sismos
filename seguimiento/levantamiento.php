@@ -34,6 +34,12 @@ $ed = recEdificio($inspeccionId);
 $pisos = recPisos((int)$ed['id']);
 $tiposElem = recTiposElementoPiso();
 
+// Color/decisión de la edificación para la intro.
+$catDecision = catalogoDecisionFinal();
+$decisionEd = $insp['decision_final'] ?? '';
+$colorEd = $catDecision[$decisionEd]['color'] ?? '#767c94';
+$colorCorto = $catDecision[$decisionEd]['corto'] ?? ($decisionEd ?: 'Sin clasificar');
+
 $pageTitle    = 'Levantamiento: ' . $insp['nombre_edificio'];
 $pageSubtitle = trim(($insp['parroquia'] ?? '') . ' · ' . ($insp['municipio'] ?? ''), ' ·');
 $activeModule = 'seguimiento';
@@ -99,6 +105,52 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="wz-step" id="tab-3" onclick="irPaso(3)">
         <span class="n">3</span> Cierre (azotea y resumen)
+    </div>
+</div>
+
+<!-- ============ INTRO DEL EDIFICIO (datos no editables) ============ -->
+<div class="wz-panel" style="margin-bottom:16px;border-left:5px solid <?= $colorEd ?>;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div>
+            <h3 style="margin-bottom:2px;"><i class="bi bi-building"></i> <?= e($insp['nombre_edificio'] ?: 'Edificación sin nombre') ?></h3>
+            <p class="sub" style="margin:0;"><?= e($insp['codigo'] ?? '') ?></p>
+        </div>
+        <span style="background:<?= $colorEd ?>;color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;white-space:nowrap;">
+            <i class="bi bi-circle-fill"></i> <?= e($colorCorto) ?>
+        </span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px;">
+        <?php
+        $filasIntro = [
+            ['bi-geo-alt', 'Parroquia', $insp['parroquia'] ?? '—'],
+            ['bi-map', 'Municipio', $insp['municipio'] ?? '—'],
+            ['bi-signpost', 'Dirección', $insp['avenida_calle'] ?? '—'],
+            ['bi-people', 'Familias', $insp['familias'] ?? '0'],
+            ['bi-person', 'Personas', $insp['personas'] ?? '—'],
+            ['bi-tag', 'Uso', $insp['uso'] ?? '—'],
+            ['bi-layers', 'Pisos (registrados)', $insp['num_pisos'] ?? '—'],
+            ['bi-calendar-check', 'Fecha inspección', $insp['fecha_inspeccion'] ?? ($insp['creado_en'] ?? '—')],
+        ];
+        foreach ($filasIntro as [$ico, $lbl, $val]):
+        ?>
+        <div style="background:#f7f9fd;border-radius:9px;padding:9px 12px;">
+            <div style="font-size:11px;color:#767c94;text-transform:uppercase;letter-spacing:.4px;"><i class="bi <?= $ico ?>"></i> <?= $lbl ?></div>
+            <div style="font-size:14px;color:#2a3140;font-weight:600;margin-top:2px;"><?= e((string)$val) ?></div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Foto de la etiqueta pegada en el edificio -->
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eef0f5;">
+        <div class="bloque-tit" style="margin-bottom:8px;"><i class="bi bi-camera"></i> Foto de la etiqueta del edificio</div>
+        <p class="sub" style="margin:0 0 8px;">Foto del adhesivo de clasificación (verde/amarillo/rojo) colocado en la edificación.</p>
+        <div class="etiqueta-fotos" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <?php if ($puedeEditar): ?>
+        <button type="button" class="btn btn-outline btn-sm" onclick="subirFotoEtiqueta()">
+            <i class="bi bi-camera"></i> Tomar / subir foto de la etiqueta
+        </button>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -759,6 +811,15 @@ function agregarMiniFoto(cont, f) {
         '<div style="text-align:center;"><img src="'+f.ruta+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #d8dce6;">'+parte+'</div>');
 }
 
+// Foto de la etiqueta del edificio (nivel edificio, parte 'etiqueta').
+function subirFotoEtiqueta() {
+    _fotoDestino = {
+        nivel:'edificio', refId: EDIFICIO_ID, pideParte:false, parteFija:'etiqueta',
+        cont: document.querySelector('.etiqueta-fotos')
+    };
+    document.getElementById('rec-file-input').click();
+}
+
 // ================= PASO 3: CIERRE Y RESUMEN =================
 async function guardarCierre(ev) {
     ev.preventDefault();
@@ -816,6 +877,16 @@ async function cargarResumen() {
             }
         }).catch(()=>{});
 })();
+
+// Si venimos de guardar el paso 1, abrir directo el recorrido.
+// Cargar la foto de la etiqueta del edificio si ya existe.
+fetch(URL_BASE + 'listar_rec_aptos.php?fotos_edificio=' + EDIFICIO_ID)
+    .then(r=>r.json()).then(d=>{
+        if (d.ok && d.fotos && d.fotos.length) {
+            const cont = document.querySelector('.etiqueta-fotos');
+            d.fotos.forEach(f => agregarMiniFoto(cont, f));
+        }
+    });
 
 // Si venimos de guardar el paso 1, abrir directo el recorrido.
 <?php if (($_GET['paso'] ?? '') === '2'): ?>
