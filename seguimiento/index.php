@@ -324,6 +324,8 @@ include __DIR__ . '/../includes/header.php';
 const PUNTOS       = <?= json_encode($puntos, JSON_UNESCAPED_UNICODE) ?>;
 const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
+const APP_URL_BASE = '<?= APP_URL_BASE ?>';
+const PARROQUIA_URL = APP_URL_BASE + 'dashboard/api_parroquia.php';
 
 let map;
 let marcadores = {};      // id -> marker
@@ -399,6 +401,89 @@ function abrirPanel(p) {
 }
 
 /* ---------- Inicialización del mapa ---------- */
+// ===================== PANEL DE PARROQUIA =====================
+async function abrirPanelParroquia(estado, nombreParroquia) {
+    const panel = document.getElementById('panel-parroquia');
+    document.getElementById('pp-nombre').textContent = nombreParroquia;
+    document.getElementById('pp-contenido').innerHTML = '<p class="text-muted">Cargando…</p>';
+    panel.style.right = '0';
+    try {
+        const url = PARROQUIA_URL + '?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(nombreParroquia);
+        const res = await fetch(url);
+        const d = await res.json();
+        if (!d.ok) { document.getElementById('pp-contenido').innerHTML = '<p class="text-muted">' + (d.mensaje || 'No se pudo cargar.') + '</p>'; return; }
+        pintarPanelParroquia(d);
+    } catch (e) {
+        document.getElementById('pp-contenido').innerHTML = '<p class="text-muted">Error de red.</p>';
+    }
+}
+
+function cerrarPanelParroquia() {
+    document.getElementById('panel-parroquia').style.right = '-460px';
+}
+
+function pintarPanelParroquia(d) {
+    const cont = document.getElementById('pp-contenido');
+    let enc = '';
+    if (d.encargados && d.encargados.length) {
+        enc = d.encargados.map(r =>
+            `<div style="background:#eef2fb;border-radius:9px;padding:10px 12px;margin-bottom:6px;">
+                <div style="font-weight:600;color:#22366F;"><i class="bi bi-person-badge"></i> ${r.nombre}</div>
+                <div style="font-size:12px;color:#55617f;">${r.cargo||''}${r.telefono?' · '+r.telefono:''}</div>
+            </div>`).join('');
+    } else {
+        enc = '<div style="color:#9aa1b4;font-style:italic;font-size:13px;">Sin encargado asignado a esta parroquia.</div>';
+    }
+    const pc = d.por_color || {};
+    const card = (lbl,val,color) =>
+        `<div style="flex:1;text-align:center;padding:10px 6px;background:${color}14;border-radius:9px;border:1px solid ${color}44;">
+            <div style="font-size:22px;font-weight:bold;color:${color};">${val}</div>
+            <div style="font-size:10px;color:#555;text-transform:uppercase;">${lbl}</div></div>`;
+    const tarjetas =
+        `<div style="display:flex;gap:7px;margin:12px 0;">
+            ${card('Rojo', pc.rojo||0, '#A61C1C')}
+            ${card('Amarillo', pc.amarillo||0, '#C9A227')}
+            ${card('Verde', pc.verde||0, '#2E7D32')}
+        </div>`;
+    let edifs = '';
+    if (d.edificaciones && d.edificaciones.length) {
+        edifs = d.edificaciones.map(e => {
+            const estadoTxt = e.completado ? 'Levantamiento completo' : 'En levantamiento';
+            const barra = e.completado
+                ? `<div style="background:#eef0f5;border-radius:10px;height:8px;overflow:hidden;margin-top:5px;">
+                     <div style="width:${e.avance}%;height:100%;background:#2E7D32;"></div></div>
+                   <div style="font-size:11px;color:#55617f;margin-top:2px;">${e.avance}% de avance</div>`
+                : '';
+            return `<div style="border:1px solid #e8ebf3;border-radius:9px;padding:10px 12px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:7px;">
+                    <span style="width:11px;height:11px;border-radius:50%;background:${e.color};display:inline-block;"></span>
+                    <span style="font-weight:600;color:#2a3140;flex:1;">${e.nombre||'Edificación'}</span>
+                    <a href="${APP_URL_BASE}seguimiento/levantamiento.php?inspeccion=${e.inspeccion_id}" style="font-size:11px;">Abrir</a>
+                </div>
+                <div style="font-size:11px;color:#767c94;margin-top:3px;"><i class="bi bi-tools"></i> ${estadoTxt}</div>
+                ${barra}
+            </div>`;
+        }).join('');
+    } else {
+        edifs = '<div style="color:#9aa1b4;font-style:italic;font-size:13px;">Ninguna edificación ha comenzado el levantamiento.</div>';
+    }
+    cont.innerHTML = `
+        <div style="font-size:12px;font-weight:700;color:#22366F;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;"><i class="bi bi-person-badge"></i> Encargado</div>
+        ${enc}
+        <div style="font-size:12px;font-weight:700;color:#22366F;text-transform:uppercase;letter-spacing:.4px;margin:16px 0 4px;"><i class="bi bi-building"></i> Edificaciones (${d.total})</div>
+        ${tarjetas}
+        <div style="font-size:13px;color:#55617f;margin-bottom:10px;"><i class="bi bi-play-circle"></i> ${d.comenzadas} de ${d.total} comenzaron el levantamiento</div>
+        <div style="font-size:12px;font-weight:700;color:#22366F;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 8px;"><i class="bi bi-list-check"></i> Seguimiento de edificaciones</div>
+        ${edifs}
+        <button onclick="descargarPdfParroquia('${d.estado}','${d.parroquia}')" class="btn btn-primary btn-sm" style="width:100%;justify-content:center;margin-top:14px;">
+            <i class="bi bi-file-earmark-pdf"></i> Descargar PDF de la parroquia
+        </button>`;
+}
+
+function descargarPdfParroquia(estado, parroquia) {
+    window.location.href = APP_URL_BASE + 'dashboard/pdf_parroquia.php?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia);
+}
+
 (function initMapa() {
     if (!PUNTOS.length) return;
 
@@ -408,8 +493,25 @@ function abrirPanel(p) {
         attribution: 'Esri'
     }).addTo(map);
 
-    // Sin agrupamiento: todos los puntos se dibujan individualmente, para que
-    // se vea cada edificación y no un número que hay que desplegar.
+    // Dibujar los polígonos de las parroquias del Distrito Capital.
+    // Al hacer clic en una parroquia, se abre el panel de su encargado.
+    fetch(APP_URL_BASE + 'assets/geo/parroquias/distrito_capital.geojson')
+        .then(r => r.json())
+        .then(geo => {
+            L.geoJSON(geo, {
+                style: { color:'#C9A227', weight:1.5, fillColor:'#22366F', fillOpacity:0.06 },
+                onEachFeature: (feature, layer) => {
+                    const nombre = feature.properties.parroquia || '';
+                    const estado = feature.properties.estado || 'Distrito Capital';
+                    layer.on('mouseover', () => layer.setStyle({ fillOpacity:0.20, weight:2.5 }));
+                    layer.on('mouseout', () => layer.setStyle({ fillOpacity:0.06, weight:1.5 }));
+                    layer.on('click', () => abrirPanelParroquia(estado, nombre));
+                    layer.bindTooltip(nombre, { sticky:true });
+                }
+            }).addTo(map);
+        }).catch(()=>{});
+
+    // Sin agrupamiento: todos los puntos se dibujan individualmente.
     const capa = L.featureGroup();
 
     PUNTOS.forEach(p => {
@@ -428,5 +530,19 @@ function abrirPanel(p) {
     });
 })();
 </script>
+
+<!-- Panel lateral de parroquia (encargado + resumen) -->
+<div id="panel-parroquia" style="position:fixed;top:0;right:-460px;width:440px;max-width:92vw;height:100vh;background:#fff;box-shadow:-4px 0 24px rgba(20,25,40,.18);z-index:1200;transition:right .28s;overflow-y:auto;">
+    <div style="background:#22366F;color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+            <div style="font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.5px;">Parroquia</div>
+            <div id="pp-nombre" style="font-size:19px;font-weight:700;">—</div>
+        </div>
+        <button onclick="cerrarPanelParroquia()" style="background:none;border:0;color:#fff;font-size:24px;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div id="pp-contenido" style="padding:18px 20px;">
+        <p class="text-muted">Cargando…</p>
+    </div>
+</div>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

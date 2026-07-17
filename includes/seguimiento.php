@@ -1226,3 +1226,107 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
         db()->prepare('DELETE FROM rec_area_comun WHERE edificio_id = ?')->execute([$edificioId]);
     }
 }
+
+// =====================================================================
+// PANEL DE PARROQUIA (dashboard de Caracas): encargado + resumen
+// =====================================================================
+
+/**
+ * Reúne toda la información de una parroquia para el panel del dashboard:
+ * encargado(s), conteo de edificaciones por color, cuántas comenzaron el
+ * levantamiento, y el avance de cada edificación con levantamiento.
+ */
+function recPanelParroquia(string $estado, string $parroquia): array
+{
+    $pdo = db();
+
+    // 1) Encargados (representantes) de la parroquia.
+    $encargados = repDeParroquia($estado, $parroquia);
+
+    // 2) Conteo de edificaciones por decisión/color.
+    $st = $pdo->prepare(
+        "SELECT decision_final, COUNT(*) AS n
+           FROM inspecciones
+          WHERE estado = :e AND parroquia = :p
+          GROUP BY decision_final"
+    );
+    $st->execute(['e' => $estado, 'p' => $parroquia]);
+    $cat = catalogoDecisionFinal();
+    $porColor = ['rojo' => 0, 'amarillo' => 0, 'verde' => 0, 'otro' => 0];
+    $totalEdif = 0;
+    foreach ($st->fetchAll() as $row) {
+        $n = (int)$row['n'];
+        $totalEdif += $n;
+        $color = $cat[$row['decision_final']]['color'] ?? '';
+        if ($color === '#A61C1C') $porColor['rojo'] += $n;
+        elseif ($color === '#C9A227') $porColor['amarillo'] += $n;
+        elseif ($color === '#2E7D32') $porColor['verde'] += $n;
+        else $porColor['otro'] += $n;
+    }
+
+    // 3) Edificaciones con levantamiento (comenzadas) y su estado.
+    //    "Comenzada" = tiene registro en rec_edificio.
+    //    "Completada" = rec_edificio.completado = 1.
+    $st = $pdo->prepare(
+        "SELECT i.id AS inspeccion_id, i.nombre_edificio, i.decision_final,
+                re.id AS edificio_id, re.completado
+           FROM inspecciones i
+           JOIN rec_edificio re ON re.inspeccion_id = i.id
+          WHERE i.estado = :e AND i.parroquia = :p
+          ORDER BY i.nombre_edificio"
+    );
+    $st->execute(['e' => $estado, 'p' => $parroquia]);
+    $comenzadas = $st->fetchAll();
+
+    // 4) Avance de cada edificación comenzada.
+    $edificaciones = [];
+    foreach ($comenzadas as $c) {
+        $edificaciones[] = [
+            'inspeccion_id'   => (int)$c['inspeccion_id'],
+            'nombre'          => $c['nombre_edificio'],
+            'decision'        => $c['decision_final'],
+            'color'           => $cat[$c['decision_final']]['color'] ?? '#767c94',
+            'completado'      => (int)$c['completado'],
+            'avance'          => recAvanceEdificio((int)$c['edificio_id']),
+        ];
+    }
+
+    return [
+        'estado'         => $estado,
+        'parroquia'      => $parroquia,
+        'encargados'     => $encargados,
+        'total'          => $totalEdif,
+        'por_color'      => $porColor,
+        'comenzadas'     => count($comenzadas),
+        'edificaciones'  => $edificaciones,
+    ];
+}
+
+/**
+ * Calcula el % de avance de reconstrucción de un edificio.
+ * Por ahora se basa en cuántos ambientes que necesitan reparación ya tienen
+ * su avance registrado. (El flujo Antes/Durante/Después afinará esto luego.)
+ * Devuelve un entero 0..100.
+ */
+function recAvanceEdificio(int $edificioId): int
+{
+    $pdo = db();
+    // Ambientes que necesitan reparación en el edificio.
+    $sql = "SELECT COUNT(*) FROM rec_ambiente am
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e AND am.necesita_reparacion = 1";
+    $st = $pdo->prepare($sql);
+    $st->execute(['e' => $edificioId]);
+    $totalReparar = (int)$st->fetchColumn();
+    if ($totalReparar === 0) {
+        // Si no hay nada que reparar, el avance depende de si está completado.
+        $c = $pdo->prepare('SELECT completado FROM rec_edificio WHERE id = :e');
+        $c->execute(['e' => $edificioId]);
+        return (int)$c->fetchColumn() === 1 ? 100 : 0;
+    }
+    // Ambientes con avance registrado (tienen foto de nivel 'ambiente' con parte 'durante' o 'despues').
+    // Placeholder hasta el módulo de avance: se cuenta 0 por ahora.
+    // Cuando exista rec_avance, aquí se calculará el promedio real.
+    return 0;
+}
