@@ -219,21 +219,13 @@ include __DIR__ . '/../includes/header.php';
                     <!-- Mensaje de estado / confirmación -->
                     <div id="sp-msg" style="display:none;margin-bottom:10px;padding:10px 11px;border-radius:8px;font-size:13px;line-height:1.4;"></div>
 
-                    <!-- Acción principal: levantamiento técnico (paso inicial) -->
+                    <!-- Botón según estado: si NO hay levantamiento, se llena;
+                         si YA está completo, se va a la ficha de seguimiento. -->
                     <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;">
                         <i class="bi bi-building-gear"></i> Levantamiento técnico
                     </a>
-                    <!-- Seguimiento de avance (remodelación Antes/Durante/Después) -->
-                    <a href="#" id="sp-remodelacion" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
-                        <i class="bi bi-clock-history"></i> Seguimiento de avance
-                    </a>
-                    <!-- Ficha de seguimiento (después del levantamiento) -->
-                    <a href="#" id="sp-ficha" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
+                    <a href="#" id="sp-ficha" class="btn btn-primary" style="width:100%;justify-content:center;display:none;">
                         <i class="bi bi-clipboard-data"></i> Ficha de seguimiento
-                    </a>
-                    <!-- Seguimiento de remodelación (fase durante/después) -->
-                    <a href="#" id="sp-remodelacion" class="btn btn-outline" style="width:100%;margin-top:8px;justify-content:center;">
-                        <i class="bi bi-hammer"></i> Seguimiento de remodelación
                     </a>
                 </div>
             </div>
@@ -294,10 +286,20 @@ function abrirPanel(p) {
     seleccionado = p;
     document.getElementById('sp-nombre').textContent = p.nombre;
     document.getElementById('sp-codigo').textContent = p.codigo;
-    document.getElementById('sp-ficha').href = p.ficha_url;
+    document.getElementById('sp-ficha').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
     document.getElementById('sp-levantamiento').href = p.levantamiento_url;
-    document.getElementById('sp-remodelacion').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
-    document.getElementById('sp-remodelacion').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
+
+    // Según el estado: si el levantamiento está completo, mostrar "Ficha de
+    // seguimiento"; si no, mostrar "Levantamiento técnico".
+    const btnLev = document.getElementById('sp-levantamiento');
+    const btnFicha = document.getElementById('sp-ficha');
+    if (p.levantamiento_completo) {
+        btnLev.style.display = 'none';
+        btnFicha.style.display = '';
+    } else {
+        btnLev.style.display = '';
+        btnFicha.style.display = 'none';
+    }
 
     const f = FASES[p.fase];
     document.getElementById('sp-chips').innerHTML =

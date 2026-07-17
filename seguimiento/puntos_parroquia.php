@@ -61,6 +61,7 @@ try {
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,
             'fase'          => $fase,
+            'levantamiento_completo' => !empty($ed['rec_edificio_id']) && (int)($ed['completado'] ?? 0) === 1,
             'ficha_url'         => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'],
             'levantamiento_url' => APP_URL_BASE . 'seguimiento/levantamiento.php?inspeccion=' . (int)$ed['inspeccion_id'],
         ];

@@ -19,12 +19,18 @@ try {
         exit;
     }
     $b = json_decode(file_get_contents('php://input'), true);
-    $ambId = (int)($b['ambiente_id'] ?? 0);
+    $aptoId = (int)($b['apartamento_id'] ?? 0);
     $pct   = (int)($b['porcentaje'] ?? 0);
     $edificioId = (int)($b['edificio_id'] ?? 0);
-    if ($ambId <= 0) { echo json_encode(['ok' => false, 'mensaje' => 'Ambiente no válido.']); exit; }
+    if ($aptoId <= 0) { echo json_encode(['ok' => false, 'mensaje' => 'Apartamento no válido.']); exit; }
 
-    recGuardarAvanceAmbiente($ambId, $pct, trim($b['observaciones'] ?? '') ?: null);
+    // Requisito: debe existir al menos una foto del "durante" del apartamento.
+    if (!recAptoTieneFotoDurante($aptoId)) {
+        echo json_encode(['ok' => false, 'mensaje' => 'Primero suba una foto del "durante".']);
+        exit;
+    }
+
+    recGuardarAvanceApto($aptoId, $pct, trim($b['observaciones'] ?? '') ?: null);
 
     $avanceGlobal = $edificioId ? recAvanceEdificio($edificioId) : null;
     echo json_encode(['ok' => true, 'avance_global' => $avanceGlobal], JSON_UNESCAPED_UNICODE);
