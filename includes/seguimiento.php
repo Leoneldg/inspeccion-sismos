@@ -1015,7 +1015,10 @@ function recGuardarAmbiente(int $ambienteId, array $d): void
 /** Tipos de superficie que se pueden reparar. */
 function recTiposSuperficie(): array
 {
-    return ['pared' => 'Pared', 'techo' => 'Techo', 'piso' => 'Piso', 'closet' => 'Clóset'];
+    return [
+        'pared' => 'Pared', 'techo' => 'Techo', 'piso' => 'Piso', 'closet' => 'Clóset',
+        'mamposteria' => 'Mampostería', 'derrumbar' => 'Derrumbar / demoler', 'reconstruccion' => 'Reconstrucción',
+    ];
 }
 
 /** Guarda (reemplaza) las reparaciones de un ambiente o elemento. */
@@ -1198,22 +1201,24 @@ function recAreasComunes(int $edificioId): array
 function recGuardarAreasComunes(int $edificioId, array $areas): void
 {
     $tipos = array_keys(recAreasComunesTipicas());
-    $estados = ['Buena','Regular','Requiere reparación','No aplica'];
+    $trabajos = ['mamposteria','derrumbar','reconstruccion'];
     $st = db()->prepare(
-        'INSERT INTO rec_area_comun (edificio_id, tipo, presente, estado, necesita_reparacion, observaciones)
-         VALUES (:e, :t, 1, :es, :nr, :o)
-         ON DUPLICATE KEY UPDATE presente=1, estado=VALUES(estado),
-            necesita_reparacion=VALUES(necesita_reparacion), observaciones=VALUES(observaciones)'
+        'INSERT INTO rec_area_comun (edificio_id, tipo, presente, necesita_reparacion, tipo_trabajo, metros_cuadrados)
+         VALUES (:e, :t, 1, :nr, :tt, :m2)
+         ON DUPLICATE KEY UPDATE presente=1,
+            necesita_reparacion=VALUES(necesita_reparacion),
+            tipo_trabajo=VALUES(tipo_trabajo), metros_cuadrados=VALUES(metros_cuadrados)'
     );
     foreach ($areas as $a) {
         $tipo = $a['tipo'] ?? '';
         if (!in_array($tipo, $tipos, true)) continue;
+        $tt = in_array($a['tipo_trabajo'] ?? '', $trabajos, true) ? $a['tipo_trabajo'] : null;
         $st->execute([
             'e'  => $edificioId,
             't'  => $tipo,
-            'es' => in_array($a['estado'] ?? '', $estados, true) ? $a['estado'] : null,
             'nr' => !empty($a['necesita_reparacion']) ? 1 : 0,
-            'o'  => trim($a['observaciones'] ?? '') ?: null,
+            'tt' => $tt,
+            'm2' => isset($a['metros_cuadrados']) ? (float)$a['metros_cuadrados'] : null,
         ]);
     }
     // Quitar las que se deseleccionaron.

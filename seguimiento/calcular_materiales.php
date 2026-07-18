@@ -13,6 +13,21 @@ header('Content-Type: application/json; charset=utf-8');
 
 try {
     requierePermiso('seguimiento', 'ver');
+
+    // Modo simple (GET): ?tipo=mamposteria&m2=12  -> materiales de un solo tipo.
+    if (isset($_GET['tipo'], $_GET['m2'])) {
+        $tipo = trim($_GET['tipo']);
+        $m2v  = (float)$_GET['m2'];
+        $tipos = array_keys(recTiposSuperficie());
+        if (!in_array($tipo, $tipos, true) || $m2v <= 0) {
+            echo json_encode(['ok' => true, 'materiales' => []]);
+            exit;
+        }
+        $materiales = recCalcularMateriales([$tipo => $m2v]);
+        echo json_encode(['ok' => true, 'materiales' => $materiales], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $b = json_decode(file_get_contents('php://input'), true);
     $m2 = (is_array($b) && isset($b['m2']) && is_array($b['m2'])) ? $b['m2'] : [];
 

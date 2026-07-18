@@ -40,8 +40,8 @@ $decisionEd = $insp['decision_final'] ?? '';
 $colorEd = $catDecision[$decisionEd]['color'] ?? '#767c94';
 $colorCorto = $catDecision[$decisionEd]['corto'] ?? ($decisionEd ?: 'Sin clasificar');
 
-$pageTitle    = 'Levantamiento: ' . $insp['nombre_edificio'];
-$pageSubtitle = trim(($insp['parroquia'] ?? '') . ' · ' . ($insp['municipio'] ?? ''), ' ·');
+$pageTitle    = 'Levantamiento técnico';
+$pageSubtitle = '';
 $activeModule = 'seguimiento';
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -63,8 +63,8 @@ include __DIR__ . '/../includes/header.php';
     .campo-estado .tit { display:block; font-weight:600; font-size:13px; color:#2a3140; margin-bottom:5px; }
     .seg-radio { display:inline-flex; align-items:center; gap:5px; margin-right:14px; font-size:13px; color:#2a3140; cursor:pointer; }
     /* Piso: cada uno es una sección grande y colapsable */
-    .piso-card { border:1px solid #d9e0ee; border-radius:12px; margin-bottom:14px; overflow:hidden; }
-    .piso-head { padding:14px 18px; background:#22366F; color:#fff; cursor:pointer; font-weight:600;
+    .piso-card { border:1px solid #d9e0ee; border-radius:8px; margin-bottom:6px; overflow:hidden; }
+    .piso-head { padding:13px 16px; background:#22366F; color:#fff; cursor:pointer; font-weight:600;
                  display:flex; align-items:center; justify-content:space-between; }
     .piso-head .estado { font-size:11px; font-weight:500; opacity:.85; }
     .piso-body { padding:16px 18px; }
@@ -108,52 +108,6 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ============ INTRO DEL EDIFICIO (datos no editables) ============ -->
-<div class="wz-panel" style="margin-bottom:16px;border-left:5px solid <?= $colorEd ?>;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-        <div>
-            <h3 style="margin-bottom:2px;"><i class="bi bi-building"></i> <?= e($insp['nombre_edificio'] ?: 'Edificación sin nombre') ?></h3>
-            <p class="sub" style="margin:0;"><?= e($insp['codigo'] ?? '') ?></p>
-        </div>
-        <span style="background:<?= $colorEd ?>;color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;white-space:nowrap;">
-            <i class="bi bi-circle-fill"></i> <?= e($colorCorto) ?>
-        </span>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px;">
-        <?php
-        $filasIntro = [
-            ['bi-geo-alt', 'Parroquia', $insp['parroquia'] ?? '—'],
-            ['bi-map', 'Municipio', $insp['municipio'] ?? '—'],
-            ['bi-signpost', 'Dirección', $insp['avenida_calle'] ?? '—'],
-            ['bi-people', 'Familias', $insp['familias'] ?? '0'],
-            ['bi-person', 'Personas', $insp['personas'] ?? '—'],
-            ['bi-tag', 'Uso', $insp['uso'] ?? '—'],
-            ['bi-layers', 'Pisos (registrados)', $insp['num_pisos'] ?? '—'],
-            ['bi-calendar-check', 'Fecha inspección', $insp['fecha_inspeccion'] ?? ($insp['creado_en'] ?? '—')],
-        ];
-        foreach ($filasIntro as [$ico, $lbl, $val]):
-        ?>
-        <div style="background:#f7f9fd;border-radius:9px;padding:9px 12px;">
-            <div style="font-size:11px;color:#767c94;text-transform:uppercase;letter-spacing:.4px;"><i class="bi <?= $ico ?>"></i> <?= $lbl ?></div>
-            <div style="font-size:14px;color:#2a3140;font-weight:600;margin-top:2px;"><?= e((string)$val) ?></div>
-        </div>
-        <?php endforeach; ?>
-    </div>
-
-    <!-- Foto de la etiqueta pegada en el edificio -->
-    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eef0f5;">
-        <div class="bloque-tit" style="margin-bottom:8px;"><i class="bi bi-camera"></i> Foto de la etiqueta del edificio</div>
-        <p class="sub" style="margin:0 0 8px;">Foto del adhesivo de clasificación (verde/amarillo/rojo) colocado en la edificación.</p>
-        <div class="etiqueta-fotos" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
-        <?php if ($puedeEditar): ?>
-        <button type="button" class="btn btn-outline btn-sm" onclick="subirFotoEtiqueta()">
-            <i class="bi bi-camera"></i> Tomar / subir foto de la etiqueta
-        </button>
-        <?php endif; ?>
-    </div>
-</div>
-
 <!-- ============ PASO 1: DATOS DEL EDIFICIO ============ -->
 <div class="wz-panel" id="paso-1">
 
@@ -179,18 +133,20 @@ include __DIR__ . '/../includes/header.php';
             $datos = [
                 ['Código', $insp['codigo'] ?? '—', 'bi-upc-scan'],
                 ['Uso', $insp['uso_edificacion'] ?? '—', 'bi-buildings'],
-                ['Parroquia', $insp['parroquia'] ?? '—', 'bi-geo-alt'],
+                ['Parroquia', mb_strtoupper($insp['parroquia'] ?? '—', 'UTF-8'), 'bi-geo-alt', true],
                 ['Municipio', $insp['municipio'] ?? '—', 'bi-map'],
                 ['Familias', $insp['familias'] ?? '—', 'bi-people'],
                 ['Personas', $insp['numero_personas'] ?? '—', 'bi-person'],
                 ['Pisos (inspección)', $insp['num_pisos'] ?? '—', 'bi-layers'],
                 ['Ubicación', implode(', ', $ubic) ?: '—', 'bi-pin-map'],
             ];
-            foreach ($datos as [$lbl, $val, $ico]):
+            foreach ($datos as $fila):
+                [$lbl, $val, $ico] = $fila;
+                $destacar = $fila[3] ?? false;
             ?>
             <div style="font-size:13px;">
                 <div style="color:#8b91a3;font-size:11px;"><i class="bi <?= $ico ?>"></i> <?= $lbl ?></div>
-                <div style="color:#2a3140;font-weight:600;"><?= e((string)$val) ?></div>
+                <div style="color:#2a3140;font-weight:<?= $destacar ? '700' : '600' ?>;<?= $destacar ? 'font-size:16px;letter-spacing:.3px;' : '' ?>"><?= e((string)$val) ?></div>
             </div>
             <?php endforeach; ?>
         </div>
@@ -220,36 +176,44 @@ include __DIR__ . '/../includes/header.php';
             </div>
         </div>
 
-        <div class="campo-estado">
-            <label class="tit">¿Tiene áreas comunes generales?</label>
-            <label class="seg-radio"><input type="checkbox" id="tiene_areas_comunes" <?= $ed['tiene_areas_comunes'] ? 'checked' : '' ?>> Sí</label>
-        </div>
-        <div id="wrap-areas" style="<?= $ed['tiene_areas_comunes'] ? '' : 'display:none;' ?>">
-            <label class="text-sm" style="font-weight:600;display:block;margin-bottom:8px;">Marque las áreas comunes que tiene el edificio:</label>
+        <div style="margin-top:8px;">
+            <label class="text-sm" style="font-weight:600;display:block;margin-bottom:8px;"><i class="bi bi-columns-gap"></i> Áreas comunes del edificio</label>
+            <p class="sub" style="margin:0 0 10px;">Marque "Reparar" en las áreas que necesitan intervención. Se le pedirá una foto y qué trabajo requiere.</p>
             <?php
             $areasCat = recAreasComunesTipicas();
             $areasGuardadas = recAreasComunes((int)$ed['id']);
+            $tiposTrabajo = ['mamposteria' => 'Mampostería', 'derrumbar' => 'Derrumbar / demoler', 'reconstruccion' => 'Reconstrucción'];
             ?>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                 <?php foreach ($areasCat as $ak => $albl):
                     $ac = $areasGuardadas[$ak] ?? null;
-                    $marcada = $ac !== null;
+                    $reparar = $ac && $ac['necesita_reparacion'];
                 ?>
                 <div class="area-row" data-area="<?= $ak ?>" style="border:1px solid #eef0f5;border-radius:8px;overflow:hidden;">
-                    <label class="area-chk-lbl" style="display:flex;align-items:center;gap:7px;padding:9px 11px;cursor:pointer;font-size:13px;<?= $marcada ? 'background:#eef2fb;font-weight:600;color:#22366F;' : '' ?>">
-                        <input type="checkbox" class="area-check" <?= $marcada ? 'checked' : '' ?>> <?= e($albl) ?>
+                    <label class="area-chk-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:7px;padding:9px 11px;cursor:pointer;font-size:13px;<?= $reparar ? 'background:#fdf3e7;font-weight:600;color:#A66A00;' : '' ?>">
+                        <span><?= e($albl) ?></span>
+                        <span class="seg-radio" style="font-size:12px;white-space:nowrap;">
+                            <input type="checkbox" class="area-reparar" <?= $reparar ? 'checked' : '' ?>> <i class="bi bi-tools"></i> Reparar
+                        </span>
                     </label>
-                    <!-- Estado y reparación: solo visibles si el área está marcada -->
-                    <div class="area-detalle" style="padding:8px 11px;background:#f9fafd;display:<?= $marcada ? 'flex' : 'none' ?>;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <select class="form-control area-estado" style="flex:1;min-width:110px;padding:6px 8px;font-size:12.5px;">
-                            <option value="">Estado…</option>
-                            <?php foreach (['Buena','Regular','Requiere reparación','No aplica'] as $es): ?>
-                            <option value="<?= $es ?>" <?= ($ac && $ac['estado'] === $es) ? 'selected' : '' ?>><?= $es ?></option>
+                    <!-- Detalle de reparación: foto + tipo de trabajo + m². Solo si "Reparar". -->
+                    <div class="area-detalle" style="padding:10px 11px;background:#f9fafd;display:<?= $reparar ? 'block' : 'none' ?>;">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="subirFotoArea('<?= $ak ?>', this)" style="margin-bottom:8px;">
+                            <i class="bi bi-camera"></i> Foto del área a reparar
+                        </button>
+                        <div class="area-fotos" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;"></div>
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">¿Qué trabajo necesita?</label>
+                        <select class="form-control area-trabajo" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;">
+                            <option value="">Seleccione…</option>
+                            <?php foreach ($tiposTrabajo as $tk => $tl): ?>
+                            <option value="<?= $tk ?>" <?= ($ac && ($ac['tipo_trabajo'] ?? '') === $tk) ? 'selected' : '' ?>><?= $tl ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <label class="seg-radio area-rep-wrap" style="font-size:12px;">
-                            <input type="checkbox" class="area-reparar" <?= ($ac && $ac['necesita_reparacion']) ? 'checked' : '' ?>> Reparar
-                        </label>
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Metros cuadrados (m²)</label>
+                        <input type="number" class="form-control area-m2" min="0" step="0.5" value="<?= $ac['metros_cuadrados'] ?? '' ?>"
+                               placeholder="Ej: 12" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;"
+                               oninput="calcularMatArea(this)">
+                        <div class="area-materiales" style="font-size:12px;color:#22366F;background:#eef2fb;border-radius:6px;padding:8px 10px;display:none;"></div>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -277,7 +241,7 @@ include __DIR__ . '/../includes/header.php';
         ?>
         <div class="piso-card" data-piso="<?= (int)$piso['id'] ?>">
             <div class="piso-head" onclick="togglePiso(this)">
-                <span><i class="bi bi-building"></i> Piso <?= (int)$piso['numero_piso'] ?></span>
+                <span><i class="bi bi-building"></i> <?= (int)$piso['numero_piso'] === 0 ? 'Planta Baja (PB)' : 'Piso ' . (int)$piso['numero_piso'] ?></span>
                 <span class="estado"><i class="bi bi-chevron-down"></i></span>
             </div>
             <div class="piso-body hidden">
@@ -321,7 +285,7 @@ include __DIR__ . '/../includes/header.php';
                 <!-- Apartamentos de este piso -->
                 <div class="bloque-tit" style="margin-top:20px;"><i class="bi bi-door-open"></i> Apartamentos de este piso</div>
                 <div class="apto-generador" style="margin-bottom:10px;padding:10px 12px;background:#f7f9fd;border-radius:9px;">
-                    <label class="text-sm">Este piso tiene <b><?= (int)($ed['aptos_por_piso'] ?: 1) ?></b> apartamentos (se crean solos). Si este piso es diferente, ajuste y regenere:</label>
+                    <label class="text-sm">Este piso tiene <b><?= (int)($ed['aptos_por_piso'] ?: 1) ?></b>Si este piso es diferente, ajuste y regenere:</label>
                     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
                         <input type="number" class="form-control apto-cantidad" min="1" max="100"
                                value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>" data-num="<?= (int)$piso['numero_piso'] ?>" style="width:90px;">
@@ -413,27 +377,55 @@ function irPaso(n) {
     window.scrollTo({top:0, behavior:'smooth'});
 }
 
-document.getElementById('tiene_areas_comunes')?.addEventListener('change', function(){
-    document.getElementById('wrap-areas').style.display = this.checked ? '' : 'none';
-});
-
-// Al marcar/desmarcar un área común, mostrar u ocultar su estado y resaltar.
-document.querySelectorAll('.area-row .area-check').forEach(chk => {
+// Al marcar/desmarcar "Reparar" en un área, mostrar u ocultar su detalle.
+document.querySelectorAll('.area-row .area-reparar').forEach(chk => {
     chk.addEventListener('change', function(){
         const row = this.closest('.area-row');
         const detalle = row.querySelector('.area-detalle');
         const lbl = row.querySelector('.area-chk-lbl');
         if (this.checked) {
-            detalle.style.display = 'flex';
-            lbl.style.background = '#eef2fb';
+            detalle.style.display = 'block';
+            lbl.style.background = '#fdf3e7';
             lbl.style.fontWeight = '600';
-            lbl.style.color = '#22366F';
+            lbl.style.color = '#A66A00';
         } else {
             detalle.style.display = 'none';
             lbl.style.background = '';
             lbl.style.fontWeight = '';
             lbl.style.color = '';
         }
+    });
+});
+
+// Subir foto de un área común a reparar.
+let _areaFotoDestino = null;
+function subirFotoArea(areaKey, btn) {
+    _areaFotoDestino = btn.closest('.area-row').querySelector('.area-fotos');
+    _areaFotoDestino.dataset.area = areaKey;
+    document.getElementById('rec-file-input').click();
+}
+
+// Calcular materiales de un área según m² y tipo de trabajo.
+async function calcularMatArea(inp) {
+    const row = inp.closest('.area-row');
+    const m2 = parseFloat(inp.value) || 0;
+    const trabajo = row.querySelector('.area-trabajo').value;
+    const cont = row.querySelector('.area-materiales');
+    if (m2 <= 0 || !trabajo) { cont.style.display = 'none'; return; }
+    try {
+        const res = await fetch(URL_BASE + 'calcular_materiales.php?tipo=' + encodeURIComponent(trabajo) + '&m2=' + m2);
+        const d = await res.json();
+        if (d.ok && d.materiales && d.materiales.length) {
+            cont.innerHTML = '<b><i class="bi bi-box-seam"></i> Materiales estimados:</b><br>' +
+                d.materiales.map(m => `• ${m.material}: <b>${m.cantidad}</b> ${m.unidad}`).join('<br>');
+            cont.style.display = 'block';
+        } else { cont.style.display = 'none'; }
+    } catch(e) { cont.style.display = 'none'; }
+}
+// Recalcular también al cambiar el tipo de trabajo.
+document.querySelectorAll('.area-trabajo').forEach(sel => {
+    sel.addEventListener('change', function(){
+        calcularMatArea(this.closest('.area-row').querySelector('.area-m2'));
     });
 });
 
@@ -445,16 +437,17 @@ async function guardarEdificio(ev) {
         inspeccion_id: INSPECCION_ID,
         num_pisos: document.getElementById('num_pisos').value,
         aptos_por_piso: document.getElementById('aptos_por_piso').value,
-        tiene_areas_comunes: document.getElementById('tiene_areas_comunes').checked ? 1 : 0,
+        tiene_areas_comunes: 1,
         areas_comunes: [],
     };
-    // Recolectar las áreas comunes marcadas.
+    // Recolectar las áreas marcadas para reparar, con su trabajo y m².
     document.querySelectorAll('.area-row').forEach(row => {
-        if (row.querySelector('.area-check').checked) {
+        if (row.querySelector('.area-reparar').checked) {
             payload.areas_comunes.push({
                 tipo: row.dataset.area,
-                estado: row.querySelector('.area-estado').value,
-                necesita_reparacion: row.querySelector('.area-reparar').checked ? 1 : 0,
+                necesita_reparacion: 1,
+                tipo_trabajo: row.querySelector('.area-trabajo').value,
+                metros_cuadrados: parseFloat(row.querySelector('.area-m2').value) || 0,
             });
         }
     });
@@ -824,15 +817,6 @@ function agregarMiniFoto(cont, f) {
         '<div style="text-align:center;"><img src="'+f.ruta+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #d8dce6;">'+parte+'</div>');
 }
 
-// Foto de la etiqueta del edificio (nivel edificio, parte 'etiqueta').
-function subirFotoEtiqueta() {
-    _fotoDestino = {
-        nivel:'edificio', refId: EDIFICIO_ID, pideParte:false, parteFija:'etiqueta',
-        cont: document.querySelector('.etiqueta-fotos')
-    };
-    document.getElementById('rec-file-input').click();
-}
-
 // ================= PASO 3: CIERRE Y RESUMEN =================
 async function guardarCierre(ev) {
     ev.preventDefault();
@@ -890,16 +874,6 @@ async function cargarResumen() {
             }
         }).catch(()=>{});
 })();
-
-// Si venimos de guardar el paso 1, abrir directo el recorrido.
-// Cargar la foto de la etiqueta del edificio si ya existe.
-fetch(URL_BASE + 'listar_rec_aptos.php?fotos_edificio=' + EDIFICIO_ID)
-    .then(r=>r.json()).then(d=>{
-        if (d.ok && d.fotos && d.fotos.length) {
-            const cont = document.querySelector('.etiqueta-fotos');
-            d.fotos.forEach(f => agregarMiniFoto(cont, f));
-        }
-    });
 
 // Si venimos de guardar el paso 1, abrir directo el recorrido.
 <?php if (($_GET['paso'] ?? '') === '2'): ?>
