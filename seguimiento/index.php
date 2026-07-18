@@ -308,7 +308,7 @@ include __DIR__ . '/../includes/header.php';
                     <!-- PASO 2: Responsable directo del equipo de trabajo -->
                     <div id="sp-subasignar" style="display:none;margin-bottom:10px;">
                         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px;">
-                            <i class="bi bi-person-badge"></i> Responsable directo
+                            <i class="bi bi-person-badge"></i> Responsable del equipo de trabajo
                         </label>
                         <select id="sp-miembro" class="form-control" style="width:100%;">
                             <option value="">— Elija a la persona —</option>
@@ -512,20 +512,18 @@ async function cargarIntegrantes(parroquia, estado) {
         }
         if (!d.ok) { sel.innerHTML = '<option value="">' + (d.mensaje || 'Sin equipos') + '</option>'; return; }
 
-        const tipos = d.tipos || {};
+        // Solo viene el equipo de trabajo (GDC): lista simple, sin grupos.
         let html = '<option value="">— Elija a la persona —</option>';
+        let hay = false;
         (d.frentes || []).forEach(f => {
-            const etiqueta = (tipos[f.tipo] || f.tipo) + (f.sector ? ' · ' + f.sector : '');
-            const personas = f.integrantes || [];
-            if (!personas.length) return;
-            html += '<optgroup label="' + etiqueta + '">';
-            personas.forEach(nom => {
+            (f.integrantes || []).forEach(nom => {
+                hay = true;
                 const val = JSON.stringify({ f: f.frente_id, t: f.tipo, m: nom }).replace(/"/g, '&quot;');
-                html += '<option value="' + val + '">' + nom + '</option>';
+                const sector = f.sector ? ' (' + f.sector + ')' : '';
+                html += '<option value="' + val + '">' + nom + sector + '</option>';
             });
-            html += '</optgroup>';
         });
-        sel.innerHTML = html || '<option value="">Sin equipos registrados</option>';
+        sel.innerHTML = hay ? html : '<option value="">Sin equipo de trabajo registrado</option>';
     } catch (e) {
         sel.innerHTML = '<option value="">Error al cargar</option>';
     }

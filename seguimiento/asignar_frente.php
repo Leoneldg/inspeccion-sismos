@@ -32,6 +32,8 @@ try {
 
         $out = [];
         foreach (frentesDeParroquia($estado, $parroquia) as $f) {
+            // Solo el EQUIPO DE TRABAJO (GDC): son quienes ejecutan la obra.
+            if (($f['tipo'] ?? '') !== 'gdc') continue;
             $out[] = [
                 'frente_id'   => (int)$f['id'],
                 'tipo'        => $f['tipo'],
