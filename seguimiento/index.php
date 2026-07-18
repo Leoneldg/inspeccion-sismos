@@ -167,6 +167,16 @@ include __DIR__ . '/../includes/header.php';
                 </select>
             </div>
             <div class="field" style="margin:0;">
+                <label class="text-sm">Status</label>
+                <select id="f-color" class="form-control" style="width:150px;" onchange="ejecutarBusqueda()">
+                    <option value="">Todos</option>
+                    <option value="verde">🟢 VERDE</option>
+                    <option value="amarillo">🟡 AMARILLO</option>
+                    <option value="rojo">🔴 ROJO</option>
+                    <option value="derrumbado">⚫ DERRUMBADO</option>
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
                 <label class="text-sm">Ente</label>
                 <select id="f-ente" class="form-control" style="width:180px;" onchange="ejecutarBusqueda()">
                     <option value="">TODOS LOS ENTES</option>
@@ -516,14 +526,17 @@ function volverVistaParroquias() {
 }
 
 // ===================== BÚSQUEDA DE EDIFICACIONES =====================
+let _ultimaBusqueda = [];   // resultados actuales, para imprimir
+
 async function ejecutarBusqueda() {
     const q = document.getElementById('f-buscar').value.trim();
     const sel = document.getElementById('f-parroquia');
     const parroquia = sel.value;
     const estado = document.getElementById('f-estado').value;
     const enteId = document.getElementById('f-ente').value;
+    const color = document.getElementById('f-color').value;
 
-    if (!q && !parroquia && !enteId) { limpiarBusqueda(); return; }
+    if (!q && !parroquia && !enteId && !color) { limpiarBusqueda(); return; }
 
     const cont = document.getElementById('f-resultados');
     cont.style.display = 'block';
@@ -533,10 +546,12 @@ async function ejecutarBusqueda() {
         const url = BUSCAR_URL + '?q=' + encodeURIComponent(q)
                   + '&parroquia=' + encodeURIComponent(parroquia)
                   + '&estado=' + encodeURIComponent(estado)
-                  + '&ente_id=' + encodeURIComponent(enteId);
+                  + '&ente_id=' + encodeURIComponent(enteId)
+                  + '&color=' + encodeURIComponent(color);
         const res = await fetch(url);
         const d = await res.json();
         if (!d.ok) { cont.innerHTML = '<p class="text-muted" style="margin:0;">' + (d.mensaje || 'Error.') + '</p>'; return; }
+        _ultimaBusqueda = d.puntos;
         pintarResultados(d.puntos);
         dibujarPuntosEnMapa(d.puntos);
     } catch(e) {
@@ -560,7 +575,10 @@ function pintarResultados(puntos) {
             </div>
             ${p.tiene_coord ? '<i class="bi bi-geo-alt-fill" style="color:#2d4488;" title="Ubicada en el mapa"></i>' : '<i class="bi bi-geo" style="color:#c9a227;" title="Sin coordenadas"></i>'}
         </div>`).join('');
-    cont.innerHTML = `<div style="font-weight:700;color:#22366F;margin-bottom:8px;"><i class="bi bi-list-ul"></i> ${puntos.length} resultado(s)</div>
+    cont.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+            <div style="font-weight:700;color:#22366F;"><i class="bi bi-list-ul"></i> ${puntos.length} resultado(s)</div>
+            <button class="btn btn-outline btn-sm" onclick="imprimirResultados()"><i class="bi bi-file-earmark-pdf"></i> Imprimir lista</button>
+        </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }
 
@@ -588,6 +606,63 @@ function limpiarBusqueda() {
     capaPuntos.clearLayers();
     // Volver a mostrar las burbujas de conteo por parroquia.
     location.reload();
+}
+
+// Imprimir la lista de resultados (abre ventana lista para PDF/impresión).
+function imprimirResultados() {
+    if (!_ultimaBusqueda.length) return;
+    const hoy = new Date().toLocaleDateString('es-VE');
+    // Contar por color para el resumen.
+    const cnt = { '#A61C1C':0, '#C9A227':0, '#2E7D32':0, '#2B2B2B':0 };
+    _ultimaBusqueda.forEach(p => { if (cnt[p.color] !== undefined) cnt[p.color]++; });
+
+    const filas = _ultimaBusqueda.map((p, i) => `
+        <tr>
+            <td style="text-align:center;">${i+1}</td>
+            <td><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${p.color};"></span></td>
+            <td>${p.nombre || 'Sin nombre'}</td>
+            <td>${p.codigo || ''}</td>
+            <td>${p.parroquia || ''}</td>
+            <td>${p.decision || ''}</td>
+            <td>${p.ente || 'Sin asignar'}</td>
+        </tr>`).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de edificaciones</title>
+        <style>
+            * { font-family: Arial, sans-serif; }
+            body { margin: 24px; color: #2a3140; }
+            h1 { color: #22366F; font-size: 20px; margin: 0; }
+            .sub { color: #767c94; font-size: 12px; margin: 2px 0 0; }
+            .linea { height: 3px; background: #C9A227; width: 70px; margin: 10px 0; }
+            .resumen { display: flex; gap: 8px; margin: 12px 0; }
+            .rcard { flex: 1; text-align: center; padding: 8px; border-radius: 8px; border: 1px solid #ddd; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #22366F; color: #fff; font-size: 11px; padding: 7px 6px; text-align: left; }
+            td { font-size: 11px; padding: 5px 6px; border-bottom: 1px solid #e8ebf3; }
+            @media print { .noprint { display: none; } }
+        </style></head><body>
+        <h1>Lista de edificaciones</h1>
+        <p class="sub">Seguimiento y Control · ${_ultimaBusqueda.length} edificaciones · ${hoy}</p>
+        <div class="linea"></div>
+        <div class="resumen">
+            <div class="rcard" style="color:#A61C1C;border-color:#A61C1C55;"><b style="font-size:20px;">${cnt['#A61C1C']}</b><br>ROJO</div>
+            <div class="rcard" style="color:#C9A227;border-color:#C9A22755;"><b style="font-size:20px;">${cnt['#C9A227']}</b><br>AMARILLO</div>
+            <div class="rcard" style="color:#2E7D32;border-color:#2E7D3255;"><b style="font-size:20px;">${cnt['#2E7D32']}</b><br>VERDE</div>
+            <div class="rcard" style="color:#2B2B2B;border-color:#2B2B2B55;"><b style="font-size:20px;">${cnt['#2B2B2B']}</b><br>DERRUMBADO</div>
+        </div>
+        <table>
+            <thead><tr><th>#</th><th></th><th>Edificación</th><th>Código</th><th>Parroquia</th><th>Status</th><th>Ente</th></tr></thead>
+            <tbody>${filas}</tbody>
+        </table>
+        <p class="noprint" style="margin-top:16px;text-align:center;">
+            <button onclick="window.print()" style="padding:8px 20px;background:#22366F;color:#fff;border:0;border-radius:6px;cursor:pointer;font-size:14px;">Imprimir / Guardar PDF</button>
+        </p>
+        <script>window.onload = () => setTimeout(() => window.print(), 400);<\/script>
+        </body></html>`;
+
+    const w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
 }
 </script>
 

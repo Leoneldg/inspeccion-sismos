@@ -19,8 +19,9 @@ try {
     $parroquia = trim($_GET['parroquia'] ?? '');
     $estado    = trim($_GET['estado'] ?? '');
     $enteId    = trim($_GET['ente_id'] ?? '');
+    $color     = trim($_GET['color'] ?? '');
 
-    if ($q === '' && $parroquia === '' && $enteId === '') {
+    if ($q === '' && $parroquia === '' && $enteId === '' && $color === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
         exit;
     }
@@ -46,6 +47,19 @@ try {
     if ($enteId !== '') {
         $conds[] = 'so.ente_id = :ente';
         $params['ente'] = (int)$enteId;
+    }
+    // Filtro por status/color de la vivienda.
+    if ($color !== '') {
+        $mapaColor = [
+            'verde'      => 'Edificación Inspeccionada - Acceso Permitido',
+            'amarillo'   => 'Acceso Restringido - Precaución al Entrar',
+            'rojo'       => 'Edificación Insegura - Acceso No Permitido',
+            'derrumbado' => 'Derrumbado',
+        ];
+        if (isset($mapaColor[$color])) {
+            $conds[] = 'i.decision_final = :dec';
+            $params['dec'] = $mapaColor[$color];
+        }
     }
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
 
