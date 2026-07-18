@@ -2560,6 +2560,87 @@ function recPanelParroquia(string $estado, string $parroquia): array
  *   - % piso        = promedio de los apartamentos de ese piso.
  *   - % edificio    = promedio de los pisos (que ya son promedio de sus aptos).
  */
+/**
+ * Metros cuadrados a reparar, sumados por apartamento, piso y total
+ * del edificio. Los m² se registran en el levantamiento por cada
+ * ambiente y elemento del piso.
+ */
+function recMetrosPorNivel(int $edificioId): array
+{
+    try {
+        // m² de los ambientes, agrupados por apartamento.
+        $st = db()->prepare("
+            SELECT pi.id AS piso_id, pi.numero_piso,
+                   ap.id AS apto_id, ap.identificador,
+                   COALESCE(SUM(rr.metros_cuadrados), 0) AS m2
+              FROM rec_piso pi
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+              LEFT JOIN rec_reparacion rr ON rr.nivel = 'ambiente' AND rr.ref_id = am.id
+             WHERE pi.edificio_id = :e
+             GROUP BY pi.id, ap.id
+             ORDER BY pi.numero_piso, ap.identificador
+        ");
+        $st->execute(['e' => $edificioId]);
+
+        $porApto = [];
+        $porPiso = [];
+        $total = 0.0;
+        foreach ($st->fetchAll() as $r) {
+            $m2 = (float)$r['m2'];
+            $porApto[(int)$r['apto_id']] = $m2;
+            $pid = (int)$r['piso_id'];
+            if (!isset($porPiso[$pid])) {
+                $porPiso[$pid] = ['numero_piso' => (int)$r['numero_piso'], 'm2' => 0.0];
+            }
+            $porPiso[$pid]['m2'] += $m2;
+            $total += $m2;
+        }
+
+        // m² de los elementos del piso (escaleras, pasillos…).
+        $st2 = db()->prepare("
+            SELECT ep.piso_id, COALESCE(SUM(rr.metros_cuadrados), 0) AS m2
+              FROM rec_elemento_piso ep
+              JOIN rec_piso pi ON pi.id = ep.piso_id
+              LEFT JOIN rec_reparacion rr ON rr.nivel = 'elemento_piso' AND rr.ref_id = ep.id
+             WHERE pi.edificio_id = :e
+             GROUP BY ep.piso_id
+        ");
+        $st2->execute(['e' => $edificioId]);
+        $porPisoElem = [];
+        foreach ($st2->fetchAll() as $r) {
+            $m2 = (float)$r['m2'];
+            $pid = (int)$r['piso_id'];
+            $porPisoElem[$pid] = $m2;
+            if (!isset($porPiso[$pid])) $porPiso[$pid] = ['numero_piso' => 0, 'm2' => 0.0];
+            $porPiso[$pid]['m2'] += $m2;
+            $total += $m2;
+        }
+
+        // m² de áreas comunes del edificio.
+        $comunes = 0.0;
+        try {
+            $st3 = db()->prepare('SELECT COALESCE(SUM(metros_cuadrados), 0)
+                                    FROM rec_area_comun WHERE edificio_id = :e');
+            $st3->execute(['e' => $edificioId]);
+            $comunes = (float)$st3->fetchColumn();
+            $total += $comunes;
+        } catch (Throwable $e) { /* sin áreas comunes */ }
+
+        return [
+            'por_apartamento' => $porApto,
+            'por_piso'        => $porPiso,
+            'elementos_piso'  => $porPisoElem,
+            'areas_comunes'   => $comunes,
+            'total'           => $total,
+        ];
+
+    } catch (Throwable $e) {
+        return ['por_apartamento' => [], 'por_piso' => [],
+                'elementos_piso' => [], 'areas_comunes' => 0, 'total' => 0];
+    }
+}
+
 function recArbolAvance(int $edificioId): array
 {
     recAsegurarTablasAvance();
@@ -2655,11 +2736,23 @@ function recArbolAvance(int $edificioId): array
     }
     $avanceEdificio = $nPisos > 0 ? (int)round($sumaPisos / $nPisos) : 0;
 
+    // Metros cuadrados a reparar, por apartamento y por piso.
+    $m2 = recMetrosPorNivel($edificioId);
+    foreach ($pisos as $pid => $p) {
+        $pisos[$pid]['m2'] = round($m2['por_piso'][$pid]['m2'] ?? 0, 2);
+        foreach ($p['apartamentos'] as $i => $ap) {
+            $pisos[$pid]['apartamentos'][$i]['m2'] =
+                round($m2['por_apartamento'][(int)$ap['id']] ?? 0, 2);
+        }
+    }
+
     return [
         'pisos'           => array_values($pisos),
         'avance_edificio' => $avanceEdificio,
         'total_pisos'     => $nPisos,
         'total_aptos'     => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
+        'm2_total'        => round($m2['total'], 2),
+        'm2_comunes'      => round($m2['areas_comunes'], 2),
     ];
 }
 

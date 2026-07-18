@@ -21,11 +21,18 @@ try {
 
     $fotos = [];
     foreach (recFotos('ambiente', $ambienteId) as $f) {
+        // "parte" distingue antes/durante. Si trae otra cosa (Pared,
+        // Techo, Piso…) es la parte física que se fotografió.
+        $p = $f['parte'] ?: 'antes';
+        $esFase = in_array(mb_strtolower($p), ['antes', 'durante', 'despues', 'etiqueta'], true);
         $fotos[] = [
-            'id'          => (int)$f['id'],
-            'ruta'        => APP_URL_BASE . ltrim($f['ruta'], '/'),
-            'parte'       => $f['parte'] ?: 'antes',
-            'descripcion' => $f['descripcion'] ?? null,
+            'id'            => (int)$f['id'],
+            'ruta'          => APP_URL_BASE . ltrim($f['ruta'], '/'),
+            'parte'         => $esFase ? $p : 'antes',
+            'parte_detalle' => $esFase ? ($f['descripcion'] ?? '') : $p,
+            'descripcion'   => $f['descripcion'] ?? null,
+            'fecha'         => !empty($f['creado_en'])
+                ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
         ];
     }
 

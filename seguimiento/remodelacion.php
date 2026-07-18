@@ -127,6 +127,20 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Metros cuadrados a reparar -->
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
+            <i class="bi bi-rulers"></i> Metros cuadrados a reparar
+        </div>
+        <div id="fs-m2-total">
+            <span class="text-muted text-sm">Calculando…</span>
+        </div>
+        <p class="text-sm text-muted" style="margin:9px 0 0;">
+            Se suman los metros registrados en el levantamiento por cada ambiente,
+            elemento del piso y área común.
+        </p>
+    </div>
+
     <!-- Fecha de entrega y días restantes -->
     <?php
     $plan  = $edificioId ? recPlan($edificioId) : null;
@@ -401,6 +415,23 @@ function mostrarAvisoCopiaLocal(fecha) {
     cont.parentNode.insertBefore(div, cont);
 }
 
+// Muestra el total de metros cuadrados a reparar del edificio.
+function pintarMetrosTotal(m2, comunes) {
+    let cont = document.getElementById('fs-m2-total');
+    if (!cont) return;
+    if (!m2) { cont.innerHTML = ''; return; }
+    cont.innerHTML =
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">'
+        + '<div style="background:#eef2fb;border-radius:10px;padding:11px 16px;">'
+        + '<div style="font-size:24px;font-weight:800;color:#22366F;line-height:1;">'
+        + m2.toLocaleString('es-VE') + ' m²</div>'
+        + '<div style="font-size:11px;color:#5b6478;text-transform:uppercase;margin-top:3px;">'
+        + 'Total a reparar</div></div>'
+        + (comunes ? '<div style="font-size:12.5px;color:#5b6478;">'
+            + '<strong>' + comunes.toLocaleString('es-VE') + ' m²</strong> en áreas comunes</div>' : '')
+        + '</div>';
+}
+
 function pintarBarraGlobal(pct) {
     const bg = document.getElementById('barra-global');
     bg.style.width = pct + '%';
@@ -437,6 +468,8 @@ function pintarPisos(pisos) {
                 <i class="bi bi-layers"></i>
                 <span style="flex:1;font-weight:700;">${piso.etiqueta}</span>
                 <span style="font-size:12px;color:#767c94;">${piso.apartamentos.length} apto(s)</span>
+                ${piso.m2 ? `<span style="font-size:12px;color:#5b6478;background:#f1f3f8;
+                    border-radius:7px;padding:3px 9px;font-weight:600;">${piso.m2} m²</span>` : ''}
                 <div class="barra-piso" style="width:140px;background:#eef0f6;border-radius:20px;height:18px;position:relative;overflow:hidden;">
                     <div style="width:${piso.avance}%;background:${colorPct(piso.avance)};height:100%;transition:width .3s;"></div>
                 </div>
@@ -487,6 +520,8 @@ function filaApartamento(ap, pisoId) {
                     ${jefe}
                 </div>
                 <span style="font-size:11px;color:#97a0b8;">${nAmb} ambiente(s)</span>
+                ${ap.m2 ? `<span style="font-size:11.5px;color:#5b6478;background:#f1f3f8;
+                    border-radius:7px;padding:2px 8px;font-weight:600;">${ap.m2} m²</span>` : ''}
                 <div style="width:110px;background:#eef0f6;border-radius:20px;height:14px;overflow:hidden;">
                     <div id="barra-apto-${ap.id}" style="width:${ap.avance}%;background:${colorPct(ap.avance)};height:100%;transition:width .3s;"></div>
                 </div>
@@ -771,7 +806,9 @@ async function verFotosAmbiente(ambienteId, etiqueta, parte) {
         if (!d.ok) { cuerpo.innerHTML = '<p class="text-muted">No se pudieron cargar.</p>'; return; }
         const lista = (d.fotos || []).filter(f => (f.parte || 'antes') === parte);
         if (!lista.length) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
-        cuerpo.innerHTML = `<div class="fotos-fila">${lista.map(f => fotoHTML(f.ruta, f.descripcion || etiqueta)).join('')}</div>`;
+        cuerpo.innerHTML = `<div class="fotos-fila">${lista.map(f =>
+            fotoHTML(f.ruta, f.descripcion || etiqueta, f.parte_detalle || '', f.fecha || '')
+        ).join('')}</div>`;
     } catch (e) {
         cuerpo.innerHTML = '<p class="text-muted">Error al cargar.</p>';
     }
@@ -795,6 +832,7 @@ function recalcularEnPantalla(pisoId) {
     const sumaP = _arbol.pisos.reduce((s, p) => s + p.avance, 0);
     _arbol.avance_edificio = _arbol.pisos.length ? Math.round(sumaP / _arbol.pisos.length) : 0;
     pintarBarraGlobal(_arbol.avance_edificio);
+    pintarMetrosTotal(_arbol.m2_total || 0, _arbol.m2_comunes || 0);
 }
 
 // Ver fotos de un apartamento (bajo demanda, para no cargar todo de golpe).
@@ -813,13 +851,15 @@ async function verFotosApto(aptoId, ident) {
         if (!ap) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
 
         let antes = '';
-        (ap.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, 'Apartamento'); });
-        (ap.ambientes || []).forEach(am => (am.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero); }));
+        (ap.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, 'Apartamento', f.parte_detalle || '', f.fecha || ''); });
+        (ap.ambientes || []).forEach(am => (am.fotos_antes || []).forEach(f => {
+            antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || ''); }));
         if (!antes) antes = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos del levantamiento</div>';
 
         let durante = '';
-        (ap.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, 'Durante'); });
-        (ap.ambientes || []).forEach(am => (am.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero); }));
+        (ap.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, 'Durante', f.parte_detalle || '', f.fecha || ''); });
+        (ap.ambientes || []).forEach(am => (am.fotos_durante || []).forEach(f => {
+            durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || ''); }));
         if (!durante) durante = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos aún</div>';
 
         const btnFoto = PUEDE_CARGAR
@@ -839,8 +879,89 @@ function cerrarModalFotos() {
     document.getElementById('fs-modal-fotos').style.display = 'none';
 }
 
-function fotoHTML(ruta, cap) {
-    return `<div class="foto-item"><img src="${ruta}"><div class="cap">${cap}</div></div>`;
+/**
+ * Miniatura de una foto. Muestra qué parte se fotografió y permite
+ * ampliarla: antes no se veía el detalle ni qué lado era.
+ */
+function fotoHTML(ruta, cap, parte, fecha) {
+    const etiqueta = parte
+        ? `<span style="background:#22366F;color:#fff;font-size:10px;font-weight:700;
+             padding:2px 7px;border-radius:9px;position:absolute;top:6px;left:6px;">${parte}</span>`
+        : '';
+    const cuando = fecha
+        ? `<div style="font-size:10px;color:#767c94;">${fecha}</div>` : '';
+    const alt = (cap || 'Foto').replace(/"/g, '&quot;');
+    return `<div class="foto-item" style="position:relative;">
+        <img src="${ruta}" alt="${alt}" style="cursor:zoom-in;"
+             onclick="ampliarFoto('${ruta}', '${alt}', '${(parte||'').replace(/'/g,"")}')">
+        ${etiqueta}
+        <div class="cap">${cap || ''}</div>
+        ${cuando}
+    </div>`;
+}
+
+/** Visor a pantalla completa, con zoom y desplazamiento. */
+function ampliarFoto(ruta, titulo, parte) {
+    const capa = document.createElement('div');
+    capa.id = 'visor-foto';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'
+        + 'display:flex;flex-direction:column;';
+
+    capa.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;
+                    background:rgba(0,0,0,.35);color:#fff;flex-shrink:0;">
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:15px;">${titulo || 'Foto'}</div>
+                ${parte ? `<div style="font-size:12px;opacity:.8;">Parte: ${parte}</div>` : ''}
+            </div>
+            <button onclick="zoomFoto(-1)" title="Alejar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:19px;cursor:pointer;">−</button>
+            <button onclick="zoomFoto(1)" title="Acercar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:19px;cursor:pointer;">+</button>
+            <a href="${ruta}" download title="Descargar"
+               style="background:rgba(255,255,255,.15);color:#fff;width:38px;height:38px;
+                      border-radius:9px;display:flex;align-items:center;justify-content:center;
+                      text-decoration:none;"><i class="bi bi-download"></i></a>
+            <button onclick="cerrarVisor()" title="Cerrar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div id="visor-cont" style="flex:1;overflow:auto;display:flex;align-items:center;
+                                    justify-content:center;padding:14px;">
+            <img id="visor-img" src="${ruta}" style="max-width:100%;max-height:100%;
+                 transition:transform .18s;transform-origin:center;">
+        </div>
+        <div style="padding:9px 16px;background:rgba(0,0,0,.35);color:#ffffffaa;
+                    font-size:12px;text-align:center;flex-shrink:0;">
+            Toque + o − para acercar · Toque fuera de la imagen para cerrar
+        </div>`;
+
+    capa.addEventListener('click', e => {
+        if (e.target === capa || e.target.id === 'visor-cont') cerrarVisor();
+    });
+    document.body.appendChild(capa);
+    window._zoomFoto = 1;
+
+    // Cerrar con la tecla Escape.
+    document.addEventListener('keydown', _escVisor);
+}
+
+function _escVisor(e) { if (e.key === 'Escape') cerrarVisor(); }
+
+function cerrarVisor() {
+    const v = document.getElementById('visor-foto');
+    if (v) v.remove();
+    document.removeEventListener('keydown', _escVisor);
+}
+
+function zoomFoto(dir) {
+    const img = document.getElementById('visor-img');
+    if (!img) return;
+    window._zoomFoto = Math.min(4, Math.max(0.5, (window._zoomFoto || 1) + dir * 0.35));
+    img.style.transform = 'scale(' + window._zoomFoto + ')';
+    img.style.cursor = window._zoomFoto > 1 ? 'grab' : 'zoom-in';
 }
 
 function subirDurante(aptoId) {

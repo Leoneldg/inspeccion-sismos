@@ -83,7 +83,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="rc-card">
     <div class="rc-tit"><i class="bi bi-hammer"></i> <?= count($lista) ?> edificaciones en obra</div>
     <p class="text-sm text-muted" style="margin:-6px 0 12px;">
-        Toque un recuadro para filtrar. Las que vencen antes salen primero.
+        Toque un recuadro para filtrar.
     </p>
 
     <div class="rc-kpis">
