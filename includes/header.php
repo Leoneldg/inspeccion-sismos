@@ -86,6 +86,11 @@ $flashes = obtenerFlashes();
                 </a>
                 <?php endif; ?>
                 <?php if (puede('seguimiento','ver')): ?>
+                <?php if (function_exists('usuarioLimitadoAParroquia') && usuarioLimitadoAParroquia()): ?>
+                <a href="<?= APP_URL_BASE ?>seguimiento/mi_parroquia.php" class="nav-item <?= $activeModule==='mi_parroquia'?'active':'' ?>" title="Mi parroquia">
+                    <i class="bi bi-geo-alt-fill"></i> <span>Mi parroquia</span>
+                </a>
+                <?php endif; ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
                 </a>

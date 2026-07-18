@@ -234,6 +234,7 @@ function segListaEdificios(array $filtros = []): array
 
     // Scope territorial (estadal ve solo su estado).
     aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
 
     // Filtro de estado explícito (solo master).
     if (usuarioEsMaster() && !empty($filtros['estado'])) {
@@ -307,30 +308,34 @@ function segKpis(): array
     $conds = [];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
 
-    // Flujo tipo embudo, todo basado en el AVANCE real de reconstrucción:
+    // Flujo tipo embudo:
     //   INSPECCIONES   = todas las edificaciones (total).
-    //   RECONSTRUCCIÓN = avance > 0% y < 100%.
+    //   RECONSTRUCCIÓN = levantamiento técnico CERRADO y avance < 100%.
+    //                    (entra al cerrar la inspección técnica, aunque el
+    //                     avance siga en 0%: ya está lista para reconstruir)
     //   CULMINADAS     = avance = 100%.
-    //   SIN ASIGNAR    = el resto (avance = 0% o sin levantamiento).
-    // El avance de cada edificio = promedio de sus apartamentos (rec_avance_apto).
+    //   SIN ASIGNAR    = el resto (sin levantamiento cerrado).
+    // El avance de cada edificio = promedio de sus apartamentos.
     // Se garantiza que: INSPECCIONES = SIN ASIGNAR + RECONSTRUCCIÓN + CULMINADAS.
     $stmt = $pdo->prepare("
         SELECT
             COUNT(*) AS total_edificios,
-            SUM(CASE WHEN av.avance > 0 AND av.avance < 100 THEN 1 ELSE 0 END) AS en_ejecucion,
-            SUM(CASE WHEN av.avance >= 100 THEN 1 ELSE 0 END) AS culminadas,
-            SUM(CASE WHEN av.avance IS NULL OR av.avance = 0 THEN 1 ELSE 0 END) AS sin_seguimiento,
-            COALESCE(AVG(av.avance), 0) AS avance_promedio
+            SUM(CASE WHEN re.completado = 1 AND COALESCE(av.avance,0) < 100 THEN 1 ELSE 0 END) AS en_ejecucion,
+            SUM(CASE WHEN re.completado = 1 AND COALESCE(av.avance,0) >= 100 THEN 1 ELSE 0 END) AS culminadas,
+            SUM(CASE WHEN re.completado IS NULL OR re.completado = 0 THEN 1 ELSE 0 END) AS sin_seguimiento,
+            COALESCE(AVG(CASE WHEN re.completado = 1 THEN COALESCE(av.avance,0) END), 0) AS avance_promedio
         FROM inspecciones i
+        LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
         LEFT JOIN (
-            SELECT re.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS avance
-              FROM rec_edificio re
-              JOIN rec_piso pi ON pi.edificio_id = re.id
+            SELECT re2.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS avance
+              FROM rec_edificio re2
+              JOIN rec_piso pi ON pi.edificio_id = re2.id
               JOIN rec_apartamento ap ON ap.piso_id = pi.id
               LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
-             GROUP BY re.inspeccion_id
+             GROUP BY re2.inspeccion_id
         ) av ON av.inspeccion_id = i.id
         $where
     ");
@@ -1483,10 +1488,13 @@ function recPanelParroquia(string $estado, string $parroquia): array
     //    "Comenzada" = tiene registro en rec_edificio.
     //    "Completada" = rec_edificio.completado = 1.
     $st = $pdo->prepare(
-        "SELECT i.id AS inspeccion_id, i.nombre_edificio, i.decision_final,
-                re.id AS edificio_id, re.completado
+        "SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio, i.decision_final,
+                re.id AS edificio_id, re.completado,
+                ent.nombre AS ente_nombre
            FROM inspecciones i
            JOIN rec_edificio re ON re.inspeccion_id = i.id
+           LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+           LEFT JOIN entes ent ON ent.id = so.ente_id
           WHERE i.estado = :e AND i.parroquia = :p
           ORDER BY i.nombre_edificio"
     );
@@ -1498,8 +1506,12 @@ function recPanelParroquia(string $estado, string $parroquia): array
     foreach ($comenzadas as $c) {
         $edificaciones[] = [
             'inspeccion_id'   => (int)$c['inspeccion_id'],
+            'id'              => (int)$c['inspeccion_id'],
+            'codigo'          => $c['codigo'] ?? '',
             'nombre'          => $c['nombre_edificio'],
             'decision'        => $c['decision_final'],
+            'decision_final'  => $c['decision_final'],
+            'ente'            => $c['ente_nombre'] ?? null,
             'color'           => $cat[$c['decision_final']]['color'] ?? '#767c94',
             'completado'      => (int)$c['completado'],
             'avance'          => recAvanceEdificio((int)$c['edificio_id']),
@@ -1538,22 +1550,32 @@ function recArbolAvance(int $edificioId): array
 {
     recAsegurarTablasAvance();
     $pdo = db();
+
+    // Una sola consulta con TODO el arbol: piso -> apartamento -> ambiente.
     $st = $pdo->prepare(
         "SELECT pi.id AS piso_id, pi.numero_piso,
                 ap.id AS apto_id, ap.identificador,
                 ap.jefe_nombre, ap.jefe_cedula, ap.jefe_telefono,
-                COALESCE(av.porcentaje, 0) AS pct,
+                am.id AS amb_id, am.tipo AS amb_tipo, am.numero AS amb_numero,
+                am.necesita_reparacion,
+                COALESCE(ava.porcentaje, 0) AS amb_pct,
                 (SELECT COUNT(*) FROM rec_foto f
-                  WHERE f.nivel='apartamento' AND f.ref_id=ap.id AND f.parte='durante') AS fotos_durante
+                  WHERE f.nivel='ambiente' AND f.ref_id=am.id AND f.parte='antes') AS amb_fotos_antes,
+                (SELECT COUNT(*) FROM rec_foto f
+                  WHERE f.nivel='ambiente' AND f.ref_id=am.id AND f.parte='durante') AS amb_fotos_durante,
+                (SELECT COUNT(*) FROM rec_foto f
+                  WHERE f.nivel='apartamento' AND f.ref_id=ap.id AND f.parte='durante') AS apto_fotos_durante
            FROM rec_piso pi
            LEFT JOIN rec_apartamento ap ON ap.piso_id = pi.id
-           LEFT JOIN rec_avance_apto av ON av.apartamento_id = ap.id
+           LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+           LEFT JOIN rec_avance_ambiente ava ON ava.ambiente_id = am.id
           WHERE pi.edificio_id = :e
-          ORDER BY pi.numero_piso, ap.id"
+          ORDER BY pi.numero_piso, ap.id, am.tipo, am.numero"
     );
     $st->execute(['e' => $edificioId]);
 
     $pisos = [];
+    $vistosApto = [];
     foreach ($st->fetchAll() as $r) {
         $pid = (int)$r['piso_id'];
         if (!isset($pisos[$pid])) {
@@ -1565,39 +1587,117 @@ function recArbolAvance(int $edificioId): array
                 'avance'       => 0,
             ];
         }
-        if ($r['apto_id'] !== null) {
+        if ($r['apto_id'] === null) continue;
+        $aid = (int)$r['apto_id'];
+        if (!isset($vistosApto[$aid])) {
+            $vistosApto[$aid] = count($pisos[$pid]['apartamentos']);
             $pisos[$pid]['apartamentos'][] = [
-                'id'            => (int)$r['apto_id'],
+                'id'            => $aid,
                 'identificador' => $r['identificador'],
                 'jefe_nombre'   => $r['jefe_nombre'],
                 'jefe_cedula'   => $r['jefe_cedula'],
                 'jefe_telefono' => $r['jefe_telefono'],
-                'avance'        => (int)$r['pct'],
-                'tiene_foto_durante' => ((int)$r['fotos_durante']) > 0,
+                'ambientes'     => [],
+                'avance'        => 0,
+                'tiene_foto_durante' => ((int)$r['apto_fotos_durante']) > 0,
+            ];
+        }
+        $idx = $vistosApto[$aid];
+        if ($r['amb_id'] !== null) {
+            $pisos[$pid]['apartamentos'][$idx]['ambientes'][] = [
+                'id'            => (int)$r['amb_id'],
+                'tipo'          => $r['amb_tipo'],
+                'numero'        => (int)$r['amb_numero'],
+                'etiqueta'      => $r['amb_tipo'] . ' ' . (int)$r['amb_numero'],
+                'necesita_reparacion' => (int)$r['necesita_reparacion'] === 1,
+                'avance'        => (int)$r['amb_pct'],
+                'fotos_antes'   => (int)$r['amb_fotos_antes'],
+                'fotos_durante' => (int)$r['amb_fotos_durante'],
+                'tiene_foto_durante' => ((int)$r['amb_fotos_durante']) > 0,
             ];
         }
     }
 
-    // % de cada piso = promedio de sus apartamentos.
+    // Promedios en cascada: ambiente -> apartamento -> piso -> edificio.
     $sumaPisos = 0; $nPisos = 0;
     foreach ($pisos as $pid => $p) {
-        $aptos = $p['apartamentos'];
-        if ($aptos) {
-            $suma = array_sum(array_column($aptos, 'avance'));
-            $pisos[$pid]['avance'] = (int)round($suma / count($aptos));
+        $sumaAptos = 0; $nAptos = 0;
+        foreach ($p['apartamentos'] as $i => $ap) {
+            $ambs = $ap['ambientes'];
+            if ($ambs) {
+                $suma = array_sum(array_column($ambs, 'avance'));
+                $pisos[$pid]['apartamentos'][$i]['avance'] = (int)round($suma / count($ambs));
+            } else {
+                // Sin ambientes registrados: se usa el avance directo del apartamento.
+                $pisos[$pid]['apartamentos'][$i]['avance'] = recAvanceApartamento((int)$ap['id']);
+            }
+            $sumaAptos += $pisos[$pid]['apartamentos'][$i]['avance'];
+            $nAptos++;
         }
+        $pisos[$pid]['avance'] = $nAptos > 0 ? (int)round($sumaAptos / $nAptos) : 0;
         $sumaPisos += $pisos[$pid]['avance'];
         $nPisos++;
     }
-    // % del edificio = promedio de los pisos.
     $avanceEdificio = $nPisos > 0 ? (int)round($sumaPisos / $nPisos) : 0;
 
     return [
-        'pisos'          => array_values($pisos),
-        'avance_edificio'=> $avanceEdificio,
-        'total_pisos'    => $nPisos,
-        'total_aptos'    => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
+        'pisos'           => array_values($pisos),
+        'avance_edificio' => $avanceEdificio,
+        'total_pisos'     => $nPisos,
+        'total_aptos'     => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
     ];
+}
+
+/** Guarda el % de un ambiente y recalcula el del apartamento. */
+function recGuardarAvanceAmbiente(int $ambienteId, int $porcentaje, ?string $obs = null): array
+{
+    recAsegurarTablasAvance();
+    $porcentaje = max(0, min(100, $porcentaje));
+    db()->prepare(
+        'INSERT INTO rec_avance_ambiente (ambiente_id, porcentaje, observaciones, actualizado_por)
+         VALUES (:a, :p, :o, :u)
+         ON DUPLICATE KEY UPDATE porcentaje=VALUES(porcentaje),
+             observaciones=VALUES(observaciones), actualizado_por=VALUES(actualizado_por)'
+    )->execute(['a' => $ambienteId, 'p' => $porcentaje, 'o' => $obs, 'u' => $_SESSION['user_id'] ?? null]);
+
+    // Recalcular el % del apartamento como promedio de sus ambientes.
+    $st = db()->prepare(
+        'SELECT am.apartamento_id, AVG(COALESCE(av.porcentaje,0)) AS pct
+           FROM rec_ambiente am
+           LEFT JOIN rec_avance_ambiente av ON av.ambiente_id = am.id
+          WHERE am.apartamento_id = (SELECT apartamento_id FROM rec_ambiente WHERE id = :a)
+          GROUP BY am.apartamento_id'
+    );
+    $st->execute(['a' => $ambienteId]);
+    $row = $st->fetch();
+    $aptoId = (int)($row['apartamento_id'] ?? 0);
+    $aptoPct = (int)round((float)($row['pct'] ?? 0));
+    if ($aptoId > 0) {
+        db()->prepare(
+            'INSERT INTO rec_avance_apto (apartamento_id, porcentaje, actualizado_por)
+             VALUES (:a, :p, :u)
+             ON DUPLICATE KEY UPDATE porcentaje=VALUES(porcentaje), actualizado_por=VALUES(actualizado_por)'
+        )->execute(['a' => $aptoId, 'p' => $aptoPct, 'u' => $_SESSION['user_id'] ?? null]);
+    }
+
+    // Auditoria
+    try {
+        $q = db()->prepare(
+            'SELECT am.tipo, am.numero, ap.identificador, pi.edificio_id, re.inspeccion_id
+               FROM rec_ambiente am
+               JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+               JOIN rec_edificio re ON re.id = pi.edificio_id
+              WHERE am.id = :a'
+        );
+        $q->execute(['a' => $ambienteId]);
+        if ($d = $q->fetch()) {
+            recAuditar('avance_ambiente', (int)$d['inspeccion_id'], (int)$d['edificio_id'],
+                'Apto ' . $d['identificador'] . ' · ' . $d['tipo'] . ' ' . $d['numero'] . ' → ' . $porcentaje . '%');
+        }
+    } catch (Throwable $e) { /* no interrumpir */ }
+
+    return ['apartamento_id' => $aptoId, 'apartamento_pct' => $aptoPct];
 }
 
 /** Asegura que exista la tabla de avance por apartamento. */
@@ -1712,6 +1812,15 @@ function recAsegurarTablasAvance(): void
             actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
             PRIMARY KEY (id), UNIQUE KEY uq_avance_apto (apartamento_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_avance_ambiente (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            ambiente_id INT UNSIGNED NOT NULL,
+            porcentaje TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            observaciones VARCHAR(400) DEFAULT NULL,
+            actualizado_por INT UNSIGNED DEFAULT NULL,
+            actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_avance_ambiente (ambiente_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (Throwable $e) { /* seguir */ }
 }
 
@@ -1807,6 +1916,7 @@ function segConteoPorParroquia(): array
     $conds = ["i.parroquia IS NOT NULL", "i.parroquia <> ''"];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
     $where = 'WHERE ' . implode(' AND ', $conds);
 
     $sql = "SELECT i.estado, i.parroquia,
@@ -1833,6 +1943,7 @@ function segPuntosDeParroquia(string $estado, string $parroquia): array
     $conds = ['i.parroquia = :p', 'i.estado = :e'];
     $params = ['p' => $parroquia, 'e' => $estado];
     aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
     $where = 'WHERE ' . implode(' AND ', $conds);
 
     $sql = "SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio,

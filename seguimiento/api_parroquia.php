@@ -23,8 +23,13 @@ try {
     }
 
     // Alcance: un usuario estadal solo ve su estado.
-    if (!usuarioEsMaster() && $estado !== estadoDelUsuario()) {
+    if (!usuarioEsMaster() && estadoDelUsuario() !== null && $estado !== estadoDelUsuario()) {
         echo json_encode(['ok' => false, 'mensaje' => 'No autorizado para ese estado.']);
+        exit;
+    }
+    // Alcance: el responsable de parroquia solo ve las suyas.
+    if (!puedeAccederParroquia($parroquia)) {
+        echo json_encode(['ok' => false, 'mensaje' => 'No tiene asignada esta parroquia.']);
         exit;
     }
 

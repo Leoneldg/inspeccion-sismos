@@ -31,6 +31,7 @@ try {
     $conds = [];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
 
     if ($q !== '') {
         $conds[] = '(i.nombre_edificio LIKE :q OR i.codigo LIKE :q2)';

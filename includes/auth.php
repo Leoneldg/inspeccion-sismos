@@ -181,6 +181,14 @@ function intentarLogin(string $usuario, string $password): array
     // Alcance nacional: master (ve todo el país) vs. estadal (un solo estado)
     $_SESSION['es_master']       = (int)($user['es_master'] ?? 0);
     $_SESSION['estado_asignado'] = $user['estado_asignado'] ?? null;
+    // Parroquias asignadas (tolerante: la columna puede no existir todavia).
+    try {
+        $stp = db()->prepare('SELECT parroquias_asignadas FROM usuarios WHERE id = :id');
+        $stp->execute(['id' => $user['id']]);
+        $_SESSION['parroquias_asignadas'] = $stp->fetchColumn() ?: null;
+    } catch (Throwable $e) {
+        $_SESSION['parroquias_asignadas'] = null;
+    }
     // Pertenencia a un ente (aislamiento de datos por ente).
     $_SESSION['ente_id']     = $user['ente_id'] ?? null;
     $_SESSION['ente_tipo']   = $user['ente_tipo'] ?? null;

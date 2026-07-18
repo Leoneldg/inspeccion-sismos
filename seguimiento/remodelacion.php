@@ -44,6 +44,13 @@ include __DIR__ . '/../includes/header.php';
 <style>
 .hidden { display: none !important; }
 .piso-h:hover { background: #f7f9fd; }
+.fs-apto-fila:hover { background: #f4f7fd; }
+.btn-foto-mini {
+    background: #fff; border: 1px solid #dbe0ec; color: #2d4488;
+    border-radius: 7px; padding: 3px 9px; font-size: 11px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+}
+.btn-foto-mini:hover { background: #eef2fb; }
 
 /* ================= RESPONSIVE ================= */
 @media (max-width: 640px) {
@@ -235,39 +242,162 @@ function filaApartamento(ap, pisoId) {
     const jefe = ap.jefe_nombre
         ? `<div style="font-size:11px;color:#767c94;">${ap.jefe_nombre}${ap.jefe_telefono ? ' · ' + ap.jefe_telefono : ''}</div>`
         : '';
-    // Control de avance: requiere foto del "durante".
-    let control = '';
-    if (PUEDE_CARGAR) {
-        if (ap.tiene_foto_durante) {
-            control = `<input type="range" min="0" max="100" value="${ap.avance}" style="width:150px;"
-                          oninput="document.getElementById('pct-apto-${ap.id}').textContent=this.value+'%'"
-                          onchange="guardarAvance(${ap.id}, this.value, ${pisoId})">`;
-        } else {
-            control = `<button type="button" class="btn btn-outline btn-sm" onclick="subirDurante(${ap.id})">
-                          <i class="bi bi-camera"></i> Foto del durante
-                       </button>`;
-        }
-    } else {
-        control = `<div style="width:150px;background:#eef0f6;border-radius:20px;height:14px;overflow:hidden;">
-                      <div style="width:${ap.avance}%;background:${colorPct(ap.avance)};height:100%;"></div>
-                   </div>`;
-    }
+    const nAmb = (ap.ambientes || []).length;
     return `
-        <div class="fs-apto-fila" style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid #f0f2f7;">
-            <div class="fs-apto-info" style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:#2a3140;font-size:13px;">
-                    <i class="bi bi-door-open"></i> Apartamento ${ap.identificador}
+        <div class="fs-apto-bloque" style="border:1px solid #eef0f5;border-radius:10px;margin-bottom:8px;overflow:hidden;">
+            <div class="fs-apto-fila" style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:#fafbfe;cursor:pointer;"
+                 onclick="toggleApto(${ap.id})">
+                <i class="bi bi-chevron-right" id="chev-apto-${ap.id}" style="transition:transform .2s;color:#97a0b8;"></i>
+                <div class="fs-apto-info" style="flex:1;min-width:0;">
+                    <div style="font-weight:600;color:#2a3140;font-size:13px;">
+                        <i class="bi bi-door-open"></i> Apartamento ${ap.identificador}
+                    </div>
+                    ${jefe}
                 </div>
-                ${jefe}
-            </div>
-            <div class="fs-apto-control" style="display:flex;align-items:center;gap:10px;">
-                ${control}
+                <span style="font-size:11px;color:#97a0b8;">${nAmb} ambiente(s)</span>
+                <div style="width:110px;background:#eef0f6;border-radius:20px;height:14px;overflow:hidden;">
+                    <div id="barra-apto-${ap.id}" style="width:${ap.avance}%;background:${colorPct(ap.avance)};height:100%;transition:width .3s;"></div>
+                </div>
                 <span style="font-weight:800;color:${colorPct(ap.avance)};min-width:44px;text-align:right;"
                       id="pct-apto-${ap.id}">${ap.avance}%</span>
-                <button type="button" class="btn btn-outline btn-sm" title="Ver fotos"
-                        onclick="verFotosApto(${ap.id}, '${ap.identificador}')"><i class="bi bi-images"></i></button>
             </div>
+            <div class="fs-amb-lista hidden" id="amb-lista-${ap.id}" style="padding:4px 12px 10px;"></div>
         </div>`;
+}
+
+// Despliega los ambientes de un apartamento.
+function toggleApto(aptoId) {
+    const cont = document.getElementById('amb-lista-' + aptoId);
+    const chev = document.getElementById('chev-apto-' + aptoId);
+    if (!cont) return;
+    const abierto = !cont.classList.contains('hidden');
+    if (abierto) {
+        cont.classList.add('hidden');
+        chev.style.transform = 'rotate(0deg)';
+        return;
+    }
+    cont.classList.remove('hidden');
+    chev.style.transform = 'rotate(90deg)';
+    if (cont.dataset.pintado) return;
+    cont.dataset.pintado = '1';
+
+    let ap = null, pisoId = null;
+    (_arbol.pisos || []).forEach(p => (p.apartamentos || []).forEach(a => {
+        if (a.id === aptoId) { ap = a; pisoId = p.piso_id; }
+    }));
+    if (!ap) return;
+    if (!ap.ambientes || !ap.ambientes.length) {
+        cont.innerHTML = '<div style="color:#9aa1b4;font-size:12px;padding:8px 0;">Este apartamento no tiene ambientes registrados en el levantamiento.</div>';
+        return;
+    }
+    cont.innerHTML = ap.ambientes.map(am => filaAmbiente(am, aptoId, pisoId)).join('');
+}
+
+// Fila de un ambiente: foto del ANTES + foto del DURANTE + % de avance.
+function filaAmbiente(am, aptoId, pisoId) {
+    const rep = am.necesita_reparacion
+        ? '<span style="background:#A61C1C18;color:#A61C1C;font-size:10px;padding:1px 6px;border-radius:10px;">Requiere reparación</span>'
+        : '';
+
+    // La foto del ANTES siempre visible (viene del levantamiento).
+    const antes = am.fotos_antes > 0
+        ? `<button type="button" class="btn-foto-mini" onclick="verFotosAmbiente(${am.id}, '${am.etiqueta}', 'antes')">
+             <i class="bi bi-image"></i> Antes (${am.fotos_antes})
+           </button>`
+        : '<span style="font-size:11px;color:#c4c9d6;"><i class="bi bi-image"></i> Sin foto del antes</span>';
+
+    const durante = am.fotos_durante > 0
+        ? `<button type="button" class="btn-foto-mini" style="border-color:#2E7D3255;color:#2E7D32;" onclick="verFotosAmbiente(${am.id}, '${am.etiqueta}', 'durante')">
+             <i class="bi bi-camera-fill"></i> Durante (${am.fotos_durante})
+           </button>`
+        : '';
+
+    // Control de avance: exige foto del durante.
+    let control;
+    if (!PUEDE_CARGAR) {
+        control = `<div style="width:120px;background:#eef0f6;border-radius:20px;height:12px;overflow:hidden;">
+                     <div style="width:${am.avance}%;background:${colorPct(am.avance)};height:100%;"></div>
+                   </div>`;
+    } else if (am.tiene_foto_durante) {
+        control = `<input type="range" min="0" max="100" step="5" value="${am.avance}" style="width:140px;"
+                      oninput="document.getElementById('pct-amb-${am.id}').textContent=this.value+'%'"
+                      onchange="guardarAvanceAmbiente(${am.id}, this.value, ${aptoId}, ${pisoId})">`;
+    } else {
+        control = `<button type="button" class="btn btn-outline btn-sm" onclick="subirDuranteAmbiente(${am.id})">
+                     <i class="bi bi-camera"></i> Subir foto del durante
+                   </button>`;
+    }
+
+    return `
+        <div class="fs-amb-fila" style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #f4f6fa;">
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;color:#2a3140;font-weight:600;">${am.etiqueta} ${rep}</div>
+                <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">${antes}${durante}</div>
+            </div>
+            ${control}
+            <span style="font-weight:700;color:${colorPct(am.avance)};min-width:42px;text-align:right;font-size:13px;"
+                  id="pct-amb-${am.id}">${am.avance}%</span>
+        </div>`;
+}
+
+// Guarda el % de un ambiente y sube el promedio al apartamento/piso/edificio.
+async function guardarAvanceAmbiente(ambienteId, valor, aptoId, pisoId) {
+    const pct = parseInt(valor);
+    const lbl = document.getElementById('pct-amb-' + ambienteId);
+    if (lbl) { lbl.textContent = pct + '%'; lbl.style.color = colorPct(pct); }
+
+    // Actualizar en memoria
+    let ap = null;
+    (_arbol.pisos || []).forEach(p => (p.apartamentos || []).forEach(a => {
+        if (a.id === aptoId) { ap = a; }
+    }));
+    if (ap) {
+        const am = (ap.ambientes || []).find(x => x.id === ambienteId);
+        if (am) am.avance = pct;
+        // % del apartamento = promedio de sus ambientes
+        if (ap.ambientes && ap.ambientes.length) {
+            const suma = ap.ambientes.reduce((s, x) => s + x.avance, 0);
+            ap.avance = Math.round(suma / ap.ambientes.length);
+        }
+        const lblAp = document.getElementById('pct-apto-' + aptoId);
+        const barAp = document.getElementById('barra-apto-' + aptoId);
+        if (lblAp) { lblAp.textContent = ap.avance + '%'; lblAp.style.color = colorPct(ap.avance); }
+        if (barAp) { barAp.style.width = ap.avance + '%'; barAp.style.background = colorPct(ap.avance); }
+    }
+    recalcularEnPantalla(pisoId);
+
+    const res = await fetch(URL_BASE + 'guardar_avance_ambiente.php', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ ambiente_id: ambienteId, porcentaje: pct, edificio_id: EDIFICIO_ID })
+    });
+    const d = await res.json();
+    if (d.sesion_expirada) { alert(d.mensaje); return; }
+    if (!d.ok) alert(d.mensaje || 'No se pudo guardar el avance.');
+}
+
+// Subir foto del "durante" de un ambiente.
+function subirDuranteAmbiente(ambienteId) {
+    _duranteDestino = { nivel: 'ambiente', id: ambienteId };
+    document.getElementById('fs-file').click();
+}
+
+// Ver fotos de un ambiente (antes o durante).
+async function verFotosAmbiente(ambienteId, etiqueta, parte) {
+    const cont = document.getElementById('fs-modal-fotos');
+    const cuerpo = document.getElementById('fs-modal-body');
+    document.getElementById('fs-modal-tit').textContent = etiqueta + ' · ' + (parte === 'antes' ? 'Antes' : 'Durante');
+    cuerpo.innerHTML = '<p class="text-muted">Cargando…</p>';
+    cont.style.display = 'flex';
+    try {
+        const res = await fetch(URL_BASE + 'listar_fotos_ambiente.php?ambiente=' + ambienteId);
+        const d = await res.json();
+        if (!d.ok) { cuerpo.innerHTML = '<p class="text-muted">No se pudieron cargar.</p>'; return; }
+        const lista = (d.fotos || []).filter(f => (f.parte || 'antes') === parte);
+        if (!lista.length) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
+        cuerpo.innerHTML = `<div class="fotos-fila">${lista.map(f => fotoHTML(f.ruta, f.descripcion || etiqueta)).join('')}</div>`;
+    } catch (e) {
+        cuerpo.innerHTML = '<p class="text-muted">Error al cargar.</p>';
+    }
 }
 
 // Recalcula en pantalla el % del piso y del edificio (sin recargar).
@@ -343,28 +473,50 @@ function subirDurante(aptoId) {
 
 async function _onDuranteElegida(input) {
     if (!input.files || !input.files[0] || !_duranteDestino) { input.value=''; return; }
+    const destino = _duranteDestino;
+    const nivel = destino.nivel || 'apartamento';
+    const refId = destino.id || destino;
     const fd = new FormData();
-    fd.append('nivel', 'apartamento');
-    fd.append('ref_id', _duranteDestino);
+    fd.append('nivel', nivel);
+    fd.append('ref_id', refId);
     fd.append('parte', 'durante');
     fd.append('foto', input.files[0]);
     input.value = '';
-    const aptoId = _duranteDestino;
+
     const res = await fetch(URL_BASE + 'subir_foto_rec.php', { method:'POST', body: fd });
     const data = await res.json();
-    if (data.ok) {
-        // Marcar que ya tiene foto del durante y redibujar solo ese piso.
+    if (data.sesion_expirada) { alert(data.mensaje); _duranteDestino = null; return; }
+    if (!data.ok) { alert(data.mensaje || 'No se pudo subir.'); _duranteDestino = null; return; }
+
+    // Marcar que ya tiene foto y redibujar la parte afectada.
+    if (nivel === 'ambiente') {
+        let aptoId = null, pisoId = null;
+        (_arbol.pisos || []).forEach(p => (p.apartamentos || []).forEach(a =>
+            (a.ambientes || []).forEach(am => {
+                if (am.id === refId) {
+                    am.tiene_foto_durante = true;
+                    am.fotos_durante = (am.fotos_durante || 0) + 1;
+                    aptoId = a.id; pisoId = p.piso_id;
+                }
+            })));
+        if (aptoId) {
+            const cont = document.getElementById('amb-lista-' + aptoId);
+            let ap = null;
+            (_arbol.pisos || []).forEach(p => (p.apartamentos || []).forEach(a => { if (a.id === aptoId) ap = a; }));
+            if (cont && ap) cont.innerHTML = ap.ambientes.map(am => filaAmbiente(am, aptoId, pisoId)).join('');
+        }
+    } else {
         let pisoAfectado = null;
-        (_arbol?.pisos || []).forEach(p => p.apartamentos.forEach(a => {
-            if (a.id === aptoId) { a.tiene_foto_durante = true; pisoAfectado = p.piso_id; }
+        (_arbol.pisos || []).forEach(p => p.apartamentos.forEach(a => {
+            if (a.id === refId) { a.tiene_foto_durante = true; pisoAfectado = p.piso_id; }
         }));
         if (pisoAfectado) {
             const cont = document.getElementById('piso-aptos-' + pisoAfectado);
             const piso = _arbol.pisos.find(p => p.piso_id === pisoAfectado);
             if (cont && piso) cont.innerHTML = piso.apartamentos.map(a => filaApartamento(a, pisoAfectado)).join('');
         }
-        cerrarModalFotos();
-    } else alert(data.mensaje || 'No se pudo subir.');
+    }
+    cerrarModalFotos();
     _duranteDestino = null;
 }
 

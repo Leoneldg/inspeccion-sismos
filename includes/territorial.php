@@ -216,3 +216,63 @@ function aplicarScopeEnte(array &$conds, array &$params, string $enteCol = 'ente
         $params = array_merge($params, $p);
     }
 }
+
+// =====================================================================
+// SCOPING POR PARROQUIA (rol Responsable de Parroquia)
+// =====================================================================
+
+/**
+ * Parroquias asignadas al usuario actual.
+ * Devuelve [] si no tiene restriccion (master o sin asignar).
+ */
+function parroquiasDelUsuario(): array
+{
+    if (usuarioEsMaster()) return [];
+    $raw = $_SESSION['parroquias_asignadas'] ?? '';
+    if ($raw === null || trim($raw) === '') return [];
+    $lista = array_filter(array_map('trim', explode(',', $raw)));
+    return array_values($lista);
+}
+
+/** True si el usuario esta limitado a una o varias parroquias. */
+function usuarioLimitadoAParroquia(): bool
+{
+    return count(parroquiasDelUsuario()) > 0;
+}
+
+/**
+ * Devuelve [sqlFragment, params] para restringir por parroquia.
+ * Sin parroquias asignadas -> sin restriccion.
+ */
+function scopeParroquiaSql(string $alias = ''): array
+{
+    $parrs = parroquiasDelUsuario();
+    if (!$parrs) return ['', []];
+    $col = ($alias !== '') ? ($alias . '.parroquia') : 'parroquia';
+    $marcas = [];
+    $params = [];
+    foreach ($parrs as $i => $p) {
+        $k = 'scope_parr_' . $i;
+        $marcas[] = ':' . $k;
+        $params[$k] = $p;
+    }
+    return [$col . ' IN (' . implode(',', $marcas) . ')', $params];
+}
+
+/** Une el scope de parroquia a condiciones existentes. */
+function aplicarScopeParroquia(array &$conds, array &$params, string $alias = ''): void
+{
+    [$frag, $p] = scopeParroquiaSql($alias);
+    if ($frag !== '') {
+        $conds[] = $frag;
+        $params = array_merge($params, $p);
+    }
+}
+
+/** Valida que el usuario pueda acceder a una parroquia concreta. */
+function puedeAccederParroquia(?string $parroquia): bool
+{
+    $parrs = parroquiasDelUsuario();
+    if (!$parrs) return true;
+    return $parroquia !== null && in_array($parroquia, $parrs, true);
+}
