@@ -133,6 +133,21 @@ ob_start();
         </td></tr>
     <tr><td class="lbl">Pisos</td><td class="val"><?= (int)($ed['num_pisos'] ?? 0) ?></td>
         <td class="lbl">Aptos por piso</td><td class="val"><?= (int)($ed['aptos_por_piso'] ?? 0) ?></td></tr>
+    <tr><td class="lbl">Etiqueta</td>
+        <td class="val" colspan="3">
+          <?php if (!empty($ed['sin_etiqueta'])): ?>
+            <span style="color:#a8871f;font-weight:700;">NO TIENE ETIQUETA</span>
+            <?php if (!empty($ed['etiqueta_motivo'])): ?>
+              · <?= esc($ed['etiqueta_motivo']) ?>
+            <?php endif; ?>
+            <?php if (!empty($ed['etiqueta_obs'])): ?>
+              <br><span style="font-size:10.5px;color:#55617f;"><?= esc($ed['etiqueta_obs']) ?></span>
+            <?php endif; ?>
+          <?php else: ?>
+            <?php $nFotoEtq = count(recFotos('edificio', $edificioId)); ?>
+            <?= $nFotoEtq > 0 ? 'Registrada con foto' : 'Pendiente' ?>
+          <?php endif; ?>
+        </td></tr>
   </table>
 
   <h2>Resumen de lo registrado</h2>

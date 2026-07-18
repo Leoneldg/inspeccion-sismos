@@ -240,6 +240,12 @@ include __DIR__ . '/../includes/header.php';
             <button class="btn btn-primary" onclick="ejecutarBusqueda()"><i class="bi bi-search"></i> Buscar</button>
             <button class="btn btn-outline" onclick="limpiarBusqueda()"><i class="bi bi-x-circle"></i> Limpiar</button>
             <a href="<?= APP_URL_BASE ?>seguimiento/entes.php" class="btn btn-outline"><i class="bi bi-building-gear"></i> Entes</a>
+            <?php if ($puedeEditar): ?>
+            <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="btn btn-primary"
+               title="Registrar una edificación que no está en el listado">
+                <i class="bi bi-plus-circle-fill"></i> Agregar edificación
+            </a>
+            <?php endif; ?>
         </div>
         <!-- Resultados de la búsqueda -->
         <div id="f-resultados" style="display:none;margin-top:14px;border-top:1px solid #eef0f5;padding-top:12px;"></div>

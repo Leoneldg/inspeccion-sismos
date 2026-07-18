@@ -197,10 +197,53 @@ include __DIR__ . '/../includes/header.php';
     <!-- Foto de la etiqueta de la edificación -->
     <div class="bloque-tit"><i class="bi bi-tag"></i> Foto de la etiqueta</div>
     <p class="sub" style="margin-bottom:8px;">Tome la foto de la etiqueta pegada en la fachada de la edificación.</p>
-    <button type="button" class="btn btn-outline" onclick="subirFotoEtiqueta(this)" style="margin-bottom:6px;">
-        <i class="bi bi-camera"></i> Foto de la etiqueta
-    </button>
-    <div id="etiqueta-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;"></div>
+
+    <div id="bloque-etiqueta">
+        <button type="button" class="btn btn-outline" onclick="subirFotoEtiqueta(this)" style="margin-bottom:6px;">
+            <i class="bi bi-camera"></i> Foto de la etiqueta
+        </button>
+        <div id="etiqueta-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    </div>
+
+    <!-- Algunas edificaciones no tienen etiqueta: hay que poder dejarlo asentado -->
+    <label class="check-row" style="display:flex;align-items:flex-start;gap:9px;
+           background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:8px;cursor:pointer;">
+        <input type="checkbox" id="sin-etiqueta" style="margin-top:2px;"
+               onchange="onSinEtiqueta(this)"
+               <?= !empty($ed['sin_etiqueta']) ? 'checked' : '' ?>>
+        <span>
+            <span style="font-weight:600;color:#2a3140;font-size:14px;">
+                Esta edificación no tiene etiqueta
+            </span>
+            <span style="display:block;font-size:12.5px;color:#5b6478;margin-top:2px;">
+                Marque esta casilla si no encontró la etiqueta en la fachada.
+                Queda registrado y puede continuar.
+            </span>
+        </span>
+    </label>
+
+    <div id="motivo-sin-etiqueta" style="display:<?= !empty($ed['sin_etiqueta']) ? 'block' : 'none' ?>;margin-bottom:20px;">
+        <label class="text-sm" style="font-weight:600;">¿Por qué? <span class="text-muted">(opcional)</span></label>
+        <select id="etiqueta-motivo" class="form-control" onchange="guardarSinEtiqueta()">
+            <option value="">— Indique el motivo —</option>
+            <?php
+            $motivoAct = $ed['etiqueta_motivo'] ?? '';
+            $motivos = [
+                'No fue colocada'        => 'Nunca fue colocada',
+                'Se desprendió'          => 'Se desprendió o se perdió',
+                'Ilegible'               => 'Está pero ilegible o borrada',
+                'Fachada inaccesible'    => 'No se pudo acceder a la fachada',
+                'Edificación derrumbada' => 'La edificación está derrumbada',
+                'Otro'                   => 'Otro motivo',
+            ];
+            foreach ($motivos as $val => $txt): ?>
+            <option value="<?= e($val) ?>" <?= $motivoAct === $val ? 'selected' : '' ?>><?= e($txt) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <input type="text" id="etiqueta-obs" class="form-control" style="margin-top:6px;"
+               placeholder="Observación (opcional)" onblur="guardarSinEtiqueta()"
+               value="<?= e($ed['etiqueta_obs'] ?? '') ?>">
+    </div>
 
     <h3>Datos del edificio</h3>
     <p class="sub">Corrobore la información básica. Esto genera los pisos que va a recorrer.</p>
@@ -1399,6 +1442,94 @@ async function recalcularMateriales(row) {
 // DESPUÉS de elegir la imagen, con botones — nunca con prompt, porque eso
 // bloqueaba la apertura de la cámara en el móvil.
 let _fotoDestino = null;
+
+/**
+ * Marca que la edificación no tiene etiqueta.
+ * Al activarla se oculta el botón de foto y se pide el motivo, para que
+ * quede claro que no es un olvido sino una constancia.
+ */
+function onSinEtiqueta(chk) {
+    const bloque = document.getElementById('bloque-etiqueta');
+    const motivo = document.getElementById('motivo-sin-etiqueta');
+
+    if (chk.checked) {
+        // Si ya había fotos cargadas, avisar antes de marcar.
+        const fotos = document.getElementById('etiqueta-fotos');
+        if (fotos && fotos.children.length > 0) {
+            if (!confirm('Ya hay una foto de etiqueta cargada.\n\n¿Seguro que esta edificación no tiene etiqueta?')) {
+                chk.checked = false;
+                return;
+            }
+        }
+        bloque.style.display = 'none';
+        motivo.style.display = 'block';
+    } else {
+        bloque.style.display = '';
+        motivo.style.display = 'none';
+    }
+    guardarSinEtiqueta();
+}
+
+/** Guarda la constancia de "sin etiqueta" (funciona con y sin señal). */
+async function guardarSinEtiqueta() {
+    const chk = document.getElementById('sin-etiqueta');
+    if (!chk) return;
+    const payload = {
+        inspeccion_id: INSPECCION_ID,
+        accion: 'sin_etiqueta',
+        sin_etiqueta: chk.checked ? 1 : 0,
+        etiqueta_motivo: (document.getElementById('etiqueta-motivo') || {}).value || '',
+        etiqueta_obs: (document.getElementById('etiqueta-obs') || {}).value || '',
+    };
+
+    // Copia local siempre.
+    guardarBorrador('etiqueta_' + INSPECCION_ID, payload);
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            chk.checked ? 'Sin etiqueta' : 'Tiene etiqueta');
+        avisoEtiqueta('Guardado en el teléfono', '#8a6d1a');
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials: 'same-origin'
+        });
+        const texto = await res.text();
+        let d;
+        try { d = JSON.parse(texto); } catch (e) { d = null; }
+        if (d && d.ok) {
+            avisoEtiqueta('Guardado', '#2E7D32');
+        } else if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+                chk.checked ? 'Sin etiqueta' : 'Tiene etiqueta');
+            avisoEtiqueta('Guardado en el teléfono', '#8a6d1a');
+        }
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+                chk.checked ? 'Sin etiqueta' : 'Tiene etiqueta');
+            avisoEtiqueta('Guardado en el teléfono', '#8a6d1a');
+        }
+    }
+}
+
+function avisoEtiqueta(texto, color) {
+    let el = document.getElementById('etiqueta-aviso');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'etiqueta-aviso';
+        el.style.cssText = 'font-size:12.5px;font-weight:600;margin:-4px 0 14px;';
+        const motivo = document.getElementById('motivo-sin-etiqueta');
+        if (motivo && motivo.parentNode) motivo.parentNode.insertBefore(el, motivo.nextSibling);
+    }
+    el.style.color = color;
+    el.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + texto;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.textContent = ''; }, 3000);
+}
 
 function subirFotoEtiqueta(btn) {
     // La etiqueta se guarda a nivel 'edificio', con parte 'etiqueta'.

@@ -26,6 +26,25 @@ try {
     $edificioId = (int)$ed['id'];
 
     // --- Modo CIERRE: azotea/tanques/impermeabilización + plan de tiempo ---
+    // --- Constancia de que la edificación no tiene etiqueta ---
+    if (($b['accion'] ?? '') === 'sin_etiqueta') {
+        recAsegurarColumnasEtiqueta();
+        $sin = !empty($b['sin_etiqueta']) ? 1 : 0;
+        db()->prepare(
+            'UPDATE rec_edificio SET sin_etiqueta = :s, etiqueta_motivo = :m, etiqueta_obs = :o
+              WHERE id = :id'
+        )->execute([
+            's'  => $sin,
+            'm'  => trim($b['etiqueta_motivo'] ?? '') ?: null,
+            'o'  => trim($b['etiqueta_obs'] ?? '') ?: null,
+            'id' => $edificioId,
+        ]);
+        recAuditar('etiqueta', $inspeccionId, $edificioId,
+            $sin ? ('Sin etiqueta: ' . (trim($b['etiqueta_motivo'] ?? '') ?: 'sin motivo indicado'))
+                 : 'Tiene etiqueta');
+        resp(true, 'Registrado.', ['edificio_id' => $edificioId]);
+    }
+
     if (($b['accion'] ?? '') === 'cierre') {
         $estados = ['Buena','Regular','Requiere reparación','No aplica'];
         $norm = fn($v) => in_array($v, $estados, true) ? $v : null;

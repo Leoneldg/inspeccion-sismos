@@ -888,6 +888,7 @@ function repDesactivar(int $representanteId): void
 /** Devuelve el registro rec_edificio de una inspección, creándolo vacío si no existe. */
 function recEdificio(int $inspeccionId): array
 {
+    recAsegurarColumnasEtiqueta();
     $pdo = db();
     $st = $pdo->prepare('SELECT * FROM rec_edificio WHERE inspeccion_id = :i');
     $st->execute(['i' => $inspeccionId]);
@@ -1124,6 +1125,29 @@ function recEliminarApartamento(int $apartamentoId): void
  * Asegura que rec_apartamento tenga las columnas del jefe de familia y baños.
  * Si faltan, las crea. También asegura que rec_ambiente.tipo acepte 'Baño'.
  */
+/**
+ * Asegura las columnas para dejar constancia de que una edificación
+ * no tiene etiqueta. Se crean solas si falta correr el SQL.
+ */
+function recAsegurarColumnasEtiqueta(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_edificio")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('sin_etiqueta', $cols, true)) {
+            db()->exec("ALTER TABLE rec_edificio ADD COLUMN sin_etiqueta TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('etiqueta_motivo', $cols, true)) {
+            db()->exec("ALTER TABLE rec_edificio ADD COLUMN etiqueta_motivo VARCHAR(60) DEFAULT NULL");
+        }
+        if (!in_array('etiqueta_obs', $cols, true)) {
+            db()->exec("ALTER TABLE rec_edificio ADD COLUMN etiqueta_obs VARCHAR(300) DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
 function recAsegurarColumnasApartamento(): void
 {
     static $verificado = false;

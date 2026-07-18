@@ -94,6 +94,11 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
                 </a>
+                <?php if (puede('seguimiento','editar')): ?>
+                <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="nav-item <?= $activeModule==='nueva_edif'?'active':'' ?>" title="Agregar edificación">
+                    <i class="bi bi-plus-circle"></i> <span>Agregar edificación</span>
+                </a>
+                <?php endif; ?>
                 <?php if (usuarioEsMaster()): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar levantamientos de prueba">
                     <i class="bi bi-trash3"></i> <span>Limpiar levantamientos</span>
