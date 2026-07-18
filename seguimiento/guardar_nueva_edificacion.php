@@ -48,20 +48,44 @@ try {
         jr(false, 'La ubicación está fuera de Venezuela. Verifique el punto en el mapa.');
     }
 
-    // Evitar duplicados: misma parroquia, nombre parecido y a menos de ~50 m.
-    $st = db()->prepare(
-        "SELECT id, codigo, nombre_edificio FROM inspecciones
-          WHERE parroquia = :p
-            AND ABS(latitud - :la) < 0.0005
-            AND ABS(longitud - :lo) < 0.0005
-          LIMIT 1"
-    );
-    $st->execute(['p' => $parroquia, 'la' => $lat, 'lo' => $lng]);
-    if ($dup = $st->fetch()) {
-        jr(false, 'Ya hay una edificación registrada casi en ese mismo punto: '
-            . $dup['codigo'] . ' — ' . $dup['nombre_edificio']
-            . '. Verifique antes de crear otra.',
-            ['duplicado_id' => (int)$dup['id']]);
+    // Aviso de posible duplicado, SOLO si el usuario no confirmó ya.
+    // El radio es corto (~15 m): en zonas densas hay edificios muy juntos
+    // y una edificación nueva no debe quedar bloqueada por eso.
+    if (empty($b['confirmar_cercano'])) {
+        $st = db()->prepare(
+            "SELECT id, codigo, nombre_edificio, latitud, longitud
+               FROM inspecciones
+              WHERE parroquia = :p
+                AND latitud IS NOT NULL AND longitud IS NOT NULL
+                AND ABS(latitud - :la) < 0.00014
+                AND ABS(longitud - :lo) < 0.00014
+              ORDER BY ABS(latitud - :la2) + ABS(longitud - :lo2)
+              LIMIT 3"
+        );
+        $st->execute([
+            'p' => $parroquia, 'la' => $lat, 'lo' => $lng,
+            'la2' => $lat, 'lo2' => $lng,
+        ]);
+        $cercanas = $st->fetchAll();
+
+        if ($cercanas) {
+            // No se bloquea: se informa para que el técnico decida.
+            $lista = [];
+            foreach ($cercanas as $c) {
+                $m = (int)round(
+                    sqrt(pow(((float)$c['latitud'] - $lat) * 111000, 2)
+                       + pow(((float)$c['longitud'] - $lng) * 108000, 2))
+                );
+                $lista[] = [
+                    'id'     => (int)$c['id'],
+                    'codigo' => $c['codigo'],
+                    'nombre' => $c['nombre_edificio'],
+                    'metros' => $m,
+                ];
+            }
+            jr(false, 'Hay edificaciones registradas muy cerca de ese punto.',
+               ['cercanas' => $lista, 'preguntar' => true]);
+        }
     }
 
     // --- Datos del inspector (campos obligatorios de la tabla) ---

@@ -497,6 +497,13 @@ async function asignarEnteAlPunto() {
     }
 }
 
+// Si se llega con ?abrir=ID, mostrar esa edificación de una vez.
+(function () {
+    const params = new URLSearchParams(location.search);
+    const id = parseInt(params.get('abrir'));
+    if (id > 0) setTimeout(() => abrirEdificacionDirecta(id), 700);
+})();
+
 // ---------- Responsable directo (integrante del equipo de trabajo) ----------
 let _integrantesCache = {};
 
@@ -827,6 +834,35 @@ async function seleccionarParroquia(estado, parroquia, bounds) {
 }
 
 // Botón para volver a la vista general (burbujas).
+/**
+ * Abre directamente una edificación cuando se llega con ?abrir=ID.
+ * Se usa al registrar una nueva: lleva al usuario justo a su panel
+ * para continuar con la asignación del ente y el responsable.
+ */
+async function abrirEdificacionDirecta(id) {
+    try {
+        const res = await fetch(BUSCAR_URL + '?id=' + id);
+        const d = await res.json();
+        if (!d.ok || !d.puntos || !d.puntos.length) return;
+
+        const p = d.puntos[0];
+        if (p.tiene_coord) {
+            map.setView([p.lat, p.lng], 18);
+            dibujarPuntosEnMapa(d.puntos);
+        }
+        abrirPanel(p);
+
+        // Aviso de que es la recién registrada.
+        const msg = document.getElementById('sp-msg');
+        if (msg) {
+            msg.innerHTML = '<i class="bi bi-check-circle-fill"></i> Edificación registrada. '
+                + 'Continúe asignando el ente responsable.';
+            msg.style.color = '#2E7D32';
+            msg.style.display = '';
+        }
+    } catch (e) { /* si falla, el mapa queda normal */ }
+}
+
 function volverVistaParroquias() {
     parroquiaActiva = null;
     capaPuntos.clearLayers();

@@ -366,6 +366,9 @@ async function guardarNueva(ev) {
 
     // Sin señal: queda en cola con su foto.
     if (window.ObrasOffline && !navigator.onLine) {
+        // Sin señal no se puede comprobar si hay otras cerca: se marca
+        // como confirmada para que no quede trabada al sincronizar.
+        datos.confirmar_cercano = 1;
         await ObrasOffline.encolar('avance', URL_BASE + 'guardar_nueva_edificacion.php', datos,
             'Nueva edificación · ' + datos.nombre_edificio);
         if (_fotoEtiqueta && window.ObrasFotos) {
@@ -374,9 +377,7 @@ async function guardarNueva(ev) {
                 descripcion: 'Etiqueta · ' + datos.nombre_edificio,
             });
         }
-        alert('Sin señal: la edificación quedó guardada en el teléfono.\n\n'
-            + 'Se registrará al recuperar la conexión.');
-        location.href = URL_BASE + 'index.php';
+        mostrarRegistradaOffline(datos.nombre_edificio);
         return false;
     }
 
@@ -392,6 +393,14 @@ async function guardarNueva(ev) {
             alert('El servidor respondió algo inesperado. Intente de nuevo.');
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-check2-circle"></i> Registrar edificación';
+            return false;
+        }
+
+        // Hay edificaciones cerca: se muestran para que el técnico decida.
+        if (!d.ok && d.preguntar && d.cercanas) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i> Registrar edificación';
+            mostrarCercanas(d.cercanas, datos);
             return false;
         }
 
@@ -413,8 +422,7 @@ async function guardarNueva(ev) {
             catch (e) { /* la edificación ya quedó registrada */ }
         }
 
-        alert('Edificación registrada con el código ' + d.codigo + '.');
-        location.href = URL_BASE + 'remodelacion.php?inspeccion=' + d.inspeccion_id;
+        mostrarRegistrada(d);
 
     } catch (e) {
         // Se cayó la señal: no perder lo llenado.
@@ -430,6 +438,186 @@ async function guardarNueva(ev) {
         }
     }
     return false;
+}
+
+/**
+ * Muestra las edificaciones cercanas encontradas.
+ * No bloquea: el técnico decide si es la misma o una distinta.
+ */
+function mostrarCercanas(lista, datos) {
+    const capa = document.createElement('div');
+    capa.id = 'ne-cercanas';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.65);z-index:2400;'
+        + 'display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
+
+    const filas = lista.map(c =>
+        '<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;'
+        + 'border-bottom:1px solid #f0f2f7;">'
+        + '<i class="bi bi-building" style="color:#2d4488;font-size:18px;"></i>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:600;color:#2a3140;font-size:13.5px;">' + c.nombre + '</div>'
+        + '<div style="font-size:11.5px;color:#767c94;">' + c.codigo + ' · a ' + c.metros + ' m</div>'
+        + '</div>'
+        + '<a href="' + URL_BASE + 'index.php?abrir=' + c.id + '" target="_blank" '
+        + 'style="font-size:12px;color:#22366F;text-decoration:none;border:1px solid #dbe0ec;'
+        + 'border-radius:6px;padding:4px 10px;">Ver</a>'
+        + '</div>').join('');
+
+    capa.innerHTML =
+        '<div style="background:#fff;border-radius:14px;max-width:460px;width:100%;padding:22px;">'
+        + '<div style="text-align:center;margin-bottom:14px;">'
+        + '<div style="font-size:40px;color:#C9A227;line-height:1;">'
+        + '<i class="bi bi-exclamation-triangle-fill"></i></div>'
+        + '<h3 style="margin:8px 0 4px;color:#22366F;font-size:18px;">Hay edificaciones cerca</h3>'
+        + '<div style="font-size:13.5px;color:#5b6478;">'
+        + 'Revise si alguna es la misma que está registrando.</div></div>'
+        + '<div style="background:#f7f9fd;border-radius:10px;padding:6px 12px;margin-bottom:16px;">'
+        + filas + '</div>'
+        + '<button onclick="confirmarDistinta()" class="btn btn-primary" '
+        + 'style="width:100%;justify-content:center;margin-bottom:9px;">'
+        + '<i class="bi bi-check-lg"></i> Es una edificación distinta, registrarla</button>'
+        + '<button onclick="document.getElementById(\'ne-cercanas\').remove()" '
+        + 'style="width:100%;background:transparent;border:1px solid #dbe0ec;border-radius:8px;'
+        + 'padding:11px;color:#55617f;cursor:pointer;font-size:14px;">'
+        + 'Volver y revisar la ubicación</button>'
+        + '</div>';
+    document.body.appendChild(capa);
+    window._datosPendientes = datos;
+}
+
+/** El técnico confirmó que es distinta: se registra igual. */
+async function confirmarDistinta() {
+    const capa = document.getElementById('ne-cercanas');
+    if (capa) capa.remove();
+    const datos = window._datosPendientes;
+    if (!datos) return;
+    datos.confirmar_cercano = 1;
+
+    const btn = document.querySelector('#form-nueva button[type=submit]');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Registrando…';
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_nueva_edificacion.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(datos), credentials: 'same-origin'
+        });
+        const d = await res.json();
+        if (!d.ok) {
+            alert(d.mensaje || 'No se pudo registrar.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i> Registrar edificación';
+            return;
+        }
+        if (_fotoEtiqueta && d.edificio_id) {
+            const fd = new FormData();
+            fd.append('nivel', 'edificio');
+            fd.append('ref_id', d.edificio_id);
+            fd.append('parte', 'etiqueta');
+            fd.append('foto', _fotoEtiqueta);
+            try { await fetch(URL_BASE + 'subir_foto_rec.php', { method:'POST', body: fd, credentials:'same-origin' }); }
+            catch (e) { /* ya quedó registrada */ }
+        }
+        mostrarRegistrada(d);
+    } catch (e) {
+        alert('Se perdió la conexión. Intente de nuevo.');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check2-circle"></i> Registrar edificación';
+    }
+}
+
+/**
+ * Pantalla que aparece al registrar la edificación.
+ * Muestra el flujo completo y deja elegir: seguir con la asignación,
+ * ir directo al levantamiento, o salir al mapa.
+ */
+function mostrarRegistrada(d) {
+    const capa = document.createElement('div');
+    capa.id = 'ne-listo';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.65);z-index:2400;'
+        + 'display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
+
+    capa.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:460px;width:100%;padding:24px 22px;">'
+
+      // Confirmación
+      + '<div style="text-align:center;margin-bottom:18px;">'
+      + '<div style="font-size:46px;color:#2E7D32;line-height:1;"><i class="bi bi-check-circle-fill"></i></div>'
+      + '<h3 style="margin:10px 0 3px;color:#22366F;font-size:20px;">Edificación registrada</h3>'
+      + '<div style="font-size:14px;color:#5b6478;">' + (d.codigo || '') + '</div>'
+      + '<div style="font-size:13px;color:#767c94;margin-top:2px;">'
+      + document.getElementById('ne-nombre').value + '</div></div>'
+
+      // Qué falta por hacer
+      + '<div style="background:#f7f9fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;">'
+      + '<div style="font-size:12px;font-weight:700;color:#55617f;text-transform:uppercase;'
+      + 'letter-spacing:.4px;margin-bottom:10px;">Lo que falta por hacer</div>'
+      + paso(1, 'Asignar el ente responsable', 'bi-building-gear')
+      + paso(2, 'Asignar el responsable del equipo', 'bi-person-badge')
+      + paso(3, 'Hacer el levantamiento técnico', 'bi-clipboard-data')
+      + '</div>'
+
+      // Opciones
+      + '<a href="' + URL_BASE + 'index.php?abrir=' + d.inspeccion_id + '" '
+      + 'class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:9px;">'
+      + '<i class="bi bi-arrow-right-circle-fill"></i> Continuar con la asignación</a>'
+
+      + '<a href="' + URL_BASE + 'levantamiento.php?inspeccion=' + d.inspeccion_id + '" '
+      + 'class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:9px;">'
+      + '<i class="bi bi-clipboard-data"></i> Ir al levantamiento técnico</a>'
+
+      + '<a href="' + URL_BASE + 'nueva_edificacion.php" '
+      + 'class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:9px;">'
+      + '<i class="bi bi-plus-circle"></i> Registrar otra edificación</a>'
+
+      + '<a href="' + URL_BASE + 'index.php" '
+      + 'style="display:block;text-align:center;padding:10px;color:#5b6478;'
+      + 'font-size:14px;text-decoration:none;">Salir al mapa</a>'
+
+      + '</div>';
+
+    document.body.appendChild(capa);
+}
+
+/**
+ * Registro sin señal: no hay código todavía, así que se explica qué
+ * sigue y se ofrece registrar otra o salir.
+ */
+function mostrarRegistradaOffline(nombre) {
+    const capa = document.createElement('div');
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.65);z-index:2400;'
+        + 'display:flex;align-items:center;justify-content:center;padding:16px;';
+    capa.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px 22px;">'
+      + '<div style="text-align:center;margin-bottom:16px;">'
+      + '<div style="font-size:44px;color:#C9A227;line-height:1;"><i class="bi bi-phone-fill"></i></div>'
+      + '<h3 style="margin:10px 0 3px;color:#22366F;font-size:19px;">Guardada en el teléfono</h3>'
+      + '<div style="font-size:13.5px;color:#5b6478;">' + nombre + '</div></div>'
+
+      + '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:10px;'
+      + 'padding:13px 15px;margin-bottom:16px;font-size:13px;color:#8a6d1a;">'
+      + '<b>No hay señal en este momento.</b><br>'
+      + 'La edificación se registrará sola al recuperar la conexión. '
+      + 'Entonces podrá asignarle el ente y hacer el levantamiento técnico.</div>'
+
+      + '<a href="' + URL_BASE + 'nueva_edificacion.php" class="btn btn-primary" '
+      + 'style="width:100%;justify-content:center;margin-bottom:9px;">'
+      + '<i class="bi bi-plus-circle"></i> Registrar otra edificación</a>'
+
+      + '<a href="' + URL_BASE + 'index.php" class="btn btn-outline" '
+      + 'style="width:100%;justify-content:center;">Salir al mapa</a>'
+      + '</div>';
+    document.body.appendChild(capa);
+}
+
+/** Fila de un paso pendiente. */
+function paso(n, texto, icono) {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;">'
+        + '<span style="flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#dbe0ec;'
+        + 'color:#22366F;font-size:12px;font-weight:800;display:flex;align-items:center;'
+        + 'justify-content:center;">' + n + '</span>'
+        + '<i class="bi ' + icono + '" style="color:#2d4488;"></i>'
+        + '<span style="font-size:13.5px;color:#2a3140;">' + texto + '</span></div>';
 }
 
 // Ubicación automática al abrir, para ahorrarle un paso al técnico.

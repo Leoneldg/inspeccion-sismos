@@ -21,8 +21,9 @@ try {
     $enteId    = trim($_GET['ente_id'] ?? '');
     $color     = trim($_GET['color'] ?? '');
     $uso       = trim($_GET['uso'] ?? '');
+    $soloId    = (int)($_GET['id'] ?? 0);   // para abrir una edificación concreta
 
-    if ($q === '' && $parroquia === '' && $enteId === '' && $color === '' && $uso === '') {
+    if ($soloId <= 0 && $q === '' && $parroquia === '' && $enteId === '' && $color === '' && $uso === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
         exit;
     }
@@ -33,6 +34,10 @@ try {
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
 
+    if ($soloId > 0) {
+        $conds[] = 'i.id = :solo_id';
+        $params['solo_id'] = $soloId;
+    }
     if ($q !== '') {
         $conds[] = '(i.nombre_edificio LIKE :q OR i.codigo LIKE :q2)';
         $params['q']  = '%' . $q . '%';
