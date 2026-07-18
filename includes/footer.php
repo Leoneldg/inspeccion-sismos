@@ -25,9 +25,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-<script>window._APP_URL_BASE = '<?= APP_URL_BASE ?>';</script>
+<script>window._APP_URL_BASE = '<?= APP_URL_BASE ?>';
+window._USER_ID = <?= (int)($_SESSION['user_id'] ?? 0) ?>;</script>
 <script src="<?= APP_URL_BASE ?>assets/js/offline.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/offline-cache.js?v=<?= ASSET_VERSION ?>"></script>
+<script src="<?= APP_URL_BASE ?>assets/js/mantener-sesion.js?v=<?= ASSET_VERSION ?>"></script>
+<script src="<?= APP_URL_BASE ?>assets/js/obras-fotos.js?v=<?= ASSET_VERSION ?>"></script>
+<script src="<?= APP_URL_BASE ?>assets/js/obras-offline.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/main.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/qr.js?v=<?= ASSET_VERSION ?>"></script>
 </body>

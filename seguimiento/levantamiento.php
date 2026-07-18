@@ -439,7 +439,18 @@ include __DIR__ . '/../includes/header.php';
 </div><!-- /wz-wrap -->
 
 <!-- Input de archivo oculto. Sin 'capture' para que el móvil ofrezca cámara Y galería. -->
-<input type="file" id="rec-file-input" accept="image/*" style="display:none;" onchange="_onFotoElegida(this)">
+<!-- Dos entradas: la cámara abre a tomar la foto, la galería a elegirla. -->
+<input type="file" id="rec-file-camara" accept="image/*" capture="environment" style="display:none;" onchange="_onFotoElegida(this, true)">
+<input type="file" id="rec-file-galeria" accept="image/*" style="display:none;" onchange="_onFotoElegida(this, false)">
+
+<!-- Acceso a las fotos guardadas en el teléfono -->
+<button type="button" onclick="ObrasFotos.verGaleria()"
+        style="position:fixed;left:12px;bottom:12px;z-index:1400;background:#fff;
+               border:1px solid #dbe0ec;border-radius:20px;padding:7px 14px;font-size:12.5px;
+               font-weight:600;color:#22366F;cursor:pointer;box-shadow:0 2px 8px rgba(20,30,60,.12);"
+        title="Fotos guardadas en este teléfono">
+    <i class="bi bi-images"></i> Mis fotos
+</button>
 
 <script>
 const INSPECCION_ID = <?= $inspeccionId ?>;
@@ -482,7 +493,7 @@ let _areaFotoDestino = null;
 function subirFotoArea(areaKey, btn) {
     _areaFotoDestino = btn.closest('.area-row').querySelector('.area-fotos');
     _areaFotoDestino.dataset.area = areaKey;
-    document.getElementById('rec-file-input').click();
+    elegirOrigenFoto(_fotoDestino);
 }
 
 // Calcular materiales de un área según m² y tipo de trabajo.
@@ -749,6 +760,17 @@ function pintarApartamento(a, lista) {
             <div class="amb-lista" style="margin-top:14px;"></div>
         </div>`;
     lista.appendChild(card);
+
+    // Autoguardado local mientras escribe + recuperar lo pendiente.
+    const cuerpo = card.querySelector('.apto-body');
+    if (cuerpo) {
+        cuerpo.querySelectorAll('input').forEach(inp => {
+            inp.addEventListener('input', () => autoguardarApto(a.id, cuerpo));
+        });
+        // Si quedó algo escrito sin guardar, se recupera.
+        const b = leerBorrador(a.id);
+        if (b && b.datos && !a.jefe_nombre) restaurarBorrador(a.id, cuerpo);
+    }
     if (((a.num_habitaciones||0) + (a.num_salas||0) + (a.num_balcones||0) + (a.num_cocinas||0) + (a.num_banos||0)) > 0) {
         cargarAmbientes(a.id, card.querySelector('.amb-lista'));
     }
@@ -773,13 +795,218 @@ async function guardarApto(btn, aptoId) {
         num_cocinas:      cont.querySelector('.amb-cocinas').value,
         num_balcones:     cont.querySelector('.amb-balcones').value,
     };
-    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    // Guardar copia local ANTES de enviar: si se cae la señal, no se pierde.
+    guardarBorrador(aptoId, payload);
+
+    // Sin señal: queda en cola y se sube después.
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Apartamento ' + aptoId + ' · ' + nombre);
+        marcarAptoPendiente(cont, 'Guardado en el teléfono');
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials: 'same-origin'
+        });
+        const texto = await res.text();
+        let data;
+        try { data = JSON.parse(texto); }
+        catch (e) {
+            // El servidor respondió HTML (sesión caída o error): no perder nada.
+            if (window.ObrasOffline) {
+                await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                    'Apartamento ' + aptoId + ' · ' + nombre);
+                marcarAptoPendiente(cont, 'Guardado en el teléfono');
+            } else {
+                alert('El servidor respondió algo inesperado. Sus datos siguen en pantalla, intente de nuevo.');
+            }
+            return;
+        }
+        if (data.sesion_expirada) { alert(data.mensaje); return; }
+        if (data.ok) {
+            borrarBorrador(aptoId);
+            pintarAmbientes(data.ambientes, cont.querySelector('.amb-lista'));
+            marcarAptoPendiente(cont, '');
+        } else {
+            alert(data.mensaje || 'Error al guardar.');
+        }
+    } catch (e) {
+        // Se cayó la señal a mitad: encolar en vez de perder el trabajo.
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Apartamento ' + aptoId + ' · ' + nombre);
+            marcarAptoPendiente(cont, 'Guardado en el teléfono');
+        } else {
+            alert('Se perdió la conexión.\n\nSus datos siguen en pantalla. Intente guardar de nuevo cuando tenga señal.');
+        }
+    }
+}
+
+// Guarda lo escrito mientras el usuario llena, sin esperar a que envíe.
+function autoguardarApto(aptoId, cont) {
+    const v = sel => { const el = cont.querySelector(sel); return el ? el.value : ''; };
+    guardarBorrador(aptoId, {
+        accion:'guardar_apto', apartamento_id: aptoId,
+        jefe_nombre: v('.jefe-nombre'), jefe_cedula: v('.jefe-cedula'),
+        jefe_telefono: v('.jefe-telefono'),
+        num_habitaciones: v('.amb-habitaciones'), num_salas: v('.amb-salas'),
+        num_banos: v('.amb-banos'), num_cocinas: v('.amb-cocinas'),
+        num_balcones: v('.amb-balcones'),
     });
-    const data = await res.json();
-    if (data.sesion_expirada) { alert(data.mensaje); return; }
-    if (data.ok) pintarAmbientes(data.ambientes, cont.querySelector('.amb-lista'));
-    else alert(data.mensaje || 'Error.');
+}
+
+// ---- Autoguardado periódico: respaldo cada 30 segundos ----
+// Aunque el usuario no toque nada, lo escrito se conserva. Si se va la
+// señal o se cierra el navegador, al volver está todo.
+let _ultimoRespaldo = '';
+
+function respaldarTodo() {
+    try {
+        const estado = { inspeccion: INSPECCION_ID, fecha: new Date().toISOString(), aptos: {} };
+
+        // Datos de cada apartamento que esté abierto en pantalla.
+        document.querySelectorAll('.apto-card').forEach(card => {
+            const cuerpo = card.querySelector('.apto-body');
+            if (!cuerpo) return;
+            const btn = cuerpo.querySelector('button[onclick^="guardarApto"]');
+            if (!btn) return;
+            const m = btn.getAttribute('onclick').match(/guardarApto\(this,\s*(\d+)\)/);
+            if (!m) return;
+            const id = m[1];
+            const v = sel => { const el = cuerpo.querySelector(sel); return el ? el.value : ''; };
+            const datos = {
+                jefe_nombre: v('.jefe-nombre'), jefe_cedula: v('.jefe-cedula'),
+                jefe_telefono: v('.jefe-telefono'),
+                num_habitaciones: v('.amb-habitaciones'), num_salas: v('.amb-salas'),
+                num_banos: v('.amb-banos'), num_cocinas: v('.amb-cocinas'),
+                num_balcones: v('.amb-balcones'),
+            };
+            // Solo respaldar si tiene algo escrito.
+            if (Object.values(datos).some(x => x && x !== '0')) estado.aptos[id] = datos;
+        });
+
+        // Cierre, si está llenándolo.
+        const form = document.getElementById('form-cierre');
+        if (form) {
+            const c = {};
+            ['azotea','tanques'].forEach(k => {
+                const sel = form.querySelector('input[name="'+k+'_estado"]:checked');
+                if (sel) c[k+'_estado'] = sel.value;
+                const obs = form.querySelector('input[name="'+k+'_obs"]');
+                if (obs && obs.value) c[k+'_obs'] = obs.value;
+            });
+            if (Object.keys(c).length) estado.cierre = c;
+        }
+
+        const serial = JSON.stringify(estado);
+        if (serial === _ultimoRespaldo) return;   // sin cambios, no reescribir
+        _ultimoRespaldo = serial;
+        localStorage.setItem('respaldo_lev_' + INSPECCION_ID, serial);
+        mostrarSelloRespaldo();
+    } catch (e) { /* si no hay espacio, seguir trabajando igual */ }
+}
+
+// Sello discreto que confirma que hay respaldo local.
+function mostrarSelloRespaldo() {
+    let sello = document.getElementById('sello-respaldo');
+    if (!sello) {
+        sello = document.createElement('div');
+        sello.id = 'sello-respaldo';
+        sello.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:1400;'
+            + 'background:#eef7f0;border:1px solid #2E7D3244;color:#2E7D32;'
+            + 'border-radius:20px;padding:6px 13px;font-size:12px;font-weight:600;'
+            + 'box-shadow:0 2px 8px rgba(20,30,60,.12);';
+        document.body.appendChild(sello);
+    }
+    const h = new Date().toLocaleTimeString('es-VE', {hour:'2-digit', minute:'2-digit'});
+    sello.innerHTML = '<i class="bi bi-shield-check"></i> Respaldado ' + h;
+    sello.style.opacity = '1';
+    clearTimeout(sello._t);
+    sello._t = setTimeout(() => { sello.style.opacity = '.45'; }, 4000);
+}
+
+// Recupera el respaldo si el navegador se cerró sin guardar.
+function revisarRespaldoPrevio() {
+    try {
+        const raw = localStorage.getItem('respaldo_lev_' + INSPECCION_ID);
+        if (!raw) return;
+        const est = JSON.parse(raw);
+        const n = Object.keys(est.aptos || {}).length;
+        if (!n) return;
+        const cuando = est.fecha ? new Date(est.fecha).toLocaleString('es-VE') : '';
+        const aviso = document.createElement('div');
+        aviso.style.cssText = 'background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;'
+            + 'padding:12px 14px;margin-bottom:14px;font-size:13px;color:#8a6d1a;';
+        aviso.innerHTML = '<i class="bi bi-clock-history"></i> <strong>Hay un respaldo sin guardar.</strong> '
+            + 'Se encontraron datos de ' + n + ' apartamento(s) escritos el ' + cuando + '. '
+            + 'Al abrir cada apartamento aparecerán para que los revise y guarde.';
+        const panel = document.getElementById('paso-2');
+        if (panel) panel.insertBefore(aviso, panel.firstChild);
+    } catch (e) { /* nada */ }
+}
+
+// Arranque del respaldo automático.
+document.addEventListener('DOMContentLoaded', function () {
+    revisarRespaldoPrevio();
+    setInterval(respaldarTodo, 30000);              // cada 30 segundos
+    window.addEventListener('beforeunload', respaldarTodo);  // al cerrar
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) respaldarTodo();       // al cambiar de app
+    });
+});
+
+// ---- Borradores locales: lo escrito no se pierde aunque se corte todo ----
+function guardarBorrador(aptoId, datos) {
+    try {
+        localStorage.setItem('borrador_apto_' + aptoId, JSON.stringify({
+            datos: datos, fecha: new Date().toISOString()
+        }));
+    } catch (e) { /* si no hay espacio, seguir igual */ }
+}
+
+function borrarBorrador(aptoId) {
+    try { localStorage.removeItem('borrador_apto_' + aptoId); } catch (e) {}
+}
+
+function leerBorrador(aptoId) {
+    try {
+        const raw = localStorage.getItem('borrador_apto_' + aptoId);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+}
+
+// Restaura lo que el usuario había escrito y no llegó a guardarse.
+function restaurarBorrador(aptoId, cont) {
+    const b = leerBorrador(aptoId);
+    if (!b || !b.datos) return false;
+    const d = b.datos;
+    const set = (sel, val) => { const el = cont.querySelector(sel); if (el && val != null) el.value = val; };
+    set('.jefe-nombre', d.jefe_nombre);
+    set('.jefe-cedula', d.jefe_cedula);
+    set('.jefe-telefono', d.jefe_telefono);
+    set('.amb-habitaciones', d.num_habitaciones);
+    set('.amb-salas', d.num_salas);
+    set('.amb-banos', d.num_banos);
+    set('.amb-cocinas', d.num_cocinas);
+    set('.amb-balcones', d.num_balcones);
+    marcarAptoPendiente(cont, 'Se recuperó lo que había escrito');
+    return true;
+}
+
+function marcarAptoPendiente(cont, texto) {
+    let el = cont.querySelector('.apto-estado');
+    if (!el) {
+        el = document.createElement('div');
+        el.className = 'apto-estado';
+        el.style.cssText = 'font-size:12.5px;font-weight:600;margin-top:8px;';
+        cont.appendChild(el);
+    }
+    if (!texto) { el.textContent = ''; return; }
+    el.style.color = '#8a6d1a';
+    el.innerHTML = '<i class="bi bi-phone-fill"></i> ' + texto;
 }
 
 async function cargarAmbientes(aptoId, contenedor) {
@@ -888,12 +1115,11 @@ let _fotoDestino = null;
 
 function subirFotoEtiqueta(btn) {
     // La etiqueta se guarda a nivel 'edificio', con parte 'etiqueta'.
-    _fotoDestino = {
+    elegirOrigenFoto({
         nivel:'edificio', refId: EDIFICIO_ID,
         pideParte: false, parteFija: 'etiqueta',
         cont: document.getElementById('etiqueta-fotos')
-    };
-    document.getElementById('rec-file-input').click();
+    });
 }
 
 function subirFotoElemento(btn, pisoId, tipo) {
@@ -902,12 +1128,11 @@ function subirFotoElemento(btn, pisoId, tipo) {
         alert('Primero guarde los elementos del piso para poder adjuntar fotos.');
         return;
     }
-    _fotoDestino = {
+    elegirOrigenFoto({
         nivel:'elemento_piso', refId: row.dataset.elemId,
         pideParte: row.querySelector('.el-reparar').checked,
         cont: row.querySelector('.elem-fotos')
-    };
-    document.getElementById('rec-file-input').click();
+    });
 }
 
 function fotoAmbiente(btn, ambId) {
@@ -917,15 +1142,63 @@ function fotoAmbiente(btn, ambId) {
         alert('Este ambiente no necesita reparación: basta con una foto. Marque "Necesita reparación" para agregar más.');
         return;
     }
-    _fotoDestino = {
+    elegirOrigenFoto({
         nivel:'ambiente', refId: ambId,
         pideParte: necesitaReparar,
         cont: row.querySelector('.amb-fotos')
-    };
-    document.getElementById('rec-file-input').click();
+    });
 }
 
-async function _onFotoElegida(input) {
+/**
+ * Pregunta si toma la foto con la cámara o la elige de la galería.
+ * Las de cámara se respaldan siempre en el teléfono: esas no quedan
+ * en la galería por sí solas y se perderían si falla la subida.
+ */
+function elegirOrigenFoto(destino) {
+    _fotoDestino = destino;
+    const capa = document.createElement('div');
+    capa.id = 'origen-foto';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.6);z-index:2300;'
+        + 'display:flex;align-items:flex-end;justify-content:center;';
+    capa.innerHTML =
+        '<div style="background:#fff;border-radius:14px 14px 0 0;width:100%;max-width:440px;padding:18px 18px 22px;">'
+        + '<div style="font-weight:700;color:#22366F;font-size:16px;margin-bottom:14px;text-align:center;">'
+        + '¿Cómo quiere agregar la foto?</div>'
+        + '<button type="button" onclick="_abrirCamara()" '
+        + 'style="width:100%;display:flex;align-items:center;gap:12px;background:#22366F;color:#fff;'
+        + 'border:0;border-radius:10px;padding:14px 16px;font-size:15px;font-weight:600;'
+        + 'cursor:pointer;margin-bottom:10px;">'
+        + '<i class="bi bi-camera-fill" style="font-size:22px;"></i>'
+        + '<span style="flex:1;text-align:left;">Tomar foto ahora<br>'
+        + '<span style="font-size:12px;font-weight:400;opacity:.85;">Se guarda en su teléfono</span></span></button>'
+        + '<button type="button" onclick="_abrirGaleria()" '
+        + 'style="width:100%;display:flex;align-items:center;gap:12px;background:#fff;color:#22366F;'
+        + 'border:2px solid #dbe0ec;border-radius:10px;padding:14px 16px;font-size:15px;font-weight:600;'
+        + 'cursor:pointer;margin-bottom:10px;">'
+        + '<i class="bi bi-images" style="font-size:22px;"></i>'
+        + '<span style="flex:1;text-align:left;">Elegir de la galería<br>'
+        + '<span style="font-size:12px;font-weight:400;color:#5b6478;">Una foto que ya tomó</span></span></button>'
+        + '<button type="button" onclick="_cerrarOrigen()" '
+        + 'style="width:100%;background:transparent;border:0;color:#5b6478;padding:10px;'
+        + 'font-size:14px;cursor:pointer;">Cancelar</button>'
+        + '</div>';
+    document.body.appendChild(capa);
+}
+
+function _cerrarOrigen() {
+    const c = document.getElementById('origen-foto');
+    if (c) c.remove();
+}
+function _abrirCamara() {
+    _cerrarOrigen();
+    document.getElementById('rec-file-camara').click();
+}
+function _abrirGaleria() {
+    _cerrarOrigen();
+    document.getElementById('rec-file-galeria').click();
+}
+
+async function _onFotoElegida(input, desdeCamara) {
     if (!input.files || !input.files[0] || !_fotoDestino) { input.value=''; return; }
     const archivo = input.files[0];
     const destino = _fotoDestino;
@@ -934,11 +1207,11 @@ async function _onFotoElegida(input) {
 
     // Si el elemento necesita reparación, preguntar la parte DESPUÉS de tener la foto.
     if (destino.parteFija) {
-        enviarFoto(archivo, destino, destino.parteFija);
+        enviarFoto(archivo, destino, destino.parteFija, desdeCamara);
     } else if (destino.pideParte) {
-        pedirParte(parte => enviarFoto(archivo, destino, parte));
+        pedirParte(parte => enviarFoto(archivo, destino, parte, desdeCamara));
     } else {
-        enviarFoto(archivo, destino, null);
+        enviarFoto(archivo, destino, null, desdeCamara);
     }
 }
 
@@ -973,23 +1246,81 @@ function pedirParte(callback) {
     ov.querySelector('#pp-cancel').onclick = () => document.body.removeChild(ov);
 }
 
-async function enviarFoto(archivo, destino, parte) {
+async function enviarFoto(archivo, destino, parte, desdeCamara) {
+    const cont = destino.cont;
+
+    // RESPALDO en el teléfono antes de intentar subirla.
+    // Es imprescindible en las de CÁMARA: esas no quedan en la galería
+    // por sí solas, así que si falla la subida se perderían.
+    // Las de galería ya están en el teléfono, pero se respaldan igual
+    // para poder reintentar sin volver a buscarlas.
+    let idLocal = null;
+    if (window.ObrasFotos) {
+        idLocal = await ObrasFotos.respaldar(archivo, {
+            inspeccion_id: INSPECCION_ID, nivel: destino.nivel, ref_id: destino.refId,
+            parte: parte || '', origen: desdeCamara ? 'camara' : 'galeria',
+            descripcion: (parte ? parte + ' · ' : '') + destino.nivel + ' #' + destino.refId,
+        });
+    }
+
     const fd = new FormData();
     fd.append('nivel', destino.nivel);
     fd.append('ref_id', destino.refId);
     if (parte) fd.append('parte', parte);
     fd.append('foto', archivo);
-    const cont = destino.cont;
+
+    // Sin señal: queda en cola y se sube después.
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('foto', URL_BASE + 'subir_foto_rec.php',
+            { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
+              foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
+            'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
+        cont.insertAdjacentHTML('beforeend',
+            '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
+            + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
+        return;
+    }
+
     cont.insertAdjacentHTML('beforeend', '<span class="subiendo">Subiendo…</span>');
     try {
-        const res = await fetch(URL_BASE + 'subir_foto_rec.php', { method:'POST', body: fd });
-        const data = await res.json();
+        const res = await fetch(URL_BASE + 'subir_foto_rec.php',
+            { method:'POST', body: fd, credentials:'same-origin' });
+        const texto = await res.text();
         cont.querySelector('.subiendo')?.remove();
-        if (data.ok) agregarMiniFoto(cont, data.foto);
-        else alert(data.mensaje || 'No se pudo subir la foto.');
+        let data;
+        try { data = JSON.parse(texto); }
+        catch (e) {
+            // Respuesta inesperada (sesión caída, error): no perder la foto.
+            if (window.ObrasOffline) {
+                await ObrasOffline.encolar('foto', URL_BASE + 'subir_foto_rec.php',
+                    { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
+                      foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
+                    'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
+                alert('El servidor no respondió bien.\n\nLa foto quedó guardada en el teléfono y se subirá después.');
+            } else {
+                alert('El servidor respondió algo inesperado. La foto está guardada en el teléfono.');
+            }
+            return;
+        }
+        if (data.ok) {
+            agregarMiniFoto(cont, data.foto);
+            if (idLocal && window.ObrasFotos) ObrasFotos.marcarSubida(idLocal);
+        } else {
+            alert(data.mensaje || 'No se pudo subir la foto.');
+        }
     } catch(e) {
         cont.querySelector('.subiendo')?.remove();
-        alert('Error de red al subir la foto.');
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('foto', URL_BASE + 'subir_foto_rec.php',
+                { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
+                  foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
+                'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
+            cont.insertAdjacentHTML('beforeend',
+                '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
+                + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
+        } else {
+            alert('Se perdió la conexión.\n\nLa foto está guardada en el teléfono.');
+        }
     }
 }
 
@@ -1009,11 +1340,10 @@ function onEstadoCierre(key) {
 
 // Subir foto del área de cierre (azotea/tanques) que requiere reparación.
 function subirFotoCierre(key, btn) {
-    _fotoDestino = {
+    elegirOrigenFoto({
         nivel:'edificio', refId: EDIFICIO_ID, pideParte:false, parteFija: key + '_reparacion',
         cont: btn.parentElement.querySelector('.cierre-fotos')
-    };
-    document.getElementById('rec-file-input').click();
+    });
 }
 
 async function guardarCierre(ev) {
@@ -1029,13 +1359,76 @@ async function guardarCierre(ev) {
     payload.fecha_inicio_estimada = form.querySelector('input[name="fecha_inicio_estimada"]').value;
     payload.fecha_fin_estimada = form.querySelector('input[name="fecha_fin_estimada"]').value;
 
-    const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.ok) { cargarResumen(); alert('Levantamiento cerrado. Revise el resumen de materiales.'); }
-    else alert(data.mensaje || 'Error al guardar.');
+    // Copia local del cierre, por si falla el envío.
+    guardarBorrador('cierre_' + INSPECCION_ID, payload);
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            'Cierre del levantamiento');
+        alert('Sin señal: el cierre quedó guardado en el teléfono y se enviará al recuperar la conexión.');
+        ofrecerComprobante();
+        return false;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+        const texto = await res.text();
+        let data;
+        try { data = JSON.parse(texto); }
+        catch (e) {
+            if (window.ObrasOffline) {
+                await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+                    'Cierre del levantamiento');
+                alert('El servidor no respondió bien. El cierre quedó guardado y se reintentará.');
+            }
+            return false;
+        }
+        if (data.ok) {
+            borrarBorrador('cierre_' + INSPECCION_ID);
+            cargarResumen();
+            ofrecerComprobante();
+        } else {
+            alert(data.mensaje || 'Error al guardar.');
+        }
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+                'Cierre del levantamiento');
+            alert('Se perdió la conexión. El cierre quedó guardado en el teléfono.');
+            ofrecerComprobante();
+        } else {
+            alert('Se perdió la conexión. Intente cerrar de nuevo cuando tenga señal.');
+        }
+    }
     return false;
+}
+
+/**
+ * Al cerrar, ofrece descargar el comprobante en PDF.
+ * Queda en el teléfono como respaldo de todo lo registrado.
+ */
+function ofrecerComprobante() {
+    const capa = document.createElement('div');
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.6);z-index:2100;'
+        + 'display:flex;align-items:center;justify-content:center;padding:16px;';
+    capa.innerHTML =
+        '<div style="background:#fff;border-radius:12px;max-width:400px;width:100%;padding:22px 24px;text-align:center;">'
+        + '<div style="font-size:42px;color:#2E7D32;line-height:1;"><i class="bi bi-check-circle-fill"></i></div>'
+        + '<h3 style="margin:10px 0 4px;color:#22366F;font-size:19px;">Levantamiento cerrado</h3>'
+        + '<p style="font-size:13.5px;color:#5b6478;margin:0 0 16px;">'
+        + 'Guarde el comprobante en su teléfono. Es la constancia de todo lo que registró, '
+        + 'por si hiciera falta verificarlo.</p>'
+        + '<a href="' + URL_BASE + 'comprobante_levantamiento.php?inspeccion=' + INSPECCION_ID + '" '
+        + 'target="_blank" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;">'
+        + '<i class="bi bi-file-earmark-pdf-fill"></i> Descargar comprobante</a>'
+        + '<button onclick="this.closest(\'div\').parentElement.remove()" '
+        + 'style="width:100%;background:transparent;border:1px solid #dbe0ec;border-radius:8px;'
+        + 'padding:9px;color:#55617f;cursor:pointer;font-size:13.5px;">Ahora no</button>'
+        + '</div>';
+    document.body.appendChild(capa);
 }
 
 async function cargarResumen() {
