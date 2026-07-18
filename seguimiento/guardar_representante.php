@@ -23,6 +23,9 @@ try {
     $body = json_decode(file_get_contents('php://input'), true);
     if (!is_array($body)) resp(false, 'Datos inválidos.');
 
+    // Asegurar que existan las tablas (por si no se corrió el SQL).
+    repAsegurarTablas();
+
     // --- Desactivar ---
     if (($body['accion'] ?? '') === 'desactivar') {
         $id = (int)($body['id'] ?? 0);
@@ -39,6 +42,10 @@ try {
     if (!is_array($parroquias) || !$parroquias) resp(false, 'Seleccione al menos una parroquia.');
 
     $pdo = db();
+    // Las tablas se aseguran ANTES de abrir la transacción: en MySQL un
+    // CREATE/ALTER hace commit implícito y dejaría la transacción muerta
+    // (error "There is no active transaction" al llegar al commit).
+    repAsegurarTablas();
     $pdo->beginTransaction();
 
     $id = (int)($body['id'] ?? 0);
@@ -75,7 +82,8 @@ try {
         repAsignarParroquia($id, $est, $mun, $par);
     }
 
-    $pdo->commit();
+    // Solo se confirma si la transacción sigue viva (algún DDL pudo cerrarla).
+    if ($pdo->inTransaction()) $pdo->commit();
     resp(true, 'Representante guardado.', ['id' => $id]);
 
 } catch (Throwable $e) {
