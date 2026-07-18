@@ -18,8 +18,9 @@ try {
     $q         = trim($_GET['q'] ?? '');
     $parroquia = trim($_GET['parroquia'] ?? '');
     $estado    = trim($_GET['estado'] ?? '');
+    $enteId    = trim($_GET['ente_id'] ?? '');
 
-    if ($q === '' && $parroquia === '') {
+    if ($q === '' && $parroquia === '' && $enteId === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
         exit;
     }
@@ -41,6 +42,10 @@ try {
     if ($estado !== '') {
         $conds[] = 'i.estado = :e';
         $params['e'] = $estado;
+    }
+    if ($enteId !== '') {
+        $conds[] = 'so.ente_id = :ente';
+        $params['ente'] = (int)$enteId;
     }
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
 

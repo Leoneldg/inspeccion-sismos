@@ -16,6 +16,7 @@ $kpis        = segKpis();
 $decisiones  = catalogoDecisionFinal();
 $fasesCat    = segFasesRecuperacion();
 $puedeEditar = puede('seguimiento', 'editar');
+$entes       = segEntes(usuarioEsMaster() ? null : estadoDelUsuario());
 
 // ---------------------------------------------------------------------
 // Puntos para el mapa.
@@ -56,7 +57,7 @@ include __DIR__ . '/../includes/header.php';
 
 /* Panel lateral con la ficha técnica del punto seleccionado */
 .seg-panel {
-    position: absolute; top: 12px; right: 12px; width: 330px; max-width: calc(100% - 24px);
+    position: absolute; top: 12px; left: 12px; width: 330px; max-width: calc(100% - 24px);
     max-height: calc(100% - 24px); overflow-y: auto; z-index: 500;
     background: #fff; border-radius: 10px; box-shadow: 0 6px 24px rgba(20,30,60,.22);
     display: none;
@@ -149,6 +150,28 @@ include __DIR__ . '/../includes/header.php';
                     <option value="<?= e($cp['parroquia']) ?>" data-estado="<?= e($cp['estado']) ?>">
                         <?= e(mb_strtoupper($cp['parroquia'], 'UTF-8')) ?> (<?= (int)$cp['total'] ?>)
                     </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
+                <label class="text-sm">Estado</label>
+                <select id="f-estado" class="form-control" style="width:160px;" onchange="ejecutarBusqueda()">
+                    <?php
+                    $estadosLista = catalogoEstados();
+                    foreach ($estadosLista as $est):
+                        // Predeterminado siempre en Distrito Capital.
+                        $sel = ($est === 'Distrito Capital') ? 'selected' : '';
+                    ?>
+                    <option value="<?= e($est) ?>" <?= $sel ?>><?= e($est) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
+                <label class="text-sm">Ente</label>
+                <select id="f-ente" class="form-control" style="width:180px;" onchange="ejecutarBusqueda()">
+                    <option value="">TODOS LOS ENTES</option>
+                    <?php foreach ($entes as $ente): ?>
+                    <option value="<?= (int)$ente['id'] ?>"><?= e(mb_strtoupper($ente['nombre'], 'UTF-8')) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -497,16 +520,20 @@ async function ejecutarBusqueda() {
     const q = document.getElementById('f-buscar').value.trim();
     const sel = document.getElementById('f-parroquia');
     const parroquia = sel.value;
-    const estado = parroquia ? (sel.options[sel.selectedIndex].dataset.estado || 'Distrito Capital') : '';
+    const estado = document.getElementById('f-estado').value;
+    const enteId = document.getElementById('f-ente').value;
 
-    if (!q && !parroquia) { limpiarBusqueda(); return; }
+    if (!q && !parroquia && !enteId) { limpiarBusqueda(); return; }
 
     const cont = document.getElementById('f-resultados');
     cont.style.display = 'block';
     cont.innerHTML = '<p class="text-muted" style="margin:0;">Buscando…</p>';
 
     try {
-        const url = BUSCAR_URL + '?q=' + encodeURIComponent(q) + '&parroquia=' + encodeURIComponent(parroquia) + '&estado=' + encodeURIComponent(estado);
+        const url = BUSCAR_URL + '?q=' + encodeURIComponent(q)
+                  + '&parroquia=' + encodeURIComponent(parroquia)
+                  + '&estado=' + encodeURIComponent(estado)
+                  + '&ente_id=' + encodeURIComponent(enteId);
         const res = await fetch(url);
         const d = await res.json();
         if (!d.ok) { cont.innerHTML = '<p class="text-muted" style="margin:0;">' + (d.mensaje || 'Error.') + '</p>'; return; }
