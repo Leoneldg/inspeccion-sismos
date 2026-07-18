@@ -52,6 +52,15 @@ include __DIR__ . '/../includes/header.php';
 .mp-pct { font-weight:800; min-width:48px; text-align:right; font-size:15px; }
 .mp-frente { display:flex; gap:9px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #f4f6fa; }
 .mp-frente:last-child { border-bottom:0; }
+.mp-tramos { display:flex; gap:8px; flex-wrap:wrap; }
+.mp-tramo {
+    flex:1; min-width:96px; background:#fff; border:2px solid #e5e8f0; border-radius:10px;
+    padding:12px 8px; cursor:pointer; text-align:center; transition:all .15s;
+}
+.mp-tramo:hover { background:#f7f9fd; transform:translateY(-1px); }
+.mp-tramo.activo { background:#eef2fb; box-shadow:0 0 0 3px #22366F22; }
+.mp-tramo .n { font-size:26px; font-weight:800; line-height:1; }
+.mp-tramo .l { font-size:10px; text-transform:uppercase; letter-spacing:.3px; color:#55617f; margin-top:3px; }
 @media (max-width: 640px) {
     .mp-edif { flex-wrap:wrap; }
     .mp-edif > div:first-child { flex:1 1 100%; }
@@ -106,68 +115,91 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- EN RECONSTRUCCIÓN: lo que importa cada día -->
+<!-- Resumen por tramos de avance: lectura de un vistazo -->
+<?php
+$tramos = ['sin' => 0, 'inicial' => 0, 'medio' => 0, 'avanzado' => 0, 'listo' => 0];
+foreach ($edifs as $e) {
+    $a = (int)($e['avance'] ?? 0);
+    if ($a >= 100)      $tramos['listo']++;
+    elseif ($a >= 75)   $tramos['avanzado']++;
+    elseif ($a >= 25)   $tramos['medio']++;
+    elseif ($a > 0)     $tramos['inicial']++;
+    else                $tramos['sin']++;
+}
+?>
 <div class="mp-card">
-    <div class="mp-tit">
-        <i class="bi bi-hammer"></i> En reconstrucción
-        <span style="background:#C9A22722;color:#8a6d1a;font-size:12px;padding:2px 9px;border-radius:12px;font-weight:700;">
-            <?= count($enRecon) ?>
-        </span>
+    <div class="mp-tit"><i class="bi bi-bar-chart-fill"></i> Estado de las <?= count($edifs) ?> reconstrucciones</div>
+    <div class="mp-tramos">
+        <button class="mp-tramo" data-filtro="todos" onclick="filtrarTramo('todos')" style="border-color:#22366F;">
+            <div class="n" style="color:#22366F;"><?= count($edifs) ?></div><div class="l">Todas</div>
+        </button>
+        <button class="mp-tramo" data-filtro="sin" onclick="filtrarTramo('sin')" style="border-color:#97a0b855;">
+            <div class="n" style="color:#767c94;"><?= $tramos['sin'] ?></div><div class="l">Sin iniciar</div>
+        </button>
+        <button class="mp-tramo" data-filtro="inicial" onclick="filtrarTramo('inicial')" style="border-color:#C9A22755;">
+            <div class="n" style="color:#C9A227;"><?= $tramos['inicial'] ?></div><div class="l">1 a 24%</div>
+        </button>
+        <button class="mp-tramo" data-filtro="medio" onclick="filtrarTramo('medio')" style="border-color:#C9A22755;">
+            <div class="n" style="color:#C9A227;"><?= $tramos['medio'] ?></div><div class="l">25 a 74%</div>
+        </button>
+        <button class="mp-tramo" data-filtro="avanzado" onclick="filtrarTramo('avanzado')" style="border-color:#2E7D3255;">
+            <div class="n" style="color:#5a9e3f;"><?= $tramos['avanzado'] ?></div><div class="l">75 a 99%</div>
+        </button>
+        <button class="mp-tramo" data-filtro="listo" onclick="filtrarTramo('listo')" style="border-color:#2E7D3255;">
+            <div class="n" style="color:#2E7D32;"><?= $tramos['listo'] ?></div><div class="l">Culminadas</div>
+        </button>
     </div>
-    <?php if (!$enRecon): ?>
-        <p class="text-muted" style="margin:0;">Ninguna edificación en reconstrucción en este momento.</p>
-    <?php else: ?>
-        <?php
-        // Las de mayor avance primero: se ve el progreso real.
-        usort($enRecon, fn($a, $b) => ($b['avance'] ?? 0) <=> ($a['avance'] ?? 0));
-        foreach ($enRecon as $ed):
-            $av = (int)($ed['avance'] ?? 0);
-            $col = $av >= 100 ? '#2E7D32' : ($av > 0 ? '#C9A227' : '#97a0b8');
-            $colorDec = $cat[$ed['decision_final'] ?? '']['color'] ?? '#767c94';
-        ?>
-        <div class="mp-edif">
-            <span style="width:11px;height:11px;border-radius:50%;background:<?= $colorDec ?>;flex-shrink:0;"></span>
-            <div style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:#2a3140;font-size:14px;"><?= e($ed['nombre'] ?? 'Sin nombre') ?></div>
-                <div style="font-size:11px;color:#767c94;">
-                    <?= e($ed['codigo'] ?? '') ?>
-                    <?php if (!empty($ed['ente'])): ?> · <?= e($ed['ente']) ?><?php endif; ?>
-                </div>
-            </div>
-            <div class="mp-barra">
-                <div style="width:<?= $av ?>%;height:100%;background:<?= $col ?>;"></div>
-            </div>
-            <span class="mp-pct" style="color:<?= $col ?>;"><?= $av ?>%</span>
-            <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$ed['id'] ?>"
-               class="btn btn-primary btn-sm"><i class="bi bi-arrow-right"></i> Abrir</a>
-        </div>
-        <?php endforeach; ?>
-    <?php endif; ?>
 </div>
 
-<!-- Culminadas -->
-<?php if ($culminadas): ?>
+<!-- Listado con buscador y orden -->
 <div class="mp-card">
-    <div class="mp-tit">
-        <i class="bi bi-check2-circle" style="color:#2E7D32;"></i> Culminadas
-        <span style="background:#2E7D3222;color:#2E7D32;font-size:12px;padding:2px 9px;border-radius:12px;font-weight:700;">
-            <?= count($culminadas) ?>
-        </span>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <div class="mp-tit" style="margin:0;flex:1;min-width:180px;">
+            <i class="bi bi-hammer"></i> Reconstrucciones
+            <span id="mp-contador" style="background:#eef2fb;color:#22366F;font-size:12px;padding:2px 9px;border-radius:12px;font-weight:700;"></span>
+        </div>
+        <input type="text" id="mp-buscar" class="form-control" style="width:210px;"
+               placeholder="Buscar edificación…" oninput="filtrarLista()">
+        <select id="mp-orden" class="form-control" style="width:190px;" onchange="filtrarLista()">
+            <option value="color">Amarillo, rojo, verde</option>
+            <option value="avance_desc">Mayor avance primero</option>
+            <option value="avance_asc">Menor avance primero</option>
+            <option value="nombre">Por nombre (A-Z)</option>
+        </select>
+        <a href="<?= APP_URL_BASE ?>seguimiento/pdf_mi_parroquia.php?parroquia=<?= urlencode($parr) ?>&estado=<?= urlencode($estadoUsr) ?>"
+           target="_blank" class="btn btn-primary btn-sm">
+            <i class="bi bi-file-earmark-pdf"></i> Informe PDF
+        </a>
     </div>
-    <?php foreach ($culminadas as $ed): ?>
-    <div class="mp-edif">
-        <i class="bi bi-check-circle-fill" style="color:#2E7D32;"></i>
+
+    <div id="mp-lista">
+    <?php
+    recOrdenarPorColor($edifs);
+    foreach ($edifs as $ed):
+        $av = (int)($ed['avance'] ?? 0);
+        $col = $av >= 100 ? '#2E7D32' : ($av >= 75 ? '#5a9e3f' : ($av > 0 ? '#C9A227' : '#97a0b8'));
+        $colorDec = $cat[$ed['decision_final'] ?? '']['color'] ?? '#767c94';
+        $tramo = $av >= 100 ? 'listo' : ($av >= 75 ? 'avanzado' : ($av >= 25 ? 'medio' : ($av > 0 ? 'inicial' : 'sin')));
+    ?>
+    <div class="mp-edif" data-tramo="<?= $tramo ?>" data-avance="<?= $av ?>"
+         data-color="<?= recPrioridadColor($ed['decision_final'] ?? null) ?>"
+         data-nombre="<?= e(mb_strtolower(($ed['nombre'] ?? '') . ' ' . ($ed['codigo'] ?? ''), 'UTF-8')) ?>">
+        <span style="width:11px;height:11px;border-radius:50%;background:<?= $colorDec ?>;flex-shrink:0;"></span>
         <div style="flex:1;min-width:0;">
             <div style="font-weight:600;color:#2a3140;font-size:14px;"><?= e($ed['nombre'] ?? 'Sin nombre') ?></div>
-            <div style="font-size:11px;color:#767c94;"><?= e($ed['codigo'] ?? '') ?></div>
+            <div style="font-size:11px;color:#767c94;">
+                <?= e($ed['codigo'] ?? '') ?><?php if (!empty($ed['ente'])): ?> · <?= e($ed['ente']) ?><?php endif; ?>
+            </div>
         </div>
-        <span class="mp-pct" style="color:#2E7D32;">100%</span>
+        <div class="mp-barra"><div style="width:<?= $av ?>%;height:100%;background:<?= $col ?>;"></div></div>
+        <span class="mp-pct" style="color:<?= $col ?>;"><?= $av ?>%</span>
         <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$ed['id'] ?>"
-           class="btn btn-outline btn-sm">Ver</a>
+           class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i></a>
     </div>
     <?php endforeach; ?>
+    </div>
+    <p id="mp-vacio" class="text-muted" style="display:none;margin:10px 0 0;">Ninguna edificación coincide.</p>
 </div>
-<?php endif; ?>
 
 <!-- Equipo desplegado: responsable + frentes -->
 <div class="mp-card">
@@ -223,5 +255,47 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php endforeach; ?>
+
+<script>
+let _tramoActivo = 'todos';
+
+function filtrarTramo(t) {
+    _tramoActivo = t;
+    document.querySelectorAll('.mp-tramo').forEach(b =>
+        b.classList.toggle('activo', b.dataset.filtro === t));
+    filtrarLista();
+}
+
+function filtrarLista() {
+    const txt = (document.getElementById('mp-buscar').value || '').toLowerCase().trim();
+    const orden = document.getElementById('mp-orden').value;
+    const cont = document.getElementById('mp-lista');
+    const filas = Array.from(cont.querySelectorAll('.mp-edif'));
+
+    let visibles = 0;
+    filas.forEach(f => {
+        const okTramo = _tramoActivo === 'todos' || f.dataset.tramo === _tramoActivo;
+        const okTexto = !txt || (f.dataset.nombre || '').includes(txt);
+        const ver = okTramo && okTexto;
+        f.style.display = ver ? '' : 'none';
+        if (ver) visibles++;
+    });
+
+    // Reordenar solo las visibles
+    const orden_fn = {
+        color: (a,b) => (+a.dataset.color) - (+b.dataset.color)
+                     || (+b.dataset.avance) - (+a.dataset.avance),
+        avance_desc: (a,b) => (+b.dataset.avance) - (+a.dataset.avance),
+        avance_asc:  (a,b) => (+a.dataset.avance) - (+b.dataset.avance),
+        nombre:      (a,b) => (a.dataset.nombre||'').localeCompare(b.dataset.nombre||''),
+    }[orden];
+    filas.sort(orden_fn).forEach(f => cont.appendChild(f));
+
+    document.getElementById('mp-contador').textContent = visibles;
+    document.getElementById('mp-vacio').style.display = visibles ? 'none' : '';
+}
+
+filtrarTramo('todos');
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

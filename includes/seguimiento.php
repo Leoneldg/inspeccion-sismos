@@ -1502,6 +1502,8 @@ function recPanelParroquia(string $estado, string $parroquia): array
     $comenzadas = $st->fetchAll();
 
     // 4) Avance de cada edificación comenzada.
+    //    Se calculan TODOS de una vez (1 consulta) en lugar de una por edificio.
+    $avances = recAvancesDeParroquia($estado, $parroquia);
     $edificaciones = [];
     foreach ($comenzadas as $c) {
         $edificaciones[] = [
@@ -1514,7 +1516,7 @@ function recPanelParroquia(string $estado, string $parroquia): array
             'ente'            => $c['ente_nombre'] ?? null,
             'color'           => $cat[$c['decision_final']]['color'] ?? '#767c94',
             'completado'      => (int)$c['completado'],
-            'avance'          => recAvanceEdificio((int)$c['edificio_id']),
+            'avance'          => $avances[(int)$c['inspeccion_id']] ?? 0,
         ];
     }
 
@@ -1822,6 +1824,83 @@ function recAsegurarTablasAvance(): void
             PRIMARY KEY (id), UNIQUE KEY uq_avance_ambiente (ambiente_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Avance de TODAS las edificaciones de una parroquia en UNA sola consulta.
+ * Evita llamar recAvanceEdificio() cientos de veces (que traeria el arbol
+ * completo de cada edificio). Devuelve [inspeccion_id => porcentaje].
+ *
+ * Respeta la misma jerarquia: ambiente -> apartamento -> piso -> edificio.
+ */
+/**
+ * Prioridad de color para ordenar listados: amarillo, rojo, verde, derrumbado.
+ * Menor numero = va primero.
+ */
+function recPrioridadColor(?string $decisionFinal): int
+{
+    $cat = catalogoDecisionFinal();
+    if ($decisionFinal === 'Derrumbado') return 4;
+    $color = $cat[$decisionFinal ?? '']['color'] ?? '';
+    return match ($color) {
+        '#C9A227' => 1,   // Amarillo
+        '#A61C1C' => 2,   // Rojo
+        '#2E7D32' => 3,   // Verde
+        default   => 5,   // Sin clasificar
+    };
+}
+
+/**
+ * Ordena edificaciones por color (amarillo, rojo, verde, derrumbado)
+ * y dentro de cada grupo por mayor avance.
+ */
+function recOrdenarPorColor(array &$edificaciones): void
+{
+    usort($edificaciones, function ($a, $b) {
+        $pa = recPrioridadColor($a['decision_final'] ?? ($a['decision'] ?? null));
+        $pb = recPrioridadColor($b['decision_final'] ?? ($b['decision'] ?? null));
+        if ($pa !== $pb) return $pa <=> $pb;
+        return ((int)($b['avance'] ?? 0)) <=> ((int)($a['avance'] ?? 0));
+    });
+}
+
+function recAvancesDeParroquia(string $estado, string $parroquia): array
+{
+    recAsegurarTablasAvance();
+    try {
+        $st = db()->prepare("
+            SELECT x.inspeccion_id, ROUND(AVG(x.pct_piso)) AS avance
+            FROM (
+                SELECT re.inspeccion_id, pi.id AS piso_id, AVG(a.pct_apto) AS pct_piso
+                FROM (
+                    SELECT ap.id AS apto_id, ap.piso_id,
+                           COALESCE(
+                               AVG(CASE WHEN am.id IS NOT NULL THEN COALESCE(ava.porcentaje,0) END),
+                               COALESCE(MAX(aa.porcentaje), 0)
+                           ) AS pct_apto
+                      FROM rec_apartamento ap
+                      LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+                      LEFT JOIN rec_avance_ambiente ava ON ava.ambiente_id = am.id
+                      LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
+                     GROUP BY ap.id, ap.piso_id
+                ) a
+                JOIN rec_piso pi ON pi.id = a.piso_id
+                JOIN rec_edificio re ON re.id = pi.edificio_id
+                JOIN inspecciones i ON i.id = re.inspeccion_id
+               WHERE i.estado = :e AND i.parroquia = :p
+               GROUP BY re.inspeccion_id, pi.id
+            ) x
+            GROUP BY x.inspeccion_id
+        ");
+        $st->execute(['e' => $estado, 'p' => $parroquia]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[(int)$r['inspeccion_id']] = (int)$r['avance'];
+        }
+        return $out;
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 function recAvanceEdificio(int $edificioId): int

@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ingresar · <?= e(APP_NAME) ?></title>
+<title>Ingresar · Gestión de Obras Avanzadas</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="<?= APP_URL_BASE ?>assets/css/style.css?v=<?= ASSET_VERSION ?>">
@@ -63,22 +63,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <polyline points="0,400 70,400 95,350 115,440 140,400 500,400" fill="none" stroke="#4d63b0" stroke-width="1.5"/>
         </svg>
         <div class="flex items-center gap-12">
-            <div class="mark"><i class="bi bi-buildings"></i></div>
+            <div class="mark"><i class="bi bi-cone-striped"></i></div>
             <div>
-                <strong style="display:block;font-family:var(--font-display);font-size:16px;">Post-Sismo</strong>
-                <span style="font-size:12px;color:#9fabd6;">Instrumento de inspección estructural</span>
+                <strong style="display:block;font-family:var(--font-display);font-size:16px;">Gestión de Obras Avanzadas</strong>
+                <span style="font-size:12px;color:#9fabd6;">Seguimiento y control de la reconstrucción</span>
             </div>
         </div>
         <div class="quote">
-            Cada edificación evaluada es una decisión que protege vidas. <span>Registre, verifique y clasifique</span> con el mismo protocolo, en todo momento.
+            Cada obra que avanza es una familia que vuelve a casa. <span>Registre, supervise y culmine</span> con el mismo protocolo, en todo momento.
         </div>
-        <div style="font-size:12px;color:#8f9ac2;">© <?= date('Y') ?> · Sistema de Inspección de Edificaciones Afectadas por Sismos</div>
+        <div style="font-size:12px;color:#8f9ac2;">© <?= date('Y') ?> · Gestión de Obras Avanzadas · Reconstrucción de edificaciones</div>
     </div>
 
     <div class="login-panel">
         <div class="login-box">
-            <div class="mark"><i class="bi bi-buildings"></i></div>
-            <h1 style="font-size:22px;">Ingresar al sistema</h1>
+            <div class="mark"><i class="bi bi-cone-striped"></i></div>
+            <h1 style="font-size:21px;">Gestión de Obras Avanzadas</h1>
             <p class="text-muted text-sm" style="margin:6px 0 22px;">Use sus credenciales institucionales para continuar.</p>
 
             <?php if ($error): ?>

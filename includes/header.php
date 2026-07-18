@@ -57,10 +57,10 @@ $flashes = obtenerFlashes();
             <i class="bi bi-chevron-double-left"></i>
         </button>
         <div class="brand">
-            <div class="mark"><i class="bi bi-buildings"></i></div>
+            <div class="mark"><i class="bi bi-cone-striped"></i></div>
             <div class="txt">
-                <strong>Post-Sismo</strong>
-                <span>Inspección de edificaciones</span>
+                <strong>Obras Avanzadas</strong>
+                <span>Seguimiento y control</span>
             </div>
         </div>
 
@@ -94,6 +94,11 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
                 </a>
+                <?php if (usuarioEsMaster()): ?>
+                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar inspecciones de prueba">
+                    <i class="bi bi-trash3"></i> <span>Limpiar pruebas</span>
+                </a>
+                <?php endif; ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/representantes.php" class="nav-item <?= $activeModule==='representantes'?'active':'' ?>" title="Representantes por parroquia">
                     <i class="bi bi-people-fill"></i> <span>Representantes</span>
                 </a>
