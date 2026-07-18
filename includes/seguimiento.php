@@ -308,19 +308,43 @@ function segKpis(): array
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
+
+    // Flujo tipo embudo, todo basado en el AVANCE real de reconstrucción:
+    //   INSPECCIONES   = todas las edificaciones (total).
+    //   RECONSTRUCCIÓN = avance > 0% y < 100%.
+    //   CULMINADAS     = avance = 100%.
+    //   SIN ASIGNAR    = el resto (avance = 0% o sin levantamiento).
+    // El avance de cada edificio = promedio de sus apartamentos (rec_avance_apto).
+    // Se garantiza que: INSPECCIONES = SIN ASIGNAR + RECONSTRUCCIÓN + CULMINADAS.
     $stmt = $pdo->prepare("
         SELECT
             COUNT(*) AS total_edificios,
-            SUM(CASE WHEN so.id IS NULL THEN 1 ELSE 0 END) AS sin_seguimiento,
-            SUM(CASE WHEN so.estado_obra = 'En ejecución' THEN 1 ELSE 0 END) AS en_ejecucion,
-            SUM(CASE WHEN so.estado_obra = 'Culminada' THEN 1 ELSE 0 END) AS culminadas,
-            COALESCE(AVG(so.avance_pct),0) AS avance_promedio
+            SUM(CASE WHEN av.avance > 0 AND av.avance < 100 THEN 1 ELSE 0 END) AS en_ejecucion,
+            SUM(CASE WHEN av.avance >= 100 THEN 1 ELSE 0 END) AS culminadas,
+            SUM(CASE WHEN av.avance IS NULL OR av.avance = 0 THEN 1 ELSE 0 END) AS sin_seguimiento,
+            COALESCE(AVG(av.avance), 0) AS avance_promedio
         FROM inspecciones i
-        LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+        LEFT JOIN (
+            SELECT re.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS avance
+              FROM rec_edificio re
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
+             GROUP BY re.inspeccion_id
+        ) av ON av.inspeccion_id = i.id
         $where
     ");
     $stmt->execute($params);
-    return $stmt->fetch();
+    $r = $stmt->fetch();
+
+    // Blindaje: forzar que la suma cuadre exactamente con el total.
+    // (Si por algún dato raro no sumara, "sin asignar" absorbe la diferencia.)
+    $total = (int)$r['total_edificios'];
+    $recon = (int)$r['en_ejecucion'];
+    $culm  = (int)$r['culminadas'];
+    $r['sin_seguimiento'] = max(0, $total - $recon - $culm);
+
+    return $r;
 }
 
 // =====================================================================

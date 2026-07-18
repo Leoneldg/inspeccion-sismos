@@ -50,6 +50,17 @@ include __DIR__ . '/../includes/header.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <style>
+/* ---- KPIs más grandes y destacados ---- */
+.seg-kpi-num { font-size: 42px !important; font-weight: 800 !important; letter-spacing: -1px; }
+.seg-kpi-lbl { font-size: 13px !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: .5px; color: #55617f; }
+.seg-kpi-ico { width: 52px !important; height: 52px !important; font-size: 24px !important; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.seg-kpi { padding: 18px 20px !important; gap: 14px; align-items: center; }
+.seg-progress-txt { font-size: 20px !important; font-weight: 800 !important; }
+@media (max-width: 640px) {
+    .seg-kpi-num { font-size: 34px !important; }
+    .seg-kpi-ico { width: 44px !important; height: 44px !important; font-size: 20px !important; }
+}
+
 /* ---- Mapa de seguimiento ---- */
 #seg-map { height: 620px; width: 100%; border-radius: 10px; z-index: 1; }
 .seg-map-wrap { position: relative; }
@@ -102,24 +113,24 @@ include __DIR__ . '/../includes/header.php';
 <div class="seg-kpi-grid">
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-buildings-fill"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['total_edificios'] ?></div><div class="seg-kpi-lbl">Inspecciones</div></div>
+        <div><div class="seg-kpi-num"><?= (int)$kpis['total_edificios'] ?></div><div class="seg-kpi-lbl">INSPECCIONES</div></div>
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hourglass-split"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">Reconstrucción</div></div>
+        <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">RECONSTRUCCIÓN</div></div>
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#e5f7ee;color:#2E7D32;"><i class="bi bi-check-circle-fill"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['culminadas'] ?></div><div class="seg-kpi-lbl">Culminadas</div></div>
+        <div><div class="seg-kpi-num"><?= (int)$kpis['culminadas'] ?></div><div class="seg-kpi-lbl">CULMINADAS</div></div>
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#f1f2f6;color:#767c94;"><i class="bi bi-clipboard-x"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['sin_seguimiento'] ?></div><div class="seg-kpi-lbl">Sin seguimiento</div></div>
+        <div><div class="seg-kpi-num"><?= (int)$kpis['sin_seguimiento'] ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
     </div>
     <div class="seg-kpi seg-kpi-wide">
         <div class="seg-kpi-ico" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-graph-up-arrow"></i></div>
         <div style="flex:1;">
-            <div class="seg-kpi-lbl">Avance promedio</div>
+            <div class="seg-kpi-lbl">AVANCE PROMEDIO</div>
             <div class="seg-progress" style="margin-top:6px;">
                 <div class="seg-progress-bar" style="width:<?= round((float)$kpis['avance_promedio']) ?>%;"></div>
                 <span class="seg-progress-txt"><?= round((float)$kpis['avance_promedio']) ?>%</span>
