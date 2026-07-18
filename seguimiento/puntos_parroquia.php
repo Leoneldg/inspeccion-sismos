@@ -26,7 +26,10 @@ try {
     $cat = catalogoDecisionFinal();
     // Sub-asignaciones de la parroquia (una consulta para todos los puntos).
     $subasig = function_exists('asigDeParroquia') ? asigDeParroquia($estado, $parroquia) : [];
-    $filas = segPuntosDeParroquia($estado, $parroquia);
+    // Por defecto solo las que están en reconstrucción (levantamiento
+    // cerrado). Con ?fase=todas se muestran todas las inspecciones.
+    $fase = ($_GET['fase'] ?? 'reconstruccion') === 'todas' ? 'todas' : 'reconstruccion';
+    $filas = segPuntosDeParroquia($estado, $parroquia, $fase);
     $puntos = [];
 
     foreach ($filas as $ed) {

@@ -246,6 +246,13 @@ include __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
+            <div class="field" style="margin:0;">
+                <label class="text-sm">Fase</label>
+                <select id="f-fase" class="form-control" style="width:190px;" onchange="ejecutarBusqueda()">
+                    <option value="obra">EN RECONSTRUCCIÓN</option>
+                    <option value="todas">TODAS LAS INSPECCIONES</option>
+                </select>
+            </div>
             <button class="btn btn-primary" onclick="ejecutarBusqueda()"><i class="bi bi-search"></i> Buscar</button>
             <button class="btn btn-outline" onclick="limpiarBusqueda()"><i class="bi bi-x-circle"></i> Limpiar</button>
             <a href="<?= APP_URL_BASE ?>seguimiento/entes.php" class="btn btn-outline"><i class="bi bi-building-gear"></i> Entes</a>
@@ -264,10 +271,18 @@ include __DIR__ . '/../includes/header.php';
 <!-- Mapa -->
 <div class="card">
     <div class="card-header">
-        <?php $totalConteo = array_sum(array_map(fn($c) => (int)$c['total'], $conteoParroquias)); ?>
-        <h2><i class="bi bi-geo-alt-fill"></i> Mapa de recuperación (<?= $totalConteo ?>)</h2>
+        <?php
+        $totalConteo = array_sum(array_map(fn($c) => (int)$c['total'], $conteoParroquias));
+        $totalObra   = array_sum(array_map(fn($c) => (int)($c['en_obra'] ?? 0), $conteoParroquias));
+        ?>
+        <h2><i class="bi bi-geo-alt-fill"></i> Mapa de reconstrucción (<?= $totalObra ?>)</h2>
         <span class="text-sm text-muted">
-            <i class="bi bi-geo"></i> <?= count($conteoParroquias) ?> parroquias con edificaciones
+            <i class="bi bi-hammer"></i> Edificaciones con levantamiento cerrado
+            <?php if ($totalConteo > $totalObra): ?>
+            · <span title="Las inspecciones sin levantamiento no se muestran en el mapa">
+                <?= number_format($totalConteo - $totalObra) ?> inspecciones aún sin levantamiento
+            </span>
+            <?php endif; ?>
         </span>
     </div>
 
@@ -745,6 +760,7 @@ CONTEO_PARROQUIAS.forEach(c => {
     if (CONTEO_IDX[k]) {
         CONTEO_IDX[k] = Object.assign({}, CONTEO_IDX[k], {
             total: (parseInt(CONTEO_IDX[k].total) || 0) + (parseInt(c.total) || 0),
+            en_obra: (parseInt(CONTEO_IDX[k].en_obra) || 0) + (parseInt(c.en_obra) || 0),
         });
     } else {
         CONTEO_IDX[k] = c;
@@ -781,7 +797,10 @@ let parroquiaActiva = null;
                     // Etiqueta de la parroquia. Si no tiene edificaciones, igual
                     // se muestra el nombre para que no parezca que falta del mapa.
                     const c = CONTEO_IDX[normTxt(nombre)];
-                    const total = c ? parseInt(c.total) : 0;
+                    // El mapa muestra las que están en reconstrucción, no
+                    // todas las inspecciones: así se ve el avance real.
+                    const total = c ? (parseInt(c.en_obra) || 0) : 0;
+                    const totalInsp = c ? (parseInt(c.total) || 0) : 0;
 
                     if (total === 0) {
                         const centro0 = layer.getBounds().getCenter();
@@ -898,6 +917,7 @@ async function ejecutarBusqueda() {
     const enteId = document.getElementById('f-ente').value;
     const color = document.getElementById('f-color').value;
     const uso = document.getElementById('f-uso').value;
+    const fase = document.getElementById('f-fase').value;
 
     if (!q && !parroquia && !enteId && !color && !uso) { limpiarBusqueda(); return; }
 
@@ -911,7 +931,8 @@ async function ejecutarBusqueda() {
                   + '&estado=' + encodeURIComponent(estado)
                   + '&ente_id=' + encodeURIComponent(enteId)
                   + '&color=' + encodeURIComponent(color)
-                  + '&uso=' + encodeURIComponent(uso);
+                  + '&uso=' + encodeURIComponent(uso)
+                  + '&fase=' + encodeURIComponent(fase);
         const res = await fetch(url);
         const d = await res.json();
         if (!d.ok) { cont.innerHTML = '<p class="text-muted" style="margin:0;">' + (d.mensaje || 'Error.') + '</p>'; return; }
@@ -965,6 +986,7 @@ function dibujarPuntosEnMapa(puntos) {
 function limpiarBusqueda() {
     document.getElementById('f-buscar').value = '';
     document.getElementById('f-parroquia').value = '';
+    const ff = document.getElementById('f-fase'); if (ff) ff.value = 'obra';
     document.getElementById('f-resultados').style.display = 'none';
     document.getElementById('f-resultados').innerHTML = '';
     capaPuntos.clearLayers();

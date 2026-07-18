@@ -3356,13 +3356,18 @@ function segConteoPorParroquia(): array
     aplicarScopeParroquia($conds, $params, 'i');
     $where = 'WHERE ' . implode(' AND ', $conds);
 
+    // "total" sigue siendo el total de inspecciones, para no perder el dato.
+    // "en_obra" cuenta solo las que tienen el levantamiento cerrado: es lo
+    // que se muestra en el mapa, porque son las que están en reconstrucción.
     $sql = "SELECT i.estado, i.parroquia,
                    COUNT(*) AS total,
+                   SUM(CASE WHEN re.completado = 1 THEN 1 ELSE 0 END) AS en_obra,
                    SUM(i.decision_final = 'Edificación Insegura - Acceso No Permitido') AS rojos,
                    SUM(i.decision_final = 'Acceso Restringido - Precaución al Entrar') AS amarillos,
                    SUM(i.decision_final = 'Edificación Inspeccionada - Acceso Permitido') AS verdes,
                    SUM(i.decision_final = 'Derrumbado') AS derrumbados
               FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
               $where
              GROUP BY i.estado, i.parroquia";
     $st = $pdo->prepare($sql);
@@ -3374,13 +3379,28 @@ function segConteoPorParroquia(): array
  * Puntos (edificaciones) de UNA parroquia. Se carga bajo demanda cuando
  * el usuario selecciona la parroquia en el mapa, para no dibujar miles a la vez.
  */
-function segPuntosDeParroquia(string $estado, string $parroquia): array
+/**
+ * Puntos de una parroquia para el mapa.
+ *
+ * $fase controla qué se muestra:
+ *   'reconstruccion' (por defecto) → solo las que tienen el levantamiento
+ *                                    CERRADO, que son las que están en obra.
+ *   'todas'                        → todas las inspecciones.
+ *
+ * Por defecto se ocultan las inspecciones sin levantamiento: con miles de
+ * registros el mapa quedaba ilegible y no se distinguía el avance real.
+ */
+function segPuntosDeParroquia(string $estado, string $parroquia, string $fase = 'reconstruccion'): array
 {
     $pdo = db();
     $conds = ['i.parroquia = :p', 'i.estado = :e'];
     $params = ['p' => $parroquia, 'e' => $estado];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
+
+    if ($fase === 'reconstruccion') {
+        $conds[] = 're.completado = 1';
+    }
     $where = 'WHERE ' . implode(' AND ', $conds);
 
     $sql = "SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio,

@@ -22,6 +22,8 @@ try {
     $color     = trim($_GET['color'] ?? '');
     $uso       = trim($_GET['uso'] ?? '');
     $soloId    = (int)($_GET['id'] ?? 0);   // para abrir una edificación concreta
+    // Fase: 'obra' = solo con levantamiento cerrado, 'todas' = todas.
+    $fase      = trim($_GET['fase'] ?? 'obra');
 
     if ($soloId <= 0 && $q === '' && $parroquia === '' && $enteId === '' && $color === '' && $uso === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
@@ -33,6 +35,11 @@ try {
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
+
+    // Por defecto se buscan solo las que están en reconstrucción.
+    if ($soloId <= 0 && $fase !== 'todas') {
+        $conds[] = 're.completado = 1';
+    }
 
     if ($soloId > 0) {
         $conds[] = 'i.id = :solo_id';
