@@ -340,6 +340,31 @@ include __DIR__ . '/../includes/header.php';
                 <!-- Apartamentos de este piso -->
                 <div class="bloque-tit" style="margin-top:20px;"><i class="bi bi-door-open"></i> Apartamentos de este piso</div>
                 <p class="sub" style="margin:0 0 10px;">Los apartamentos se generan solos con nomenclatura <b>Piso-Letra</b> (ej: <?= (int)$piso['numero_piso'] ?>-A, <?= (int)$piso['numero_piso'] ?>-B…).</p>
+
+                <?php if ($puedeEditar): ?>
+                <!-- Ajustar la cantidad: no todos los pisos tienen los mismos apartamentos -->
+                <div class="apto-generador" style="margin-bottom:12px;padding:11px 13px;background:#f7f9fd;border-radius:9px;">
+                    <label class="text-sm" style="display:block;margin-bottom:6px;">
+                        Este piso tiene <b class="apto-actual"><?= (int)($ed['aptos_por_piso'] ?: 1) ?></b> apartamento(s).
+                        Si es diferente, ajuste la cantidad y regenere:
+                    </label>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input type="number" class="form-control apto-cantidad" min="1" max="100"
+                               value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>"
+                               data-num="<?= (int)$piso['numero_piso'] ?>" style="width:100px;">
+                        <button type="button" class="btn btn-outline btn-sm"
+                                onclick="regenerarAptos(this, <?= (int)$piso['id'] ?>, <?= (int)$piso['numero_piso'] ?>)">
+                            <i class="bi bi-arrow-repeat"></i> Regenerar apartamentos
+                        </button>
+                        <span class="apto-msg text-sm" style="margin-left:4px;"></span>
+                    </div>
+                    <div class="text-sm" style="color:#8a6d1a;margin-top:6px;font-size:12px;">
+                        <i class="bi bi-info-circle"></i>
+                        Si reduce la cantidad, se eliminan los apartamentos sobrantes con sus datos.
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="apto-lista"></div>
 
             </div>
@@ -626,6 +651,63 @@ async function guardarPisoAhora(pisoId) {
 }
 
 // ================= APARTAMENTOS (dentro de cada piso) =================
+// Regenera los apartamentos de un piso con la cantidad indicada.
+// Si se reduce, el servidor elimina los sobrantes con sus datos.
+async function regenerarAptos(btn, pisoId, numeroPiso) {
+    const card = document.getElementById('piso-panel-' + pisoId);
+    if (!card) return;
+    const input = card.querySelector('.apto-cantidad');
+    const msg = card.querySelector('.apto-msg');
+    const cantidad = parseInt(input.value) || 0;
+
+    if (cantidad < 1 || cantidad > 100) {
+        msg.textContent = 'Indique entre 1 y 100.';
+        msg.style.color = '#A61C1C';
+        return;
+    }
+
+    // Si va a eliminar apartamentos, pedir confirmación explícita.
+    const actuales = card.querySelectorAll('.apto-lista .apto-card').length;
+    if (actuales > 0 && cantidad < actuales) {
+        const van = actuales - cantidad;
+        const ok = confirm('Se eliminarán ' + van + ' apartamento(s) con sus ambientes, '
+            + 'avances y fotos.\n\nEsta acción no se puede deshacer. ¿Continuar?');
+        if (!ok) { input.value = actuales; return; }
+    }
+
+    btn.disabled = true;
+    msg.textContent = 'Regenerando…';
+    msg.style.color = '#5b6478';
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ accion:'generar', piso_id: pisoId,
+                                   cantidad: cantidad, numero_piso: numeroPiso })
+        });
+        const data = await res.json();
+        if (data.sesion_expirada) { alert(data.mensaje); return; }
+        if (!data.ok) {
+            msg.textContent = data.mensaje || 'No se pudo regenerar.';
+            msg.style.color = '#A61C1C';
+            return;
+        }
+        const lista = card.querySelector('.apto-lista');
+        lista.innerHTML = '';
+        (data.apartamentos || []).forEach(a => pintarApartamento(a, lista));
+        const actual = card.querySelector('.apto-actual');
+        if (actual) actual.textContent = (data.apartamentos || []).length;
+        msg.textContent = '✓ ' + (data.apartamentos || []).length + ' apartamento(s)';
+        msg.style.color = '#2E7D32';
+        setTimeout(() => { msg.textContent = ''; }, 3000);
+    } catch (e) {
+        msg.textContent = 'Sin conexión. Intente de nuevo.';
+        msg.style.color = '#A61C1C';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 function pintarApartamento(a, lista) {
     const card = document.createElement('div');
     card.className = 'apto-card';

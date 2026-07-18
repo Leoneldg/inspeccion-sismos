@@ -1058,8 +1058,10 @@ function recApartamentos(int $pisoId): array
 function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): array
 {
     $existentes = recApartamentos($pisoId);
-    $faltan = $cantidad - count($existentes);
-    for ($i = count($existentes) + 1; $i <= $cantidad; $i++) {
+    $n = count($existentes);
+
+    // Crear los que falten.
+    for ($i = $n + 1; $i <= $cantidad; $i++) {
         // Identificador tipo "3-A", "3-B"… (piso + letra)
         $letra = chr(64 + $i); // A, B, C…
         $ident = $numeroPiso . '-' . ($i <= 26 ? $letra : $i);
@@ -1067,7 +1069,54 @@ function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): ar
             'INSERT INTO rec_apartamento (piso_id, identificador) VALUES (:p, :id)'
         )->execute(['p' => $pisoId, 'id' => $ident]);
     }
+
+    // Si se redujo la cantidad, eliminar los sobrantes (los últimos)
+    // junto con sus ambientes, avances y fotos, para no dejar basura.
+    if ($cantidad < $n) {
+        $sobrantes = array_slice($existentes, $cantidad);
+        foreach ($sobrantes as $ap) {
+            recEliminarApartamento((int)$ap['id']);
+        }
+    }
+
     return recApartamentos($pisoId);
+}
+
+/**
+ * Elimina un apartamento con todo lo que cuelga de él:
+ * ambientes, avances y fotos (incluidos los archivos en disco).
+ */
+function recEliminarApartamento(int $apartamentoId): void
+{
+    $pdo = db();
+    try {
+        // Ambientes del apartamento.
+        $st = $pdo->prepare('SELECT id FROM rec_ambiente WHERE apartamento_id = :a');
+        $st->execute(['a' => $apartamentoId]);
+        $ambIds = $st->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+        // Fotos (archivo + registro).
+        $niveles = ['apartamento' => [$apartamentoId], 'ambiente' => $ambIds];
+        foreach ($niveles as $nivel => $ids) {
+            if (!$ids) continue;
+            $in = implode(',', array_map('intval', $ids));
+            $fotos = $pdo->query("SELECT ruta FROM rec_foto WHERE nivel='$nivel' AND ref_id IN ($in)")->fetchAll();
+            foreach ($fotos as $f) {
+                $abs = dirname(__DIR__) . '/' . ltrim($f['ruta'], '/');
+                if (is_file($abs)) @unlink($abs);
+            }
+            $pdo->exec("DELETE FROM rec_foto WHERE nivel='$nivel' AND ref_id IN ($in)");
+        }
+
+        if ($ambIds) {
+            $in = implode(',', array_map('intval', $ambIds));
+            try { $pdo->exec("DELETE FROM rec_avance_ambiente WHERE ambiente_id IN ($in)"); } catch (Throwable $e) {}
+            try { $pdo->exec("DELETE FROM rec_reparacion WHERE nivel='ambiente' AND ref_id IN ($in)"); } catch (Throwable $e) {}
+            $pdo->exec("DELETE FROM rec_ambiente WHERE id IN ($in)");
+        }
+        try { $pdo->prepare('DELETE FROM rec_avance_apto WHERE apartamento_id = :a')->execute(['a' => $apartamentoId]); } catch (Throwable $e) {}
+        $pdo->prepare('DELETE FROM rec_apartamento WHERE id = :a')->execute(['a' => $apartamentoId]);
+    } catch (Throwable $e) { /* no interrumpir la regeneración */ }
 }
 
 /** Actualiza las cantidades de ambientes de un apartamento y los genera. */
