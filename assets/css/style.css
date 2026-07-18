@@ -1820,3 +1820,53 @@ body.sidebar-collapsed .sidebar .nav-group-items { max-height: none !important; 
     body { overflow-x: hidden; }
     .card-body { padding: 14px !important; }
 }
+
+/* =====================================================================
+   ACCESIBILIDAD — legibilidad para todas las edades
+   Ningun texto informativo por debajo de 12px, y contraste suficiente.
+   ===================================================================== */
+
+/* Texto atenuado: se sube el contraste (antes fallaba WCAG). */
+.text-muted { color: #5b6478 !important; }
+
+/* Nada de letra diminuta en informacion util. */
+.text-sm { font-size: 13px !important; }
+
+/* Etiquetas y ayudas: minimo legible. */
+label, .field label { font-size: 13.5px; }
+
+/* Chips e indicadores pequenos: se suben a un tamano legible. */
+.lp-chip, .ss-chip, .mp-tramo .l { font-size: 11.5px !important; }
+
+/* Clasificacion accesible: forma + letra, no solo color.
+   Asi se distingue impreso en blanco y negro o con daltonismo. */
+.clas-letra {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: 2px solid; border-radius: 5px;
+    font-weight: 800; font-size: 12px; flex-shrink: 0; line-height: 1;
+}
+
+/* Foco visible al navegar con teclado. */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible {
+    outline: 3px solid #22366F; outline-offset: 2px;
+}
+
+/* Respeta a quien pide menos animacion en su sistema. */
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+}
+
+/* Modo alto contraste del sistema operativo. */
+@media (prefers-contrast: more) {
+    .text-muted { color: #333 !important; }
+    .card, .fs-card, .mp-card { border: 1px solid #22366F; }
+}
+
+/* Al IMPRIMIR desde el navegador. */
+@media print {
+    .sidebar, .topbar, .btn, .nav-item, nav { display: none !important; }
+    body { font-size: 12pt; color: #000; }
+    .card, .mp-card, .fs-card { box-shadow: none; border: 1px solid #999; page-break-inside: avoid; }
+    a[href]::after { content: ""; }  /* no imprimir las URLs */
+}

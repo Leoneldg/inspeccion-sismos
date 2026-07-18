@@ -87,6 +87,9 @@ try {
     $st->execute($params);
 
     $cat = catalogoDecisionFinal();
+    // Sub-asignaciones (si se filtró por parroquia, se cargan de esa).
+    $subasig = ($parroquia !== '' && function_exists('asigDeParroquia'))
+        ? asigDeParroquia($estado ?: 'Distrito Capital', $parroquia) : [];
     $puntos = [];
     foreach ($st->fetchAll() as $ed) {
         $lat = $ed['latitud'] ?? null;
@@ -117,6 +120,7 @@ try {
             'personas'      => (int)($ed['numero_personas'] ?? 0),
             'fecha'         => $ed['fecha_inspeccion'] ?: '—',
             'ente'          => $ed['ente_nombre'] ?: null,
+            'miembro'       => $subasig[(int)$ed['inspeccion_id']]['gdc'] ?? null,
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,
             'fase'          => $fase,

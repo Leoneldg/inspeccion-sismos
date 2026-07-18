@@ -44,6 +44,11 @@ include __DIR__ . '/../includes/header.php';
 <style>
 .hidden { display: none !important; }
 .piso-h:hover { background: #f7f9fd; }
+.fs-pasos { display:flex; gap:10px; flex-wrap:wrap; }
+.fs-paso { flex:1; min-width:170px; display:flex; align-items:center; gap:9px;
+           background:#fff; border-radius:9px; padding:10px 12px; font-size:13.5px; color:#2a3140; }
+.fs-num { flex-shrink:0; width:26px; height:26px; border-radius:50%; background:#22366F;
+          color:#fff; font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; }
 .fs-apto-fila:hover { background: #f4f7fd; }
 .btn-foto-mini {
     background: #fff; border: 1px solid #dbe0ec; color: #2d4488;
@@ -139,6 +144,38 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
 
+    <!-- Guía de uso, visible para cualquiera -->
+    <?php if ($puedeCargar): ?>
+    <div class="fs-card" style="background:#f4f7fd;padding:14px 18px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:8px;font-size:15px;">
+            <i class="bi bi-signpost-split-fill"></i> Cómo registrar el avance
+        </div>
+        <div class="fs-pasos">
+            <div class="fs-paso">
+                <span class="fs-num">1</span>
+                <span>Toque un <strong>piso</strong> para abrirlo.</span>
+            </div>
+            <div class="fs-paso">
+                <span class="fs-num">2</span>
+                <span>Toque un <strong>apartamento</strong> para ver sus ambientes.</span>
+            </div>
+            <div class="fs-paso">
+                <span class="fs-num">3</span>
+                <span>Tome la <strong>foto</strong> del trabajo hecho.</span>
+            </div>
+            <div class="fs-paso">
+                <span class="fs-num">4</span>
+                <span>Mueva la <strong>barra</strong> según lo avanzado.</span>
+            </div>
+        </div>
+        <div style="font-size:12.5px;color:#5b6478;margin-top:10px;padding-top:8px;border-top:1px solid #dde3ef;">
+            <i class="bi bi-info-circle"></i>
+            El porcentaje se suma solo: los ambientes forman el del apartamento,
+            los apartamentos el del piso, y los pisos el del edificio.
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Pisos y apartamentos -->
     <div id="fs-pisos"><p class="text-muted">Cargando pisos…</p></div>
 </div>
@@ -186,8 +223,17 @@ function pintarBarraGlobal(pct) {
 
 function colorPct(p) {
     if (p >= 100) return '#2E7D32';
-    if (p > 0)    return '#C9A227';
-    return '#97a0b8';
+    if (p > 0)    return '#a8871f';
+    return '#5b6478';
+}
+
+// Texto claro del avance, para quien no interpreta bien los porcentajes.
+function textoPct(p) {
+    if (p >= 100) return 'Terminado';
+    if (p >= 75)  return 'Casi listo';
+    if (p >= 25)  return 'En proceso';
+    if (p > 0)    return 'Comenzado';
+    return 'Sin comenzar';
 }
 
 // Lista de pisos con su % (desplegable a apartamentos).
@@ -320,7 +366,7 @@ function filaAmbiente(am, aptoId, pisoId) {
                    </div>`;
     } else if (am.tiene_foto_durante) {
         control = `<input type="range" min="0" max="100" step="5" value="${am.avance}" style="width:140px;"
-                      oninput="document.getElementById('pct-amb-${am.id}').textContent=this.value+'%'"
+                      oninput="document.getElementById('pct-amb-${am.id}').textContent=this.value+'%';document.getElementById('txt-amb-${am.id}').textContent=textoPct(+this.value)"
                       onchange="guardarAvanceAmbiente(${am.id}, this.value, ${aptoId}, ${pisoId})">`;
     } else {
         control = `<button type="button" class="btn btn-outline btn-sm" onclick="subirDuranteAmbiente(${am.id})">
@@ -331,12 +377,15 @@ function filaAmbiente(am, aptoId, pisoId) {
     return `
         <div class="fs-amb-fila" style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #f4f6fa;">
             <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;color:#2a3140;font-weight:600;">${am.etiqueta} ${rep}</div>
+                <div style="font-size:15px;color:#2a3140;font-weight:700;">${am.etiqueta} ${rep}</div>
                 <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">${antes}${durante}</div>
             </div>
             ${control}
-            <span style="font-weight:700;color:${colorPct(am.avance)};min-width:42px;text-align:right;font-size:13px;"
-                  id="pct-amb-${am.id}">${am.avance}%</span>
+            <div style="min-width:78px;text-align:right;">
+                <div style="font-weight:800;color:${colorPct(am.avance)};font-size:15px;"
+                     id="pct-amb-${am.id}">${am.avance}%</div>
+                <div style="font-size:11.5px;color:#5b6478;" id="txt-amb-${am.id}">${textoPct(am.avance)}</div>
+            </div>
         </div>`;
 }
 
@@ -345,6 +394,8 @@ async function guardarAvanceAmbiente(ambienteId, valor, aptoId, pisoId) {
     const pct = parseInt(valor);
     const lbl = document.getElementById('pct-amb-' + ambienteId);
     if (lbl) { lbl.textContent = pct + '%'; lbl.style.color = colorPct(pct); }
+    const txt = document.getElementById('txt-amb-' + ambienteId);
+    if (txt) txt.textContent = textoPct(pct);
 
     // Actualizar en memoria
     let ap = null;

@@ -34,6 +34,7 @@ foreach ($misParroquias as $parr) {
     $panel['resumen_aptos'] = recResumenAptosParroquia($estadoUsr, $parr);
     $panel['asignaciones']  = asigDeParroquia($estadoUsr, $parr);
     $panel['carga_gdc']     = asigCargaPorMiembro($estadoUsr, $parr, 'gdc');
+    $panel['progreso_gdc']  = asigProgresoPorMiembro($estadoUsr, $parr, 'gdc');
     $datos[$parr] = $panel;
 }
 
@@ -65,6 +66,18 @@ include __DIR__ . '/../includes/header.php';
 .mp-tramo.activo { background:#eef2fb; box-shadow:0 0 0 3px #22366F22; }
 .mp-tramo .n { font-size:26px; font-weight:800; line-height:1; }
 .mp-tramo .l { font-size:10px; text-transform:uppercase; letter-spacing:.3px; color:#55617f; margin-top:3px; }
+.mp-personas { display:flex; gap:10px; flex-wrap:wrap; }
+.mp-persona {
+    flex:1; min-width:230px; background:#fff; border:2px solid #e5e8f0; border-radius:11px;
+    padding:12px 14px; cursor:pointer; text-align:left; transition:all .15s; font-family:inherit;
+}
+.mp-persona:hover { background:#f7f9fd; border-color:#2d448855; transform:translateY(-1px); }
+.mp-persona-cab { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.mp-persona-nom { font-weight:700; color:#22366F; font-size:14.5px; }
+.mp-persona-pct { font-weight:800; font-size:20px; }
+.mp-persona-barra { background:#eef0f6; border-radius:20px; height:12px; overflow:hidden; margin:8px 0 7px; border:1px solid #dde3ef; }
+.mp-persona-barra > div { height:100%; transition:width .3s; }
+.mp-persona-det { display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:#3a4256; }
 .mp-mini { font-size:10px; padding:2px 8px; border-radius:10px; background:#eef2fb; color:#55617f;
            display:inline-flex; align-items:center; gap:4px; }
 .mp-btn-asig { border:1px dashed #C9A227; background:#fff; color:#8a6d1a; cursor:pointer; }
@@ -166,20 +179,35 @@ foreach ($edifs as $e) {
 </div>
 
 <!-- Carga de trabajo por integrante del equipo GDC -->
-<?php $carga = $d['carga_gdc'] ?? []; ?>
-<?php if ($carga): ?>
+<?php $prog = $d['progreso_gdc'] ?? []; ?>
+<?php if ($prog): ?>
 <div class="mp-card">
-    <div class="mp-tit"><i class="bi bi-person-workspace"></i> Carga por integrante (equipo GDC)</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <?php foreach ($carga as $miembro => $n): ?>
-        <button type="button" class="mp-tramo" style="min-width:110px;border-color:#2d448833;"
-                onclick="buscarMiembro('<?= e(addslashes($miembro)) ?>')">
-            <div class="n" style="color:#2d4488;font-size:22px;"><?= (int)$n ?></div>
-            <div class="l"><?= e($miembro) ?></div>
+    <div class="mp-tit"><i class="bi bi-person-workspace"></i> Progreso por integrante del equipo</div>
+    <p class="text-sm text-muted" style="margin:-4px 0 12px;">
+        Toque un nombre para ver solo sus edificaciones.
+    </p>
+    <div class="mp-personas">
+        <?php foreach ($prog as $miembro => $pr):
+            $av = (int)$pr['avance'];
+            $col = $av >= 100 ? '#2E7D32' : ($av >= 75 ? '#5a9e3f' : ($av > 0 ? '#a8871f' : '#5b6478'));
+        ?>
+        <button type="button" class="mp-persona" onclick="buscarMiembro('<?= e(addslashes($miembro)) ?>')">
+            <div class="mp-persona-cab">
+                <span class="mp-persona-nom"><i class="bi bi-person-fill"></i> <?= e($miembro) ?></span>
+                <span class="mp-persona-pct" style="color:<?= $col ?>;"><?= $av ?>%</span>
+            </div>
+            <div class="mp-persona-barra">
+                <div style="width:<?= $av ?>%;background:<?= $col ?>;"></div>
+            </div>
+            <div class="mp-persona-det">
+                <span><strong><?= (int)$pr['total'] ?></strong> asignadas</span>
+                <span style="color:#2E7D32;"><strong><?= (int)$pr['culminadas'] ?></strong> listas</span>
+                <span style="color:#a8871f;"><strong><?= (int)$pr['en_proceso'] ?></strong> en obra</span>
+                <span style="color:#5b6478;"><strong><?= (int)$pr['sin_comenzar'] ?></strong> sin iniciar</span>
+            </div>
         </button>
         <?php endforeach; ?>
     </div>
-    <p class="text-sm text-muted" style="margin:8px 0 0;">Toque un nombre para ver sus edificaciones.</p>
 </div>
 <?php endif; ?>
 
@@ -209,6 +237,14 @@ foreach ($edifs as $e) {
         </a>
     </div>
 
+    <div style="background:#f4f7fd;border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:12.5px;color:#3a4256;">
+        <strong>Cómo leer la lista:</strong>
+        <span class="clas-letra" style="color:#C9A227;border-color:#C9A227;width:20px;height:20px;font-size:11px;">A</span> amarillo, precaución &nbsp;
+        <span class="clas-letra" style="color:#A61C1C;border-color:#A61C1C;width:20px;height:20px;font-size:11px;">R</span> rojo, no entrar &nbsp;
+        <span class="clas-letra" style="color:#2E7D32;border-color:#2E7D32;width:20px;height:20px;font-size:11px;">V</span> verde, habitable &nbsp;
+        <span class="clas-letra" style="color:#2B2B2B;border-color:#2B2B2B;width:20px;height:20px;font-size:11px;">D</span> derrumbada
+    </div>
+
     <div id="mp-lista">
     <?php
     recOrdenarPorColor($edifs);
@@ -216,6 +252,7 @@ foreach ($edifs as $e) {
         $av = (int)($ed['avance'] ?? 0);
         $col = $av >= 100 ? '#2E7D32' : ($av >= 75 ? '#5a9e3f' : ($av > 0 ? '#C9A227' : '#97a0b8'));
         $colorDec = $cat[$ed['decision_final'] ?? '']['color'] ?? '#767c94';
+        $sim = recSimboloDecision($ed['decision_final'] ?? null);
         $tramo = $av >= 100 ? 'listo' : ($av >= 75 ? 'avanzado' : ($av >= 25 ? 'medio' : ($av > 0 ? 'inicial' : 'sin')));
     ?>
     <?php
@@ -228,10 +265,11 @@ foreach ($edifs as $e) {
          data-color="<?= recPrioridadColor($ed['decision_final'] ?? null) ?>"
          data-asignado="<?= $resp ? '1' : '0' ?>"
          data-nombre="<?= e(mb_strtolower(($ed['nombre'] ?? '') . ' ' . ($ed['codigo'] ?? '') . ' ' . ($resp ?? ''), 'UTF-8')) ?>">
-        <span style="width:11px;height:11px;border-radius:50%;background:<?= $colorDec ?>;flex-shrink:0;"></span>
+        <span class="clas-letra" style="color:<?= $sim['color'] ?>;border-color:<?= $sim['color'] ?>;"
+              title="<?= e($sim['texto']) ?>"><?= $sim['letra'] ?></span>
         <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;color:#2a3140;font-size:14px;"><?= e($ed['nombre'] ?? 'Sin nombre') ?></div>
-            <div style="font-size:11px;color:#767c94;">
+            <div style="font-weight:600;color:#2a3140;font-size:15px;"><?= e($ed['nombre'] ?? 'Sin nombre') ?></div>
+            <div style="font-size:12.5px;color:#5b6478;">
                 <?= e($ed['codigo'] ?? '') ?><?php if (!empty($ed['ente'])): ?> · <?= e($ed['ente']) ?><?php endif; ?>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center;">

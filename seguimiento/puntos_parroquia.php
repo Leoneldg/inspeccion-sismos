@@ -24,6 +24,8 @@ try {
     }
 
     $cat = catalogoDecisionFinal();
+    // Sub-asignaciones de la parroquia (una consulta para todos los puntos).
+    $subasig = function_exists('asigDeParroquia') ? asigDeParroquia($estado, $parroquia) : [];
     $filas = segPuntosDeParroquia($estado, $parroquia);
     $puntos = [];
 
@@ -58,6 +60,7 @@ try {
             'personas'      => (int)($ed['numero_personas'] ?? 0),
             'fecha'         => $ed['fecha_inspeccion'] ?: '—',
             'ente'          => $ed['ente_nombre'] ?: null,
+            'miembro'       => $subasig[(int)$ed['inspeccion_id']]['gdc'] ?? null,
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,
             'fase'          => $fase,

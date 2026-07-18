@@ -1928,6 +1928,51 @@ function asigDeParroquia(string $estado, string $parroquia): array
     } catch (Throwable $e) { return []; }
 }
 
+/**
+ * Progreso de cada integrante en una parroquia.
+ * Devuelve, por persona: cuantas edificaciones tiene, cuantas culminadas,
+ * cuantas en proceso, cuantas sin comenzar y su avance promedio.
+ */
+function asigProgresoPorMiembro(string $estado, string $parroquia, ?string $tipo = 'gdc'): array
+{
+    asigAsegurarTabla();
+    $avances = recAvancesDeParroquia($estado, $parroquia);
+    try {
+        $sql = 'SELECT af.miembro, af.inspeccion_id
+                  FROM asignacion_frente af
+                  JOIN inspecciones i ON i.id = af.inspeccion_id
+                 WHERE i.estado = :e AND i.parroquia = :p';
+        $params = ['e' => $estado, 'p' => $parroquia];
+        if ($tipo !== null && $tipo !== '') {
+            $sql .= ' AND af.frente_tipo = :t';
+            $params['t'] = $tipo;
+        }
+        $st = db()->prepare($sql);
+        $st->execute($params);
+
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $m = $r['miembro'];
+            $pct = (int)($avances[(int)$r['inspeccion_id']] ?? 0);
+            if (!isset($out[$m])) {
+                $out[$m] = ['total' => 0, 'culminadas' => 0, 'en_proceso' => 0,
+                            'sin_comenzar' => 0, 'suma' => 0, 'avance' => 0];
+            }
+            $out[$m]['total']++;
+            $out[$m]['suma'] += $pct;
+            if ($pct >= 100)     $out[$m]['culminadas']++;
+            elseif ($pct > 0)    $out[$m]['en_proceso']++;
+            else                 $out[$m]['sin_comenzar']++;
+        }
+        foreach ($out as $m => $d) {
+            $out[$m]['avance'] = $d['total'] > 0 ? (int)round($d['suma'] / $d['total']) : 0;
+        }
+        // Mayor avance primero.
+        uasort($out, fn($a, $b) => $b['avance'] <=> $a['avance']);
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
 /** Carga de trabajo por integrante en una parroquia: [miembro => n edificios] */
 function asigCargaPorMiembro(string $estado, string $parroquia, ?string $tipo = 'gdc'): array
 {
@@ -1994,6 +2039,32 @@ function recResumenAptosParroquia(string $estado, string $parroquia): array
         }
         return $out;
     } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Simbolo y etiqueta accesible de cada clasificacion.
+ * El color por si solo no basta: al imprimir en blanco y negro el rojo y el
+ * verde se ven casi iguales, y hay personas que no distinguen colores.
+ * Por eso cada clasificacion lleva ademas una FORMA y una LETRA.
+ */
+function recSimboloDecision(?string $decisionFinal): array
+{
+    $cat = catalogoDecisionFinal();
+    if ($decisionFinal === 'Derrumbado') {
+        return ['letra' => 'D', 'forma' => '■', 'icono' => 'bi-x-octagon-fill',
+                'color' => '#2B2B2B', 'texto' => 'DERRUMBADO'];
+    }
+    $color = $cat[$decisionFinal ?? '']['color'] ?? '';
+    return match ($color) {
+        '#C9A227' => ['letra' => 'A', 'forma' => '▲', 'icono' => 'bi-exclamation-triangle-fill',
+                      'color' => '#C9A227', 'texto' => 'AMARILLO'],
+        '#A61C1C' => ['letra' => 'R', 'forma' => '✕', 'icono' => 'bi-x-circle-fill',
+                      'color' => '#A61C1C', 'texto' => 'ROJO'],
+        '#2E7D32' => ['letra' => 'V', 'forma' => '●', 'icono' => 'bi-check-circle-fill',
+                      'color' => '#2E7D32', 'texto' => 'VERDE'],
+        default   => ['letra' => '?', 'forma' => '○', 'icono' => 'bi-question-circle',
+                      'color' => '#767c94', 'texto' => 'SIN CLASIFICAR'],
+    };
 }
 
 function recPrioridadColor(?string $decisionFinal): int

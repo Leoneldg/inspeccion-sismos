@@ -305,7 +305,28 @@ include __DIR__ . '/../includes/header.php';
                         <a href="#" onclick="cambiarEnte();return false;" style="font-size:11px;margin-left:6px;">cambiar</a>
                     </div>
 
-                    <!-- PASO 2: Botones de levantamiento / ficha (solo con ente asignado) -->
+                    <!-- PASO 2: Responsable directo del equipo de trabajo -->
+                    <div id="sp-subasignar" style="display:none;margin-bottom:10px;">
+                        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px;">
+                            <i class="bi bi-person-badge"></i> Responsable directo
+                        </label>
+                        <select id="sp-miembro" class="form-control" style="width:100%;">
+                            <option value="">— Elija a la persona —</option>
+                        </select>
+                        <button type="button" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;margin-top:6px;"
+                                onclick="asignarMiembroAlPunto()">
+                            <i class="bi bi-check-lg"></i> Asignar responsable
+                        </button>
+                    </div>
+
+                    <!-- Responsable ya asignado -->
+                    <div id="sp-miembro-asignado" style="display:none;background:#eef7f0;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px;">
+                        <i class="bi bi-person-check-fill" style="color:#2E7D32;"></i>
+                        Responsable: <b id="sp-miembro-nombre">—</b>
+                        <a href="#" onclick="cambiarMiembro();return false;" style="font-size:11px;margin-left:6px;">cambiar</a>
+                    </div>
+
+                    <!-- PASO 3: Botones de levantamiento / ficha (solo con ente asignado) -->
                     <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;display:none;">
                         <i class="bi bi-building-gear"></i> Levantamiento técnico
                     </a>
@@ -388,11 +409,26 @@ function abrirPanel(p) {
         btnLev.style.display = 'none';
         btnFicha.style.display = 'none';
         document.getElementById('sp-ente-select').value = '';
+        // Sin ente todavía: tampoco se elige responsable directo.
+        document.getElementById('sp-subasignar').style.display = 'none';
+        document.getElementById('sp-miembro-asignado').style.display = 'none';
     } else {
-        // PASO 2: con ente -> mostrar el ente y habilitar levantamiento/ficha.
+        // PASO 2: con ente -> mostrar el ente y el responsable directo.
         divAsignar.style.display = 'none';
         divAsignado.style.display = '';
         document.getElementById('sp-ente-nombre').textContent = p.ente;
+
+        // Responsable directo (una de las personas del equipo de trabajo).
+        if (p.miembro) {
+            document.getElementById('sp-subasignar').style.display = 'none';
+            document.getElementById('sp-miembro-asignado').style.display = '';
+            document.getElementById('sp-miembro-nombre').textContent = p.miembro;
+        } else {
+            document.getElementById('sp-miembro-asignado').style.display = 'none';
+            document.getElementById('sp-subasignar').style.display = '';
+            cargarIntegrantes(p.parroquia, p.estado);
+        }
+
         if (p.levantamiento_completo) {
             btnLev.style.display = 'none';
             btnFicha.style.display = '';
@@ -453,6 +489,87 @@ async function asignarEnteAlPunto() {
     } catch(e) {
         mostrarMsg('Error de red al asignar.', false);
     }
+}
+
+// ---------- Responsable directo (integrante del equipo de trabajo) ----------
+let _integrantesCache = {};
+
+// Carga las personas de los frentes de la parroquia en el selector.
+async function cargarIntegrantes(parroquia, estado) {
+    const sel = document.getElementById('sp-miembro');
+    sel.innerHTML = '<option value="">Cargando…</option>';
+    const clave = (estado || '') + '|' + (parroquia || '');
+
+    try {
+        let d = _integrantesCache[clave];
+        if (!d) {
+            const res = await fetch(APP_URL_BASE + 'seguimiento/asignar_frente.php', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ accion:'integrantes', parroquia: parroquia, estado: estado || 'Distrito Capital' })
+            });
+            d = await res.json();
+            if (d.ok) _integrantesCache[clave] = d;
+        }
+        if (!d.ok) { sel.innerHTML = '<option value="">' + (d.mensaje || 'Sin equipos') + '</option>'; return; }
+
+        const tipos = d.tipos || {};
+        let html = '<option value="">— Elija a la persona —</option>';
+        (d.frentes || []).forEach(f => {
+            const etiqueta = (tipos[f.tipo] || f.tipo) + (f.sector ? ' · ' + f.sector : '');
+            const personas = f.integrantes || [];
+            if (!personas.length) return;
+            html += '<optgroup label="' + etiqueta + '">';
+            personas.forEach(nom => {
+                const val = JSON.stringify({ f: f.frente_id, t: f.tipo, m: nom }).replace(/"/g, '&quot;');
+                html += '<option value="' + val + '">' + nom + '</option>';
+            });
+            html += '</optgroup>';
+        });
+        sel.innerHTML = html || '<option value="">Sin equipos registrados</option>';
+    } catch (e) {
+        sel.innerHTML = '<option value="">Error al cargar</option>';
+    }
+}
+
+async function asignarMiembroAlPunto() {
+    if (!seleccionado) return;
+    const sel = document.getElementById('sp-miembro');
+    if (!sel.value) { alert('Elija a la persona responsable.'); return; }
+    let datos;
+    try { datos = JSON.parse(sel.value.replace(/&quot;/g, '"')); } catch (e) { return; }
+
+    const msg = document.getElementById('sp-msg');
+    try {
+        const res = await fetch(APP_URL_BASE + 'seguimiento/asignar_frente.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                inspeccion_id: seleccionado.id,
+                frente_id: datos.f, tipo: datos.t, miembro: datos.m
+            })
+        });
+        const d = await res.json();
+        if (d.sesion_expirada) { alert(d.mensaje); return; }
+        if (!d.ok) {
+            msg.textContent = d.mensaje || 'No se pudo asignar.';
+            msg.style.color = '#A61C1C'; msg.style.display = '';
+            return;
+        }
+        seleccionado.miembro = datos.m;
+        document.getElementById('sp-subasignar').style.display = 'none';
+        document.getElementById('sp-miembro-asignado').style.display = '';
+        document.getElementById('sp-miembro-nombre').textContent = datos.m;
+        msg.textContent = 'Responsable asignado.';
+        msg.style.color = '#2E7D32'; msg.style.display = '';
+    } catch (e) {
+        msg.textContent = 'Error de red.'; msg.style.color = '#A61C1C'; msg.style.display = '';
+    }
+}
+
+function cambiarMiembro() {
+    document.getElementById('sp-miembro-asignado').style.display = 'none';
+    document.getElementById('sp-subasignar').style.display = '';
+    document.getElementById('sp-miembro').value = '';
+    if (seleccionado) cargarIntegrantes(seleccionado.parroquia, seleccionado.estado);
 }
 
 function cambiarEnte() {

@@ -27,6 +27,8 @@ if (!puedeAccederParroquia($parroquia)) {
 function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
 $d     = recPanelParroquia($estado, $parroquia);
+$asigs = asigDeParroquia($estado, $parroquia);
+$resAp = recResumenAptosParroquia($estado, $parroquia);
 $edifs = $d['edificaciones'] ?? [];
 $pc    = $d['por_color'] ?? [];
 $cat   = catalogoDecisionFinal();
@@ -53,12 +55,12 @@ ob_start();
 <html lang="es"><head><meta charset="utf-8">
 <style>
   * { font-family: "DejaVu Sans", Arial, sans-serif; box-sizing: border-box; }
-  body { margin: 0; color: #2a3140; font-size: 11px; }
+  body { margin: 0; color: #1a1f2b; font-size: 12.5px; }
   .hoja { padding: 26px 30px; }
   .cab { border-bottom: 3px solid #C9A227; padding-bottom: 12px; margin-bottom: 16px; }
-  .cab h1 { margin: 0; font-size: 21px; color: #22366F; letter-spacing: -.3px; }
-  .cab .sub { color: #767c94; font-size: 11px; margin-top: 3px; }
-  .cab .fecha { float: right; text-align: right; color: #767c94; font-size: 10px; }
+  .cab h1 { margin: 0; font-size: 34px; color: #22366F; letter-spacing: -.5px; font-weight: 800; }
+  .cab .sub { color: #55617f; font-size: 13px; margin-top: 4px; }
+  .cab .fecha { float: right; text-align: right; color: #55617f; font-size: 12px; font-weight: 600; }
 
   .bloque { margin-bottom: 18px; }
   .bloque h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
@@ -78,11 +80,14 @@ ob_start();
   table.det { width: 100%; border-collapse: collapse; }
   table.det thead { display: table-header-group; }
   table.det tr { page-break-inside: avoid; }
-  table.det th { background: #22366F; color: #fff; font-size: 9px; padding: 6px 5px;
+  table.det th { background: #22366F; color: #fff; font-size: 10.5px; padding: 8px 5px;
                  text-align: left; text-transform: uppercase; letter-spacing: .3px; }
-  table.det td { font-size: 9.5px; padding: 5px; border-bottom: 1px solid #eef0f5; }
+  table.det td { font-size: 11.5px; padding: 7px 5px; border-bottom: 1px solid #dde2ec; }
+  .simb { font-size: 15px; font-weight: 700; line-height: 1; }
+  .letra { display:inline-block; width:17px; height:17px; line-height:17px; text-align:center;
+           border:2px solid; border-radius:4px; font-weight:800; font-size:10px; }
   table.det tr:nth-child(even) td { background: #fafbfe; }
-  .mini { background: #e8ebf3; border-radius: 6px; height: 8px; width: 70px; display: inline-block; overflow: hidden; }
+  .mini { background: #e8ebf3; border-radius: 6px; height: 11px; width: 76px; display: inline-block; overflow: hidden; border: 1px solid #cfd6e4; }
   .mini > div { height: 100%; }
   .pt { font-weight: 700; text-align: right; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
@@ -171,15 +176,25 @@ ob_start();
 
   <!-- Detalle completo -->
   <div class="bloque">
-    <h2>Detalle por edificación (<?= count($edifs) ?>)</h2>
+    <h2>PARROQUIA <?= esc(mb_strtoupper($parroquia, 'UTF-8')) ?> · Detalle por edificación (<?= count($edifs) ?>)</h2>
+    <div style="background:#f4f7fd;border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:11px;">
+      <strong>Cómo leer esta tabla:</strong>
+      <span class="letra" style="color:#C9A227;border-color:#C9A227;">A</span> amarillo, precaución &nbsp;
+      <span class="letra" style="color:#A61C1C;border-color:#A61C1C;">R</span> rojo, no entrar &nbsp;
+      <span class="letra" style="color:#2E7D32;border-color:#2E7D32;">V</span> verde, habitable &nbsp;
+      <span class="letra" style="color:#2B2B2B;border-color:#2B2B2B;">D</span> derrumbada &nbsp;·&nbsp;
+      La barra y el número indican cuánto avanzó la reconstrucción.
+    </div>
     <table class="det">
       <thead><tr>
         <th style="width:22px;">#</th>
-        <th style="width:14px;"></th>
+        <th style="width:30px;">Clas.</th>
         <th>Edificación</th>
         <th style="width:80px;">Código</th>
-        <th style="width:110px;">Ente responsable</th>
-        <th style="width:78px;">Avance</th>
+        <th style="width:92px;">Ente</th>
+        <th style="width:78px;">Responsable</th>
+        <th style="width:56px;">Aptos</th>
+        <th style="width:70px;">Avance</th>
         <th style="width:34px;"></th>
       </tr></thead>
       <tbody>
@@ -187,13 +202,19 @@ ob_start();
         $av = (int)($ed['avance'] ?? 0);
         $col = $av >= 100 ? '#2E7D32' : ($av >= 75 ? '#5a9e3f' : ($av > 0 ? '#C9A227' : '#b9bfcd'));
         $cd = $cat[$ed['decision_final'] ?? '']['color'] ?? '#767c94';
+        $sim = recSimboloDecision($ed['decision_final'] ?? null);
       ?>
       <tr>
         <td style="color:#97a0b8;"><?= $i + 1 ?></td>
-        <td><span class="dot" style="background:<?= $cd ?>;"></span></td>
+        <td><span class="letra" style="color:<?= $sim['color'] ?>;border-color:<?= $sim['color'] ?>;"><?= $sim['letra'] ?></span></td>
         <td><?= esc($ed['nombre'] ?? 'Sin nombre') ?></td>
         <td style="color:#767c94;"><?= esc($ed['codigo'] ?? '') ?></td>
         <td style="color:#55617f;"><?= esc($ed['ente'] ?? '—') ?></td>
+        <td style="color:#2d4488;"><?= esc($asigs[(int)$ed['id']]['gdc'] ?? '—') ?></td>
+        <td style="color:#55617f;font-size:9px;">
+            <?php $ra = $resAp[(int)$ed['id']] ?? null; ?>
+            <?= $ra ? $ra['culminados'] . '/' . $ra['total'] : '—' ?>
+        </td>
         <td><span class="mini"><span style="display:block;width:<?= $av ?>%;background:<?= $col ?>;height:100%;"></span></span></td>
         <td class="pt" style="color:<?= $col ?>;"><?= $av ?>%</td>
       </tr>
