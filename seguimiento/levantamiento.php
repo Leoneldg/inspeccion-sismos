@@ -164,15 +164,23 @@ include __DIR__ . '/../includes/header.php';
     <p class="sub">Corrobore la información básica. Esto genera los pisos que va a recorrer.</p>
     <form id="form-edificio" onsubmit="return guardarEdificio(event)">
         <div class="flex gap-8" style="flex-wrap:wrap;">
-            <div class="field" style="flex:1;min-width:180px;">
+            <div class="field" style="flex:1;min-width:160px;">
                 <label class="text-sm">Cantidad de pisos *</label>
                 <input type="number" id="num_pisos" class="form-control" min="1" max="200"
-                       value="<?= $ed['num_pisos'] !== null ? (int)$ed['num_pisos'] : '' ?>" required>
+                       value="<?= $ed['num_pisos'] !== null ? (int)$ed['num_pisos'] : '' ?>" required
+                       oninput="calcularTotalAptos()">
             </div>
-            <div class="field" style="flex:1;min-width:180px;">
+            <div class="field" style="flex:1;min-width:160px;">
                 <label class="text-sm">Apartamentos por piso</label>
                 <input type="number" id="aptos_por_piso" class="form-control" min="0" max="100"
-                       value="<?= $ed['aptos_por_piso'] !== null ? (int)$ed['aptos_por_piso'] : '' ?>">
+                       value="<?= $ed['aptos_por_piso'] !== null ? (int)$ed['aptos_por_piso'] : '' ?>"
+                       oninput="calcularTotalAptos()">
+            </div>
+            <div class="field" style="flex:1;min-width:160px;">
+                <label class="text-sm">Total de apartamentos</label>
+                <input type="number" id="total_apartamentos" class="form-control" readonly
+                       style="background:#f2f5fc;font-weight:700;color:#22366F;"
+                       value="<?= (int)($ed['num_pisos'] ?? 0) * (int)($ed['aptos_por_piso'] ?? 0) ?>">
             </div>
         </div>
 
@@ -231,69 +239,65 @@ include __DIR__ . '/../includes/header.php';
 <!-- ============ PASO 2: RECORRIDO PISO POR PISO ============ -->
 <div class="wz-panel hidden" id="paso-2">
     <h3>Recorrido piso por piso</h3>
-    <p class="sub">Suba piso por piso. En cada uno registre lo común (ascensor, escaleras…) y luego entre a sus apartamentos.</p>
+    <p class="sub">Seleccione un piso del listado. En cada uno registre lo común (ascensor, escaleras…) y luego entre a sus apartamentos.</p>
 
     <?php if (!$pisos): ?>
         <p class="text-muted">Primero complete los datos del edificio (Paso 1) para generar los pisos.</p>
     <?php else: ?>
+        <!-- Selector de piso (dropdown) -->
+        <div class="field" style="max-width:320px;margin-bottom:16px;">
+            <label class="text-sm" style="font-weight:600;"><i class="bi bi-list-ol"></i> Seleccione el piso</label>
+            <select id="selector-piso" class="form-control" onchange="mostrarPisoSeleccionado()">
+                <option value="">— Elija un piso —</option>
+                <?php foreach ($pisos as $piso): ?>
+                <option value="<?= (int)$piso['id'] ?>">
+                    <?= (int)$piso['numero_piso'] === 0 ? 'Planta Baja (PB)' : 'Piso ' . (int)$piso['numero_piso'] ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
         <?php foreach ($pisos as $piso):
             $elems = recElementosPiso((int)$piso['id']);
         ?>
-        <div class="piso-card" data-piso="<?= (int)$piso['id'] ?>">
-            <div class="piso-head" onclick="togglePiso(this)">
+        <div class="piso-card piso-panel hidden" data-piso="<?= (int)$piso['id'] ?>" data-numero-piso="<?= (int)$piso['numero_piso'] ?>" id="piso-panel-<?= (int)$piso['id'] ?>">
+            <div class="piso-head" style="cursor:default;">
                 <span><i class="bi bi-building"></i> <?= (int)$piso['numero_piso'] === 0 ? 'Planta Baja (PB)' : 'Piso ' . (int)$piso['numero_piso'] ?></span>
-                <span class="estado"><i class="bi bi-chevron-down"></i></span>
             </div>
-            <div class="piso-body hidden">
+            <div class="piso-body">
 
                 <!-- Áreas comunes del piso -->
                 <div class="bloque-tit"><i class="bi bi-diagram-3"></i> Áreas comunes del piso</div>
-                <label class="seg-radio"><input type="checkbox" class="piso-areas" <?= $piso['tiene_areas_comunes'] ? 'checked' : '' ?>> Este piso tiene áreas comunes</label>
-                <input type="text" class="form-control piso-areas-desc" placeholder="¿Cuáles?" value="<?= e($piso['areas_comunes_desc'] ?? '') ?>" style="margin-top:6px;">
+                <label class="seg-radio"><input type="checkbox" class="piso-areas" onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)" <?= $piso['tiene_areas_comunes'] ? 'checked' : '' ?>> Este piso tiene áreas comunes</label>
+                <input type="text" class="form-control piso-areas-desc" placeholder="¿Cuáles?" value="<?= e($piso['areas_comunes_desc'] ?? '') ?>" style="margin-top:6px;" onblur="guardarPisoReactivo(<?= (int)$piso['id'] ?>)">
 
                 <!-- Elementos comunes del piso -->
                 <div class="bloque-tit" style="margin-top:16px;"><i class="bi bi-gear"></i> Elementos del piso</div>
                 <?php foreach ($tiposElem as $tk => $tlbl):
                     $el = $elems[$tk] ?? null;
+                    $estadoActual = $el['estado'] ?? '';
+                    // El estado se considera "válido para foto" si tiene algún valor.
+                    $estadoValido = $estadoActual !== '';
                 ?>
                 <div class="elem-row" data-tipo="<?= $tk ?>" <?= ($el && $el['id']) ? 'data-elem-id="'.(int)$el['id'].'"' : '' ?>>
                     <span class="elem-nom"><?= e($tlbl) ?></span>
-                    <label class="seg-radio"><input type="checkbox" class="el-presente" <?= ($el && $el['presente']) ? 'checked' : '' ?>> Tiene</label>
-                    <select class="form-control el-estado" style="width:auto;">
-                        <option value="">Estado…</option>
+                    <select class="form-control el-estado" style="width:auto;" onchange="onEstadoElemento(this, <?= (int)$piso['id'] ?>)">
+                        <option value="">Estado del elemento…</option>
                         <?php foreach (['Bueno','Regular','Requiere reparación','No funciona'] as $es): ?>
                         <option value="<?= $es ?>" <?= ($el && $el['estado'] === $es) ? 'selected' : '' ?>><?= $es ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <label class="seg-radio"><input type="checkbox" class="el-reparar" <?= ($el && $el['necesita_reparacion']) ? 'checked' : '' ?>> Reparación</label>
-                    <button type="button" class="btn btn-outline btn-sm" onclick="subirFotoElemento(this, <?= (int)$piso['id'] ?>, '<?= $tk ?>')">
+                    <label class="seg-radio"><input type="checkbox" class="el-reparar" <?= ($el && $el['necesita_reparacion']) ? 'checked' : '' ?> onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)"> Reparación</label>
+                    <button type="button" class="btn btn-outline btn-sm btn-foto-elem" onclick="subirFotoElemento(this, <?= (int)$piso['id'] ?>, '<?= $tk ?>')" <?= $estadoValido ? '' : 'disabled' ?>>
                         <i class="bi bi-camera"></i> Foto
                     </button>
                     <div class="elem-fotos" style="display:flex;gap:6px;flex-wrap:wrap;width:100%;"></div>
                 </div>
                 <?php endforeach; ?>
 
-                <?php if ($puedeEditar): ?>
-                <div style="margin-top:12px;">
-                    <button type="button" class="btn btn-primary btn-sm" onclick="guardarPiso(this, <?= (int)$piso['id'] ?>)">
-                        <i class="bi bi-check-lg"></i> Guardar elementos del piso
-                    </button>
-                    <span class="piso-msg text-sm" style="margin-left:8px;"></span>
-                </div>
-                <?php endif; ?>
-
                 <!-- Apartamentos de este piso -->
                 <div class="bloque-tit" style="margin-top:20px;"><i class="bi bi-door-open"></i> Apartamentos de este piso</div>
-                <div class="apto-generador" style="margin-bottom:10px;padding:10px 12px;background:#f7f9fd;border-radius:9px;">
-                    <label class="text-sm">Este piso tiene <b><?= (int)($ed['aptos_por_piso'] ?: 1) ?></b>Si este piso es diferente, ajuste y regenere:</label>
-                    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-                        <input type="number" class="form-control apto-cantidad" min="1" max="100"
-                               value="<?= (int)($ed['aptos_por_piso'] ?: 1) ?>" data-num="<?= (int)$piso['numero_piso'] ?>" style="width:90px;">
-                        <button type="button" class="btn btn-outline btn-sm" onclick="generarAptos(this, <?= (int)$piso['id'] ?>, <?= (int)$piso['numero_piso'] ?>)">
-                            <i class="bi bi-arrow-repeat"></i> Regenerar
-                        </button>
-                    </div>
-                </div>
+                <p class="sub" style="margin:0 0 10px;">Los apartamentos se generan solos con nomenclatura <b>Piso-Letra</b> (ej: <?= (int)$piso['numero_piso'] ?>-A, <?= (int)$piso['numero_piso'] ?>-B…).</p>
                 <div class="apto-lista"></div>
 
             </div>
@@ -310,26 +314,34 @@ include __DIR__ . '/../includes/header.php';
 <!-- ============ PASO 3: CIERRE (AZOTEA + RESUMEN) ============ -->
 <div class="wz-panel hidden" id="paso-3">
     <h3>Cierre del levantamiento</h3>
-    <p class="sub">Lo último del recorrido: al llegar a la azotea, registre su situación y la de tanques e impermeabilización.</p>
+    <p class="sub">Lo último del recorrido: al llegar a la azotea, registre su situación y la de los tanques de agua.</p>
 
     <form id="form-cierre" onsubmit="return guardarCierre(event)">
         <?php
-        $globales = ['azotea' => 'Azotea', 'tanques' => 'Tanques de agua', 'impermeabilizacion' => 'Impermeabilización'];
+        $globales = ['azotea' => 'Azotea', 'tanques' => 'Tanques de agua'];
         $opciones = ['Buena','Regular','Requiere reparación','No aplica'];
         foreach ($globales as $key => $lbl):
             $valActual = $ed[$key . '_estado'] ?? '';
         ?>
-        <div class="campo-estado">
+        <div class="campo-estado" data-cierre="<?= $key ?>">
             <label class="tit"><?= $lbl ?></label>
             <?php foreach ($opciones as $op): ?>
             <label class="seg-radio">
-                <input type="radio" name="<?= $key ?>_estado" value="<?= $op ?>" <?= $valActual === $op ? 'checked' : '' ?>>
+                <input type="radio" name="<?= $key ?>_estado" value="<?= $op ?>" <?= $valActual === $op ? 'checked' : '' ?>
+                       onchange="onEstadoCierre('<?= $key ?>')">
                 <?= $op ?>
             </label>
             <?php endforeach; ?>
         </div>
         <input type="text" class="form-control" name="<?= $key ?>_obs" placeholder="Observación (opcional)"
                value="<?= e($ed[$key . '_obs'] ?? '') ?>" style="margin-bottom:8px;">
+        <!-- Foto condicional: solo si el estado es "Requiere reparación" -->
+        <div class="cierre-foto" id="cierre-foto-<?= $key ?>" style="display:<?= $valActual === 'Requiere reparación' ? 'block' : 'none' ?>;margin-bottom:12px;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="subirFotoCierre('<?= $key ?>', this)">
+                <i class="bi bi-camera"></i> Foto del área que requiere reparación
+            </button>
+            <div class="cierre-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
+        </div>
         <?php endforeach; ?>
 
         <hr style="margin:18px 0;border:0;border-top:1px solid #eef0f5;">
@@ -367,6 +379,7 @@ const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= (int)$ed['id'] ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
+const APTOS_POR_PISO = <?= (int)($ed['aptos_por_piso'] ?: 1) ?>;
 
 function irPaso(n) {
     [1,2,3].forEach(i => {
@@ -430,6 +443,13 @@ document.querySelectorAll('.area-trabajo').forEach(sel => {
 });
 
 // ================= PASO 1: DATOS DEL EDIFICIO =================
+// Campo calculado: total de apartamentos = pisos × apartamentos por piso.
+function calcularTotalAptos() {
+    const pisos = parseInt(document.getElementById('num_pisos').value) || 0;
+    const app = parseInt(document.getElementById('aptos_por_piso').value) || 0;
+    document.getElementById('total_apartamentos').value = pisos * app;
+}
+
 async function guardarEdificio(ev) {
     ev.preventDefault();
     if (!PUEDE_EDITAR) return false;
@@ -463,23 +483,24 @@ async function guardarEdificio(ev) {
 }
 
 // ================= PASO 2: PISOS =================
-function togglePiso(head) {
-    const body = head.nextElementSibling;
-    body.classList.toggle('hidden');
-    // Al abrir un piso por primera vez, si tiene apartamentos guardados los carga;
-    // si no tiene ninguno pero el edificio definió aptos por piso, los genera solo.
-    if (!body.classList.contains('hidden') && !body.dataset.cargado) {
-        body.dataset.cargado = '1';
-        const card = head.closest('.piso-card');
-        cargarAptosDelPiso(card);
+// Muestra solo el piso seleccionado en el dropdown.
+function mostrarPisoSeleccionado() {
+    const pisoId = document.getElementById('selector-piso').value;
+    document.querySelectorAll('.piso-panel').forEach(p => p.classList.add('hidden'));
+    if (!pisoId) return;
+    const panel = document.getElementById('piso-panel-' + pisoId);
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    // Cargar apartamentos si aún no se han cargado.
+    if (!panel.dataset.cargado) {
+        panel.dataset.cargado = '1';
+        cargarAptosDelPiso(panel);
     }
 }
 
 async function cargarAptosDelPiso(card) {
     const pisoId = parseInt(card.dataset.piso);
-    const numeroPiso = parseInt(card.querySelector('.apto-cantidad')?.dataset.num || '1');
     const lista = card.querySelector('.apto-lista');
-    // Ver si ya hay apartamentos guardados en este piso.
     const res = await fetch(URL_BASE + 'listar_rec_aptos.php?piso_id=' + pisoId);
     const data = await res.json();
     if (data.ok && data.apartamentos && data.apartamentos.length) {
@@ -487,10 +508,10 @@ async function cargarAptosDelPiso(card) {
         data.apartamentos.forEach(a => pintarApartamento(a, lista));
     } else {
         // No hay apartamentos: generarlos automáticamente según el paso 1.
-        const cantidad = parseInt(card.querySelector('.apto-cantidad').value) || 0;
-        if (cantidad > 0) {
-            generarAptosAuto(card, pisoId, numeroPiso, cantidad);
-        }
+        const cantidad = APTOS_POR_PISO;
+        // El número de piso se obtiene del texto del panel (o del orden).
+        const numeroPiso = parseInt(card.dataset.numeroPiso || '0');
+        if (cantidad > 0) generarAptosAuto(card, pisoId, numeroPiso, cantidad);
     }
 }
 
@@ -507,13 +528,39 @@ async function generarAptosAuto(card, pisoId, numeroPiso, cantidad) {
     }
 }
 
-async function guardarPiso(btn, pisoId) {
-    const card = btn.closest('.piso-card');
+// Al cambiar el "Estado del elemento": habilita la foto y guarda reactivamente.
+function onEstadoElemento(sel, pisoId) {
+    const row = sel.closest('.elem-row');
+    const btnFoto = row.querySelector('.btn-foto-elem');
+    const chkRep = row.querySelector('.el-reparar');
+    if (sel.value === '') {
+        btnFoto.disabled = true;
+    } else {
+        btnFoto.disabled = false;
+        // Si el estado requiere acción, marcar reparación por defecto.
+        if (sel.value === 'Requiere reparación' || sel.value === 'No funciona') {
+            chkRep.checked = true;
+        }
+    }
+    guardarPisoReactivo(pisoId);
+}
+
+// Guardado reactivo del piso (reemplaza el botón "Guardar elementos del piso").
+let _guardarPisoTimer = {};
+function guardarPisoReactivo(pisoId) {
+    // Debounce: espera 600ms sin cambios antes de guardar.
+    clearTimeout(_guardarPisoTimer[pisoId]);
+    _guardarPisoTimer[pisoId] = setTimeout(() => guardarPisoAhora(pisoId), 600);
+}
+
+async function guardarPisoAhora(pisoId) {
+    const card = document.getElementById('piso-panel-' + pisoId);
+    if (!card) return;
     const elementos = [];
     card.querySelectorAll('.elem-row').forEach(row => {
         elementos.push({
             tipo: row.dataset.tipo,
-            presente: row.querySelector('.el-presente').checked ? 1 : 0,
+            presente: row.querySelector('.el-estado').value !== '' ? 1 : 0,
             estado: row.querySelector('.el-estado').value,
             necesita_reparacion: row.querySelector('.el-reparar').checked ? 1 : 0,
         });
@@ -528,35 +575,15 @@ async function guardarPiso(btn, pisoId) {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const data = await res.json();
-    const msg = card.querySelector('.piso-msg');
-    if (data.ok) {
-        msg.textContent = '✓ Guardado'; msg.style.color = '#2E7D32';
-        if (data.elementos) {
-            card.querySelectorAll('.elem-row').forEach(row => {
-                const id = data.elementos[row.dataset.tipo];
-                if (id) row.dataset.elemId = id;
-            });
-        }
-    } else { msg.textContent = data.mensaje || 'Error'; msg.style.color = '#A61C1C'; }
+    if (data.ok && data.elementos) {
+        card.querySelectorAll('.elem-row').forEach(row => {
+            const id = data.elementos[row.dataset.tipo];
+            if (id) row.dataset.elemId = id;
+        });
+    }
 }
 
 // ================= APARTAMENTOS (dentro de cada piso) =================
-async function generarAptos(btn, pisoId, numeroPiso) {
-    const card = btn.closest('.piso-card');
-    const cantidad = parseInt(card.querySelector('.apto-cantidad').value) || 0;
-    if (cantidad < 1) { alert('Indique la cantidad de apartamentos.'); return; }
-    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ accion:'generar', piso_id: pisoId, cantidad, numero_piso: numeroPiso })
-    });
-    const data = await res.json();
-    if (data.ok) {
-        const lista = card.querySelector('.apto-lista');
-        lista.innerHTML = '';
-        data.apartamentos.forEach(a => pintarApartamento(a, lista));
-    } else alert(data.mensaje || 'Error al generar.');
-}
-
 function pintarApartamento(a, lista) {
     const card = document.createElement('div');
     card.className = 'apto-card';
@@ -565,10 +592,30 @@ function pintarApartamento(a, lista) {
             <i class="bi bi-door-open"></i> Apartamento ${a.identificador}
         </div>
         <div class="apto-body hidden">
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-                ${['habitaciones','salas','balcones','cocinas'].map(t => `
-                    <div class="field" style="width:105px;">
-                        <label class="text-sm" style="text-transform:capitalize;">${t}</label>
+            <!-- Datos del jefe de familia (obligatorios) -->
+            <div style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
+                <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> Jefe de familia</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <div class="field" style="flex:2;min-width:180px;">
+                        <label class="text-sm">Nombre completo *</label>
+                        <input type="text" class="form-control jefe-nombre" value="${a.jefe_nombre||''}" placeholder="Nombre y apellido">
+                    </div>
+                    <div class="field" style="flex:1;min-width:120px;">
+                        <label class="text-sm">Cédula *</label>
+                        <input type="text" class="form-control jefe-cedula" value="${a.jefe_cedula||''}" placeholder="V-12345678">
+                    </div>
+                    <div class="field" style="flex:1;min-width:120px;">
+                        <label class="text-sm">Teléfono *</label>
+                        <input type="text" class="form-control jefe-telefono" value="${a.jefe_telefono||''}" placeholder="0412-1234567">
+                    </div>
+                </div>
+            </div>
+            <!-- Cantidad de ambientes -->
+            <div class="bloque-tit" style="margin:0 0 8px;"><i class="bi bi-grid-3x3-gap"></i> Ambientes del apartamento</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                ${['habitaciones','salas','banos','cocinas','balcones'].map(t => `
+                    <div class="field" style="width:95px;">
+                        <label class="text-sm" style="text-transform:capitalize;">${t==='banos'?'Baños':t}</label>
                         <input type="number" min="0" max="30" class="form-control amb-${t}" value="${a['num_'+t]||0}">
                     </div>`).join('')}
                 <button type="button" class="btn btn-primary btn-sm" onclick="guardarApto(this, ${a.id})">
@@ -578,19 +625,29 @@ function pintarApartamento(a, lista) {
             <div class="amb-lista" style="margin-top:14px;"></div>
         </div>`;
     lista.appendChild(card);
-    if ((a.num_habitaciones + a.num_salas + a.num_balcones + a.num_cocinas) > 0) {
+    if (((a.num_habitaciones||0) + (a.num_salas||0) + (a.num_balcones||0) + (a.num_cocinas||0) + (a.num_banos||0)) > 0) {
         cargarAmbientes(a.id, card.querySelector('.amb-lista'));
     }
 }
 
 async function guardarApto(btn, aptoId) {
     const cont = btn.closest('.apto-body');
+    // Validar que los datos del jefe de familia estén completos (obligatorios).
+    const nombre = cont.querySelector('.jefe-nombre').value.trim();
+    const cedula = cont.querySelector('.jefe-cedula').value.trim();
+    const telefono = cont.querySelector('.jefe-telefono').value.trim();
+    if (!nombre || !cedula || !telefono) {
+        alert('Complete los datos del jefe de familia (nombre, cédula y teléfono) antes de continuar.');
+        return;
+    }
     const payload = {
         accion:'guardar_apto', apartamento_id: aptoId,
+        jefe_nombre: nombre, jefe_cedula: cedula, jefe_telefono: telefono,
         num_habitaciones: cont.querySelector('.amb-habitaciones').value,
         num_salas:        cont.querySelector('.amb-salas').value,
-        num_balcones:     cont.querySelector('.amb-balcones').value,
+        num_banos:        cont.querySelector('.amb-banos').value,
         num_cocinas:      cont.querySelector('.amb-cocinas').value,
+        num_balcones:     cont.querySelector('.amb-balcones').value,
     };
     const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
@@ -818,12 +875,28 @@ function agregarMiniFoto(cont, f) {
 }
 
 // ================= PASO 3: CIERRE Y RESUMEN =================
+// Muestra la foto solo si el estado es "Requiere reparación".
+function onEstadoCierre(key) {
+    const sel = document.querySelector('input[name="'+key+'_estado"]:checked');
+    const foto = document.getElementById('cierre-foto-' + key);
+    if (foto) foto.style.display = (sel && sel.value === 'Requiere reparación') ? 'block' : 'none';
+}
+
+// Subir foto del área de cierre (azotea/tanques) que requiere reparación.
+function subirFotoCierre(key, btn) {
+    _fotoDestino = {
+        nivel:'edificio', refId: EDIFICIO_ID, pideParte:false, parteFija: key + '_reparacion',
+        cont: btn.parentElement.querySelector('.cierre-fotos')
+    };
+    document.getElementById('rec-file-input').click();
+}
+
 async function guardarCierre(ev) {
     ev.preventDefault();
     if (!PUEDE_EDITAR) return false;
     const form = document.getElementById('form-cierre');
     const payload = { inspeccion_id: INSPECCION_ID, accion:'cierre' };
-    ['azotea','tanques','impermeabilizacion'].forEach(k => {
+    ['azotea','tanques'].forEach(k => {
         const sel = form.querySelector('input[name="'+k+'_estado"]:checked');
         payload[k+'_estado'] = sel ? sel.value : '';
         payload[k+'_obs'] = form.querySelector('input[name="'+k+'_obs"]').value;

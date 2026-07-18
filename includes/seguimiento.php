@@ -949,6 +949,7 @@ function recFotos(string $nivel, int $refId): array
 /** Lista los apartamentos de un piso. */
 function recApartamentos(int $pisoId): array
 {
+    recAsegurarColumnasApartamento();
     $st = db()->prepare('SELECT * FROM rec_apartamento WHERE piso_id = :p ORDER BY id');
     $st->execute(['p' => $pisoId]);
     return $st->fetchAll();
@@ -971,21 +972,53 @@ function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): ar
 }
 
 /** Actualiza las cantidades de ambientes de un apartamento y los genera. */
+/**
+ * Asegura que rec_apartamento tenga las columnas del jefe de familia y baños.
+ * Si faltan, las crea. También asegura que rec_ambiente.tipo acepte 'Baño'.
+ */
+function recAsegurarColumnasApartamento(): void
+{
+    static $verificado = false;
+    if ($verificado) return;
+    $verificado = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_apartamento")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('jefe_nombre', $cols, true))   db()->exec("ALTER TABLE rec_apartamento ADD COLUMN jefe_nombre VARCHAR(150) DEFAULT NULL");
+        if (!in_array('jefe_cedula', $cols, true))   db()->exec("ALTER TABLE rec_apartamento ADD COLUMN jefe_cedula VARCHAR(20) DEFAULT NULL");
+        if (!in_array('jefe_telefono', $cols, true)) db()->exec("ALTER TABLE rec_apartamento ADD COLUMN jefe_telefono VARCHAR(30) DEFAULT NULL");
+        if (!in_array('num_banos', $cols, true))     db()->exec("ALTER TABLE rec_apartamento ADD COLUMN num_banos TINYINT UNSIGNED DEFAULT 0");
+        // Asegurar que el enum de tipo de ambiente acepte 'Baño'.
+        db()->exec("ALTER TABLE rec_ambiente MODIFY COLUMN tipo ENUM('Habitación','Sala','Baño','Balcón','Cocina','Otro') NOT NULL DEFAULT 'Habitación'");
+    } catch (Throwable $e) { /* si no se puede, seguir */ }
+}
+
 function recGuardarApartamento(int $apartamentoId, array $d): void
 {
+    // Asegurar columnas del jefe de familia y baños (por si falta el SQL).
+    recAsegurarColumnasApartamento();
+
     $nh = max(0, (int)($d['num_habitaciones'] ?? 0));
     $ns = max(0, (int)($d['num_salas'] ?? 0));
     $nb = max(0, (int)($d['num_balcones'] ?? 0));
     $nc = max(0, (int)($d['num_cocinas'] ?? 0));
+    $nban = max(0, (int)($d['num_banos'] ?? 0));
 
     db()->prepare(
-        'UPDATE rec_apartamento SET num_habitaciones=:h, num_salas=:s, num_balcones=:b, num_cocinas=:c, completado=1 WHERE id=:id'
-    )->execute(['h'=>$nh, 's'=>$ns, 'b'=>$nb, 'c'=>$nc, 'id'=>$apartamentoId]);
+        'UPDATE rec_apartamento SET num_habitaciones=:h, num_salas=:s, num_balcones=:b, num_cocinas=:c,
+            num_banos=:ban, jefe_nombre=:jn, jefe_cedula=:jc, jefe_telefono=:jt, completado=1 WHERE id=:id'
+    )->execute([
+        'h'=>$nh, 's'=>$ns, 'b'=>$nb, 'c'=>$nc, 'ban'=>$nban,
+        'jn'=>trim($d['jefe_nombre'] ?? '') ?: null,
+        'jc'=>trim($d['jefe_cedula'] ?? '') ?: null,
+        'jt'=>trim($d['jefe_telefono'] ?? '') ?: null,
+        'id'=>$apartamentoId,
+    ]);
 
     // Generar los ambientes según las cantidades (sin duplicar los existentes).
     $tipos = [
         'Habitación' => $nh,
         'Sala'       => $ns,
+        'Baño'       => $nban,
         'Balcón'     => $nb,
         'Cocina'     => $nc,
     ];
@@ -1151,6 +1184,20 @@ function recResumenMaterialesEdificio(int $edificioId): array
 /** Guarda el plan de tiempo estimado del edificio (inicio/fin). */
 function recGuardarPlan(int $edificioId, array $d): void
 {
+    // Asegurar que exista la tabla del plan (por si no se corrió el SQL).
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_plan_edificio (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            edificio_id INT UNSIGNED NOT NULL,
+            fecha_inicio_estimada DATE DEFAULT NULL,
+            fecha_fin_estimada DATE DEFAULT NULL,
+            observaciones VARCHAR(500) DEFAULT NULL,
+            creado_por INT UNSIGNED DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_plan_edificio (edificio_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* si ya existe o no se puede, seguir */ }
+
     $st = db()->prepare('SELECT id FROM rec_plan_edificio WHERE edificio_id = :e');
     $st->execute(['e' => $edificioId]);
     $existe = $st->fetchColumn();
@@ -1221,9 +1268,34 @@ function recAreasComunes(int $edificioId): array
     return $out;
 }
 
+/**
+ * Asegura que rec_area_comun tenga las columnas tipo_trabajo y metros_cuadrados.
+ * Si faltan (no se corrió el SQL), las crea. Silencioso y a prueba de errores.
+ */
+function recAsegurarColumnasAreaComun(): void
+{
+    static $verificado = false;
+    if ($verificado) return;
+    $verificado = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_area_comun")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('tipo_trabajo', $cols, true)) {
+            db()->exec("ALTER TABLE rec_area_comun ADD COLUMN tipo_trabajo VARCHAR(30) DEFAULT NULL");
+        }
+        if (!in_array('metros_cuadrados', $cols, true)) {
+            db()->exec("ALTER TABLE rec_area_comun ADD COLUMN metros_cuadrados DECIMAL(10,2) DEFAULT NULL");
+        }
+    } catch (Throwable $e) {
+        // Si no se puede alterar, se ignora: el INSERT lo reportará si aún falla.
+    }
+}
+
 /** Guarda (reemplaza) las áreas comunes seleccionadas de un edificio. */
 function recGuardarAreasComunes(int $edificioId, array $areas): void
 {
+    // Asegurar que existan las columnas nuevas (por si no se corrió el SQL).
+    recAsegurarColumnasAreaComun();
+
     $tipos = array_keys(recAreasComunesTipicas());
     $trabajos = ['mamposteria','derrumbar','reconstruccion'];
     $st = db()->prepare(
