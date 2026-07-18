@@ -235,7 +235,13 @@
 
         try {
             const cola = await listarCola();
-            cola.sort((a, b) => (a.id || 0) - (b.id || 0));   // en orden de captura
+            // Orden importante: primero los datos (que crean los ambientes
+            // en el servidor) y al final las fotos que dependen de ellos.
+            const prioridad = t => (t === 'foto_ambiente_pendiente' ? 2 : (t === 'foto' ? 1 : 0));
+            cola.sort((a, b) => {
+                const d = prioridad(a.tipo) - prioridad(b.tipo);
+                return d !== 0 ? d : (a.id || 0) - (b.id || 0);
+            });
             const total = cola.length;
             let i = 0;
 
@@ -244,7 +250,20 @@
                 if (onProgreso) onProgreso('Subiendo ' + i + ' de ' + total + '…');
                 try {
                     let res;
-                    if (item.tipo === 'foto') {
+                    if (item.tipo === 'foto_ambiente_pendiente') {
+                        // Foto de un ambiente creado sin conexión: va a un
+                        // endpoint que lo busca por apartamento y etiqueta.
+                        const fd = new FormData();
+                        fd.append('apartamento_id', item.datos.apartamento_id);
+                        fd.append('etiqueta', item.datos.etiqueta);
+                        fd.append('parte', item.datos.parte || 'antes');
+                        if (item.datos.foto) {
+                            fd.append('foto', item.datos.foto, item.datos.nombre_archivo || 'foto.jpg');
+                        }
+                        res = await fetchConTiempo(
+                            (window._APP_URL_BASE || '/') + 'seguimiento/subir_foto_ambiente_offline.php',
+                            { method: 'POST', body: fd, credentials: 'same-origin' }, 90000);
+                    } else if (item.tipo === 'foto') {
                         const fd = new FormData();
                         Object.keys(item.datos).forEach(k => {
                             if (k !== 'foto') fd.append(k, item.datos[k]);
@@ -269,6 +288,17 @@
                     if (res.ok && r.json && r.json.ok) {
                         await borrarDeCola(item.id);
                         subidos++;
+                        continue;
+                    }
+
+                    // Caso especial: la foto llegó antes que su ambiente.
+                    // Se deja en cola sin marcarla como error definitivo.
+                    if (r.json && r.json.reintentar) {
+                        item.intentos = (item.intentos || 0) + 1;
+                        item.ultimoError = 'Esperando que se cree el ambiente';
+                        item.rechazado = false;
+                        await actualizarEnCola(item);
+                        fallidos++;
                         continue;
                     }
 

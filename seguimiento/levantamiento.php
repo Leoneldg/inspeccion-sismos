@@ -443,6 +443,15 @@ include __DIR__ . '/../includes/header.php';
 <input type="file" id="rec-file-camara" accept="image/*" capture="environment" style="display:none;" onchange="_onFotoElegida(this, true)">
 <input type="file" id="rec-file-galeria" accept="image/*" style="display:none;" onchange="_onFotoElegida(this, false)">
 
+<!-- Comprobante: disponible en cualquier momento, con o sin señal -->
+<button type="button" onclick="comprobanteLocal()"
+        style="position:fixed;left:12px;bottom:56px;z-index:1400;background:#fff;
+               border:1px solid #dbe0ec;border-radius:20px;padding:7px 14px;font-size:12.5px;
+               font-weight:600;color:#22366F;cursor:pointer;box-shadow:0 2px 8px rgba(20,30,60,.12);"
+        title="Constancia de lo registrado hasta ahora">
+    <i class="bi bi-file-earmark-text"></i> Comprobante
+</button>
+
 <!-- Acceso a las fotos guardadas en el teléfono -->
 <button type="button" onclick="ObrasFotos.verGaleria()"
         style="position:fixed;left:12px;bottom:12px;z-index:1400;background:#fff;
@@ -458,6 +467,9 @@ const EDIFICIO_ID = <?= (int)$ed['id'] ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const APTOS_POR_PISO = <?= (int)($ed['aptos_por_piso'] ?: 1) ?>;
+const EDIFICIO_NOMBRE    = <?= json_encode($insp['nombre_edificio'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+const EDIFICIO_CODIGO    = <?= json_encode($insp['codigo'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+const EDIFICIO_PARROQUIA = <?= json_encode($insp['parroquia'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
 
 function irPaso(n) {
     [1,2,3].forEach(i => {
@@ -549,15 +561,142 @@ async function guardarEdificio(ev) {
             });
         }
     });
-    const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (data.ok) {
-        // Los pisos ya vienen creados: recargar en el paso 2 para dibujarlos.
-        location.href = 'levantamiento.php?inspeccion=' + INSPECCION_ID + '&paso=2';
-    } else alert(data.mensaje || 'Error al guardar: ' + (data.mensaje || ''));
+    // Copia local siempre, antes de intentar enviar.
+    guardarBorrador('paso1_' + INSPECCION_ID, payload);
+
+    // SIN SEÑAL: se generan los pisos aquí mismo para poder seguir llenando.
+    if (!navigator.onLine) {
+        await continuarSinSenal(payload);
+        return false;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+        const texto = await res.text();
+        let data;
+        try { data = JSON.parse(texto); }
+        catch (e) { await continuarSinSenal(payload); return false; }
+
+        if (data.ok) {
+            borrarBorrador('paso1_' + INSPECCION_ID);
+            location.href = 'levantamiento.php?inspeccion=' + INSPECCION_ID + '&paso=2';
+        } else {
+            alert(data.mensaje || 'Error al guardar.');
+        }
+    } catch (e) {
+        // Se cayó la señal: seguir trabajando igual.
+        await continuarSinSenal(payload);
+    }
     return false;
+}
+
+/**
+ * Permite continuar el levantamiento sin conexión.
+ * Genera los pisos y apartamentos en el navegador, con la misma
+ * nomenclatura que usaría el servidor, y encola el guardado real.
+ */
+async function continuarSinSenal(payload) {
+    if (window.ObrasOffline) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            'Datos del edificio (paso 1)');
+    }
+
+    const nPisos = parseInt(payload.num_pisos) || 0;
+    const nAptos = parseInt(payload.aptos_por_piso) || 0;
+    if (nPisos < 1) { alert('Indique la cantidad de pisos.'); return; }
+
+    // Estructura local: los ids son negativos para distinguirlos de los
+    // reales del servidor. Al sincronizar se reemplazan por los definitivos.
+    const estructura = { inspeccion: INSPECCION_ID, pisos: [], creada_en: new Date().toISOString() };
+    for (let p = 1; p <= nPisos; p++) {
+        const piso = { id: -p, numero_piso: p, apartamentos: [] };
+        for (let a = 1; a <= nAptos; a++) {
+            const letra = a <= 26 ? String.fromCharCode(64 + a) : String(a);
+            piso.apartamentos.push({
+                id: -(p * 1000 + a),
+                identificador: p + '-' + letra,
+                jefe_nombre: '', jefe_cedula: '', jefe_telefono: '',
+                num_habitaciones: 0, num_salas: 0, num_banos: 0,
+                num_cocinas: 0, num_balcones: 0,
+                local: true,
+            });
+        }
+        estructura.pisos.push(piso);
+    }
+
+    try {
+        localStorage.setItem('estructura_' + INSPECCION_ID, JSON.stringify(estructura));
+    } catch (e) { /* seguir igual */ }
+
+    alert('Sin señal: puede continuar el levantamiento.\n\n'
+        + 'Se prepararon ' + nPisos + ' piso(s) con ' + nAptos + ' apartamento(s) cada uno. '
+        + 'Todo lo que registre se guardará en el teléfono y subirá al recuperar la conexión.');
+
+    dibujarEstructuraLocal(estructura);
+    irPaso(2);
+}
+
+/** Dibuja los pisos y apartamentos generados sin conexión. */
+function dibujarEstructuraLocal(estructura) {
+    const panel = document.getElementById('paso-2');
+    if (!panel) return;
+
+    // Aviso de que se está trabajando con una estructura local.
+    if (!document.getElementById('aviso-local')) {
+        const av = document.createElement('div');
+        av.id = 'aviso-local';
+        av.style.cssText = 'background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;'
+            + 'padding:11px 14px;margin-bottom:14px;font-size:13px;color:#8a6d1a;';
+        av.innerHTML = '<i class="bi bi-phone-fill"></i> <strong>Trabajando sin señal.</strong> '
+            + 'Los pisos y apartamentos se crearon en su teléfono. '
+            + 'Al recuperar la conexión se enviarán al sistema.';
+        panel.insertBefore(av, panel.firstChild);
+    }
+
+    // Selector de pisos.
+    let sel = document.getElementById('selector-piso');
+    if (!sel) {
+        const cont = document.createElement('div');
+        cont.className = 'field';
+        cont.style.cssText = 'max-width:320px;margin-bottom:16px;';
+        cont.innerHTML = '<label class="text-sm" style="font-weight:600;">'
+            + '<i class="bi bi-list-ol"></i> Seleccione el piso</label>'
+            + '<select id="selector-piso" class="form-control" onchange="mostrarPisoLocal()"></select>';
+        panel.appendChild(cont);
+        sel = document.getElementById('selector-piso');
+    }
+    sel.innerHTML = '<option value="">— Elija un piso —</option>'
+        + estructura.pisos.map(p => '<option value="' + p.id + '">Piso ' + p.numero_piso + '</option>').join('');
+
+    // Contenedor de los apartamentos del piso elegido.
+    if (!document.getElementById('piso-local-cont')) {
+        const c = document.createElement('div');
+        c.id = 'piso-local-cont';
+        panel.appendChild(c);
+    }
+    window._estructuraLocal = estructura;
+}
+
+/** Muestra los apartamentos del piso seleccionado (modo sin señal). */
+function mostrarPisoLocal() {
+    const sel = document.getElementById('selector-piso');
+    const cont = document.getElementById('piso-local-cont');
+    if (!sel || !cont || !window._estructuraLocal) return;
+    const pid = parseInt(sel.value);
+    if (!pid) { cont.innerHTML = ''; return; }
+
+    const piso = window._estructuraLocal.pisos.find(p => p.id === pid);
+    if (!piso) return;
+
+    cont.innerHTML = '<div class="bloque-tit" style="margin-top:16px;">'
+        + '<i class="bi bi-door-open"></i> Apartamentos del piso ' + piso.numero_piso + '</div>'
+        + '<div class="apto-lista" id="apto-lista-local"></div>';
+
+    const lista = document.getElementById('apto-lista-local');
+    piso.apartamentos.forEach(a => pintarApartamento(a, lista));
 }
 
 // ================= PASO 2: PISOS =================
@@ -771,8 +910,19 @@ function pintarApartamento(a, lista) {
         const b = leerBorrador(a.id);
         if (b && b.datos && !a.jefe_nombre) restaurarBorrador(a.id, cuerpo);
     }
-    if (((a.num_habitaciones||0) + (a.num_salas||0) + (a.num_balcones||0) + (a.num_cocinas||0) + (a.num_banos||0)) > 0) {
-        cargarAmbientes(a.id, card.querySelector('.amb-lista'));
+    // Si hay ambientes guardados en el teléfono (aún sin subir), se muestran
+    // esos: son los que el técnico ve y puede fotografiar.
+    const locales = leerAmbientesLocales(a.id);
+    if (locales && locales.ambientes && locales.ambientes.length) {
+        const cuerpoAp = card.querySelector('.apto-body');
+        pintarAmbientesLocales(cuerpoAp, {
+            num_habitaciones: a.num_habitaciones, num_salas: a.num_salas,
+            num_banos: a.num_banos, num_cocinas: a.num_cocinas,
+            num_balcones: a.num_balcones,
+        }, a.id);
+        marcarAptoPendiente(cuerpoAp, 'Guardado en el teléfono');
+    } else if (((a.num_habitaciones||0) + (a.num_salas||0) + (a.num_balcones||0) + (a.num_cocinas||0) + (a.num_banos||0)) > 0) {
+        if (navigator.onLine) cargarAmbientes(a.id, card.querySelector('.amb-lista'));
     }
 }
 
@@ -798,10 +948,23 @@ async function guardarApto(btn, aptoId) {
     // Guardar copia local ANTES de enviar: si se cae la señal, no se pierde.
     guardarBorrador(aptoId, payload);
 
+    // Apartamento creado sin conexión (id negativo): todavía no existe en el
+    // servidor. Se guarda en la estructura local y se enviará al sincronizar.
+    if (aptoId < 0) {
+        guardarAptoLocal(aptoId, payload);
+        pintarAmbientesLocales(cont, payload);
+        marcarAptoPendiente(cont, 'Guardado en el teléfono');
+        return;
+    }
+
     // Sin señal: queda en cola y se sube después.
     if (window.ObrasOffline && !navigator.onLine) {
         await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
             'Apartamento ' + aptoId + ' · ' + nombre);
+        // Guardar también la estructura del apartamento, para poder seguir
+        // trabajando en él (ver los ambientes, tomar fotos) sin señal.
+        guardarAmbientesLocales(aptoId, payload);
+        pintarAmbientesLocales(cont, payload, aptoId);
         marcarAptoPendiente(cont, 'Guardado en el teléfono');
         return;
     }
@@ -819,6 +982,8 @@ async function guardarApto(btn, aptoId) {
             if (window.ObrasOffline) {
                 await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
                     'Apartamento ' + aptoId + ' · ' + nombre);
+                guardarAmbientesLocales(aptoId, payload);
+                pintarAmbientesLocales(cont, payload, aptoId);
                 marcarAptoPendiente(cont, 'Guardado en el teléfono');
             } else {
                 alert('El servidor respondió algo inesperado. Sus datos siguen en pantalla, intente de nuevo.');
@@ -828,6 +993,8 @@ async function guardarApto(btn, aptoId) {
         if (data.sesion_expirada) { alert(data.mensaje); return; }
         if (data.ok) {
             borrarBorrador(aptoId);
+            // Ya están en el servidor: se limpia la copia local.
+            try { localStorage.removeItem('ambientes_' + aptoId); } catch (e) {}
             pintarAmbientes(data.ambientes, cont.querySelector('.amb-lista'));
             marcarAptoPendiente(cont, '');
         } else {
@@ -838,6 +1005,8 @@ async function guardarApto(btn, aptoId) {
         if (window.ObrasOffline) {
             await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
                 'Apartamento ' + aptoId + ' · ' + nombre);
+            guardarAmbientesLocales(aptoId, payload);
+            pintarAmbientesLocales(cont, payload, aptoId);
             marcarAptoPendiente(cont, 'Guardado en el teléfono');
         } else {
             alert('Se perdió la conexión.\n\nSus datos siguen en pantalla. Intente guardar de nuevo cuando tenga señal.');
@@ -957,6 +1126,124 @@ document.addEventListener('DOMContentLoaded', function () {
         if (document.hidden) respaldarTodo();       // al cambiar de app
     });
 });
+
+/** Guarda los datos de un apartamento creado sin conexión. */
+function guardarAptoLocal(aptoId, datos) {
+    try {
+        const est = window._estructuraLocal
+            || JSON.parse(localStorage.getItem('estructura_' + INSPECCION_ID) || 'null');
+        if (!est) return;
+        est.pisos.forEach(p => p.apartamentos.forEach(a => {
+            if (a.id === aptoId) Object.assign(a, datos, { completado: true });
+        }));
+        localStorage.setItem('estructura_' + INSPECCION_ID, JSON.stringify(est));
+        window._estructuraLocal = est;
+    } catch (e) { /* seguir */ }
+}
+
+/**
+ * Guarda los ambientes de un apartamento en el teléfono.
+ * Así se pueden ver y fotografiar aunque no haya señal, y al sincronizar
+ * las fotos se asocian al ambiente correcto.
+ */
+function guardarAmbientesLocales(aptoId, datos) {
+    try {
+        const tipos = [
+            ['Habitación', parseInt(datos.num_habitaciones) || 0],
+            ['Sala',       parseInt(datos.num_salas) || 0],
+            ['Baño',       parseInt(datos.num_banos) || 0],
+            ['Cocina',     parseInt(datos.num_cocinas) || 0],
+            ['Balcón',     parseInt(datos.num_balcones) || 0],
+        ];
+        const ambientes = [];
+        let n = 1;
+        tipos.forEach(([tipo, cant]) => {
+            for (let i = 1; i <= cant; i++) {
+                ambientes.push({
+                    // Id temporal: negativo y único dentro del apartamento.
+                    id: -(Math.abs(aptoId) * 100 + n),
+                    tipo: tipo, numero: i,
+                    etiqueta: tipo + ' ' + i,
+                    apartamento_id: aptoId,
+                    local: true,
+                });
+                n++;
+            }
+        });
+        localStorage.setItem('ambientes_' + aptoId, JSON.stringify({
+            apartamento_id: aptoId,
+            jefe_nombre: datos.jefe_nombre || '',
+            ambientes: ambientes,
+            fecha: new Date().toISOString(),
+        }));
+    } catch (e) { /* si no hay espacio, se sigue trabajando */ }
+}
+
+/** Recupera los ambientes guardados de un apartamento. */
+function leerAmbientesLocales(aptoId) {
+    try {
+        const raw = localStorage.getItem('ambientes_' + aptoId);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+}
+
+/**
+ * Dibuja los ambientes sin consultar al servidor.
+ * Cada uno permite tomar fotos: quedan en cola con su ambiente temporal
+ * y se reasignan al ambiente real cuando el apartamento se sincroniza.
+ */
+function pintarAmbientesLocales(cont, datos, aptoId) {
+    const lista = cont.querySelector('.amb-lista');
+    if (!lista) return;
+
+    const guardado = leerAmbientesLocales(aptoId);
+    const ambientes = guardado ? guardado.ambientes : [];
+
+    if (!ambientes.length) {
+        lista.innerHTML = '<div style="font-size:12px;color:#767c94;padding:6px 0;">'
+            + 'Indique cuántos ambientes tiene el apartamento.</div>';
+        return;
+    }
+
+    let html = '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:8px;'
+        + 'padding:9px 12px;margin-bottom:10px;font-size:12.5px;color:#8a6d1a;">'
+        + '<i class="bi bi-phone-fill"></i> Estos ambientes están guardados en su teléfono. '
+        + 'Puede tomarles fotos: todo subirá junto al recuperar la señal.</div>';
+
+    ambientes.forEach(am => {
+        html += '<div class="amb-row" data-amb-local="' + am.id + '" '
+            + 'style="display:flex;align-items:center;gap:10px;padding:9px 4px;'
+            + 'border-bottom:1px solid #f0f2f7;flex-wrap:wrap;">'
+            + '<i class="bi bi-door-closed" style="color:#2d4488;"></i>'
+            + '<span style="flex:1;min-width:120px;font-size:13.5px;font-weight:600;color:#2a3140;">'
+            + am.etiqueta + '</span>'
+            + '<button type="button" class="btn btn-outline btn-sm" '
+            + 'onclick="fotoAmbienteLocal(' + am.id + ', \'' + am.etiqueta + '\', ' + aptoId + ')">'
+            + '<i class="bi bi-camera"></i> Foto</button>'
+            + '<span class="amb-fotos-local" id="amb-fotos-' + am.id + '" '
+            + 'style="display:flex;gap:5px;flex-wrap:wrap;"></span>'
+            + '</div>';
+    });
+
+    lista.innerHTML = html;
+}
+
+/**
+ * Toma una foto de un ambiente que todavía no existe en el servidor.
+ * Se encola indicando el apartamento y la posición del ambiente, para
+ * que al sincronizar se asocie al ambiente correcto.
+ */
+function fotoAmbienteLocal(ambLocalId, etiqueta, aptoId) {
+    elegirOrigenFoto({
+        nivel: 'ambiente_local',
+        refId: ambLocalId,
+        aptoId: aptoId,
+        etiqueta: etiqueta,
+        cont: document.getElementById('amb-fotos-' + ambLocalId),
+        pideParte: false,
+        parteFija: 'antes',
+    });
+}
 
 // ---- Borradores locales: lo escrito no se pierde aunque se corte todo ----
 function guardarBorrador(aptoId, datos) {
@@ -1269,6 +1556,24 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
     if (parte) fd.append('parte', parte);
     fd.append('foto', archivo);
 
+    // Foto de un ambiente creado sin conexión: todavía no existe en el
+    // servidor, así que se guarda indicando a qué apartamento pertenece
+    // y qué posición ocupa. Al sincronizar se asocia al ambiente real.
+    if (destino.nivel === 'ambiente_local') {
+        await ObrasOffline.encolar('foto_ambiente_pendiente', URL_BASE + 'subir_foto_rec.php',
+            { apartamento_id: destino.aptoId, ambiente_local: destino.refId,
+              etiqueta: destino.etiqueta, parte: parte || 'antes',
+              foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
+            'Foto · ' + destino.etiqueta + ' (apto ' + destino.aptoId + ')');
+        if (cont) {
+            cont.insertAdjacentHTML('beforeend',
+                '<span style="font-size:11px;color:#8a6d1a;background:#fffbf0;'
+                + 'border:1px solid #C9A22755;border-radius:6px;padding:2px 7px;">'
+                + '<i class="bi bi-phone-fill"></i> 1</span>');
+        }
+        return;
+    }
+
     // Sin señal: queda en cola y se sube después.
     if (window.ObrasOffline && !navigator.onLine) {
         await ObrasOffline.encolar('foto', URL_BASE + 'subir_foto_rec.php',
@@ -1410,6 +1715,123 @@ async function guardarCierre(ev) {
  * Al cerrar, ofrece descargar el comprobante en PDF.
  * Queda en el teléfono como respaldo de todo lo registrado.
  */
+/**
+ * Comprobante generado EN EL TELÉFONO, sin necesidad de servidor.
+ * Abre una ventana lista para imprimir o guardar como PDF.
+ * Es la constancia de lo registrado cuando se trabajó sin señal.
+ */
+function comprobanteLocal() {
+    const est = window._estructuraLocal
+        || JSON.parse(localStorage.getItem('estructura_' + INSPECCION_ID) || 'null');
+
+    const ahora = new Date();
+    const fecha = ahora.toLocaleDateString('es-VE');
+    const hora  = ahora.toLocaleTimeString('es-VE', {hour:'2-digit', minute:'2-digit'});
+
+    let totApt = 0, totJefes = 0, totAmb = 0;
+    let filas = '';
+
+    if (est && est.pisos) {
+        est.pisos.forEach(p => {
+            const aptos = p.apartamentos || [];
+            if (!aptos.length) return;
+            filas += '<tr><td colspan="6" style="background:#eef2fb;font-weight:700;color:#22366F;'
+                + 'padding:7px 6px;">Piso ' + p.numero_piso + '</td></tr>';
+            aptos.forEach(a => {
+                totApt++;
+                if (a.jefe_nombre) totJefes++;
+                const amb = (parseInt(a.num_habitaciones)||0) + (parseInt(a.num_salas)||0)
+                          + (parseInt(a.num_banos)||0) + (parseInt(a.num_cocinas)||0)
+                          + (parseInt(a.num_balcones)||0);
+                totAmb += amb;
+                filas += '<tr>'
+                    + '<td style="font-weight:700;color:#22366F;">' + (a.identificador||'') + '</td>'
+                    + '<td>' + (a.jefe_nombre || '— sin registrar —') + '</td>'
+                    + '<td>' + (a.jefe_cedula || '—') + '</td>'
+                    + '<td>' + (a.jefe_telefono || '—') + '</td>'
+                    + '<td style="text-align:center;">' + amb + '</td>'
+                    + '<td style="text-align:center;color:#8a6d1a;font-size:10px;">pendiente</td>'
+                    + '</tr>';
+            });
+        });
+    }
+
+    if (!filas) {
+        alert('Todavía no hay apartamentos registrados para incluir en el comprobante.');
+        return;
+    }
+
+    const aviso = totJefes < totApt
+        ? '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:7px;'
+          + 'padding:8px 11px;font-size:11px;color:#8a6d1a;margin-bottom:10px;">'
+          + '<b>Atención:</b> ' + (totApt - totJefes) + ' apartamento(s) sin datos del jefe de familia.</div>'
+        : '';
+
+    const html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">'
+        + '<title>Comprobante del levantamiento</title><style>'
+        + '*{font-family:Arial,sans-serif;box-sizing:border-box;}'
+        + 'body{margin:24px;color:#1a1f2b;font-size:12px;}'
+        + '.cab{border-bottom:3px solid #C9A227;padding-bottom:12px;margin-bottom:14px;}'
+        + '.cab h1{margin:0;font-size:21px;color:#22366F;}'
+        + '.cab .sub{color:#55617f;font-size:12px;margin-top:3px;}'
+        + '.cab .folio{float:right;text-align:right;font-size:11px;color:#55617f;}'
+        + 'h2{font-size:12px;text-transform:uppercase;color:#22366F;margin:15px 0 7px;'
+        + 'padding-bottom:4px;border-bottom:1px solid #e8ebf3;}'
+        + 'table{width:100%;border-collapse:collapse;}'
+        + 'th{background:#22366F;color:#fff;font-size:10px;padding:6px 5px;text-align:left;text-transform:uppercase;}'
+        + 'td{font-size:10.5px;padding:5px;border-bottom:1px solid #e8ebf3;}'
+        + '.datos td{padding:4px 6px;font-size:11.5px;}'
+        + '.datos .lbl{color:#55617f;width:130px;}'
+        + '.res{display:table;width:100%;border-spacing:6px;margin-bottom:8px;}'
+        + '.rc{display:table-cell;text-align:center;padding:10px 6px;border:1px solid #dde3ef;border-radius:8px;}'
+        + '.rc .n{font-size:20px;font-weight:800;color:#22366F;}'
+        + '.rc .l{font-size:9px;text-transform:uppercase;color:#55617f;}'
+        + '.nota{background:#f4f7fd;border-radius:8px;padding:9px 12px;font-size:11px;color:#3a4256;margin-bottom:12px;}'
+        + '.firma{margin-top:26px;display:table;width:100%;border-spacing:20px;}'
+        + '.firma div{display:table-cell;width:50%;border-top:1px solid #2a3140;padding-top:5px;'
+        + 'font-size:10.5px;color:#55617f;text-align:center;}'
+        + '@media print{.noprint{display:none;}}'
+        + '</style></head><body>'
+        + '<div class="cab"><div class="folio">' + fecha + '<br>' + hora + '</div>'
+        + '<h1>Levantamiento técnico</h1>'
+        + '<div class="sub">Gestión de Obras Avanzadas · Constancia registrada sin conexión</div></div>'
+        + '<div class="nota"><b>Este comprobante se generó en el teléfono, sin conexión.</b> '
+        + 'Los datos están guardados en el dispositivo y se enviarán al sistema al recuperar la señal. '
+        + 'Consérvelo como respaldo de lo registrado.</div>'
+        + '<h2>Edificación</h2>'
+        + '<table class="datos">'
+        + '<tr><td class="lbl">Nombre</td><td><b>' + (EDIFICIO_NOMBRE || '—') + '</b></td>'
+        + '<td class="lbl">Código</td><td><b>' + (EDIFICIO_CODIGO || '—') + '</b></td></tr>'
+        + '<tr><td class="lbl">Parroquia</td><td><b>' + (EDIFICIO_PARROQUIA || '—') + '</b></td>'
+        + '<td class="lbl">Pisos</td><td><b>' + (est ? est.pisos.length : 0) + '</b></td></tr>'
+        + '</table>'
+        + '<h2>Resumen de lo registrado</h2>'
+        + '<div class="res">'
+        + '<div class="rc"><div class="n">' + (est ? est.pisos.length : 0) + '</div><div class="l">Pisos</div></div>'
+        + '<div class="rc"><div class="n">' + totApt + '</div><div class="l">Apartamentos</div></div>'
+        + '<div class="rc"><div class="n">' + totJefes + '</div><div class="l">Jefes de familia</div></div>'
+        + '<div class="rc"><div class="n">' + totAmb + '</div><div class="l">Ambientes</div></div>'
+        + '</div>' + aviso
+        + '<h2>Detalle</h2>'
+        + '<table><thead><tr><th style="width:52px;">Apto</th><th>Jefe de familia</th>'
+        + '<th style="width:86px;">Cédula</th><th style="width:92px;">Teléfono</th>'
+        + '<th style="width:60px;">Ambientes</th><th style="width:70px;">Estado</th>'
+        + '</tr></thead><tbody>' + filas + '</tbody></table>'
+        + '<div class="firma"><div>Firma del técnico responsable</div>'
+        + '<div>Firma del supervisor</div></div>'
+        + '<p class="noprint" style="margin-top:18px;text-align:center;">'
+        + '<button onclick="window.print()" style="padding:10px 24px;background:#22366F;color:#fff;'
+        + 'border:0;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">'
+        + 'Guardar como PDF</button></p>'
+        + '<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script>'
+        + '</body></html>';
+
+    const w = window.open('', '_blank');
+    if (!w) { alert('El navegador bloqueó la ventana. Permita las ventanas emergentes e intente de nuevo.'); return; }
+    w.document.write(html);
+    w.document.close();
+}
+
 function ofrecerComprobante() {
     const capa = document.createElement('div');
     capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.6);z-index:2100;'
@@ -1421,9 +1843,13 @@ function ofrecerComprobante() {
         + '<p style="font-size:13.5px;color:#5b6478;margin:0 0 16px;">'
         + 'Guarde el comprobante en su teléfono. Es la constancia de todo lo que registró, '
         + 'por si hiciera falta verificarlo.</p>'
-        + '<a href="' + URL_BASE + 'comprobante_levantamiento.php?inspeccion=' + INSPECCION_ID + '" '
-        + 'target="_blank" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;">'
-        + '<i class="bi bi-file-earmark-pdf-fill"></i> Descargar comprobante</a>'
+        + (navigator.onLine
+            ? '<a href="' + URL_BASE + 'comprobante_levantamiento.php?inspeccion=' + INSPECCION_ID + '" '
+              + 'target="_blank" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;">'
+              + '<i class="bi bi-file-earmark-pdf-fill"></i> Descargar comprobante</a>'
+            : '<button onclick="comprobanteLocal()" class="btn btn-primary" '
+              + 'style="width:100%;justify-content:center;margin-bottom:8px;">'
+              + '<i class="bi bi-file-earmark-pdf-fill"></i> Generar comprobante</button>')
         + '<button onclick="this.closest(\'div\').parentElement.remove()" '
         + 'style="width:100%;background:transparent;border:1px solid #dbe0ec;border-radius:8px;'
         + 'padding:9px;color:#55617f;cursor:pointer;font-size:13.5px;">Ahora no</button>'
