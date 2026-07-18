@@ -1837,6 +1837,165 @@ function recAsegurarTablasAvance(): void
  * Prioridad de color para ordenar listados: amarillo, rojo, verde, derrumbado.
  * Menor numero = va primero.
  */
+/**
+ * Divide el nombre de un equipo en sus integrantes.
+ * "LARRY-FIGUERA" -> ['LARRY', 'FIGUERA']
+ * "CARLOS VIVAS-LAURA" -> ['CARLOS VIVAS', 'LAURA']
+ * "RICARDO GARCES / JOSE GOMEZ" -> ['RICARDO GARCES', 'JOSE GOMEZ']
+ */
+function frenteIntegrantes(string $nombre): array
+{
+    // Primero por " / " (sistematizadores), luego por guion (equipos GDC).
+    $partes = preg_split('/\s*\/\s*/u', $nombre);
+    if (count($partes) < 2) {
+        // Guion rodeado o no de espacios, pero sin partir nombres tipo "JUAN C"
+        $partes = preg_split('/\s*-\s*/u', $nombre);
+    }
+    $partes = array_values(array_filter(array_map('trim', $partes), fn($p) => $p !== ''));
+    return $partes ?: [trim($nombre)];
+}
+
+/** Asegura la tabla de sub-asignaciones. */
+function asigAsegurarTabla(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS asignacion_frente (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            inspeccion_id INT UNSIGNED NOT NULL,
+            frente_id INT UNSIGNED DEFAULT NULL,
+            frente_tipo VARCHAR(60) DEFAULT NULL,
+            miembro VARCHAR(120) NOT NULL,
+            asignado_por INT UNSIGNED DEFAULT NULL,
+            asignado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_asig_insp_tipo (inspeccion_id, frente_tipo),
+            KEY idx_asig_miembro (miembro)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/** Asigna un edificio a un integrante concreto de un frente. */
+function asigGuardar(int $inspeccionId, int $frenteId, string $tipo, string $miembro): void
+{
+    asigAsegurarTabla();
+    db()->prepare(
+        'INSERT INTO asignacion_frente (inspeccion_id, frente_id, frente_tipo, miembro, asignado_por)
+         VALUES (:i, :f, :t, :m, :u)
+         ON DUPLICATE KEY UPDATE frente_id=VALUES(frente_id), miembro=VALUES(miembro),
+             asignado_por=VALUES(asignado_por), asignado_en=NOW()'
+    )->execute([
+        'i' => $inspeccionId, 'f' => $frenteId ?: null, 't' => $tipo,
+        'm' => $miembro, 'u' => $_SESSION['user_id'] ?? null,
+    ]);
+    recAuditar('frente_asignado', $inspeccionId, null, $tipo . ' → ' . $miembro);
+}
+
+/** Sub-asignaciones de una inspección: [tipo => ['miembro'=>..., 'frente_id'=>...]] */
+function asigDeInspeccion(int $inspeccionId): array
+{
+    asigAsegurarTabla();
+    try {
+        $st = db()->prepare('SELECT * FROM asignacion_frente WHERE inspeccion_id = :i');
+        $st->execute(['i' => $inspeccionId]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[$r['frente_tipo']] = ['miembro' => $r['miembro'], 'frente_id' => (int)$r['frente_id']];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Todas las sub-asignaciones de una parroquia: [inspeccion_id => [tipo => miembro]] */
+function asigDeParroquia(string $estado, string $parroquia): array
+{
+    asigAsegurarTabla();
+    try {
+        $st = db()->prepare(
+            'SELECT af.inspeccion_id, af.frente_tipo, af.miembro
+               FROM asignacion_frente af
+               JOIN inspecciones i ON i.id = af.inspeccion_id
+              WHERE i.estado = :e AND i.parroquia = :p'
+        );
+        $st->execute(['e' => $estado, 'p' => $parroquia]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[(int)$r['inspeccion_id']][$r['frente_tipo']] = $r['miembro'];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Carga de trabajo por integrante en una parroquia: [miembro => n edificios] */
+function asigCargaPorMiembro(string $estado, string $parroquia, ?string $tipo = 'gdc'): array
+{
+    asigAsegurarTabla();
+    try {
+        $sql = 'SELECT af.miembro, COUNT(*) AS n
+                  FROM asignacion_frente af
+                  JOIN inspecciones i ON i.id = af.inspeccion_id
+                 WHERE i.estado = :e AND i.parroquia = :p';
+        $params = ['e' => $estado, 'p' => $parroquia];
+        if ($tipo !== null) { $sql .= ' AND af.frente_tipo = :t'; $params['t'] = $tipo; }
+        $sql .= ' GROUP BY af.miembro ORDER BY n DESC';
+        $st = db()->prepare($sql);
+        $st->execute($params);
+        $out = [];
+        foreach ($st->fetchAll() as $r) $out[$r['miembro']] = (int)$r['n'];
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Resumen de apartamentos de una parroquia (para el panel del responsable).
+ * Devuelve, por inspeccion: total de apartamentos, cuantos culminados y
+ * cuantos en proceso. Todo en UNA consulta.
+ */
+function recResumenAptosParroquia(string $estado, string $parroquia): array
+{
+    recAsegurarTablasAvance();
+    try {
+        $st = db()->prepare("
+            SELECT re.inspeccion_id,
+                   COUNT(DISTINCT ap.id) AS total_aptos,
+                   SUM(CASE WHEN a.pct >= 100 THEN 1 ELSE 0 END) AS culminados,
+                   SUM(CASE WHEN a.pct > 0 AND a.pct < 100 THEN 1 ELSE 0 END) AS en_proceso,
+                   SUM(CASE WHEN a.pct = 0 THEN 1 ELSE 0 END) AS sin_iniciar
+              FROM rec_edificio re
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+              LEFT JOIN (
+                  SELECT ap2.id AS apto_id,
+                         COALESCE(
+                             AVG(CASE WHEN am.id IS NOT NULL THEN COALESCE(ava.porcentaje,0) END),
+                             COALESCE(MAX(aa.porcentaje), 0)
+                         ) AS pct
+                    FROM rec_apartamento ap2
+                    LEFT JOIN rec_ambiente am ON am.apartamento_id = ap2.id
+                    LEFT JOIN rec_avance_ambiente ava ON ava.ambiente_id = am.id
+                    LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap2.id
+                   GROUP BY ap2.id
+              ) a ON a.apto_id = ap.id
+             WHERE i.estado = :e AND i.parroquia = :p
+             GROUP BY re.inspeccion_id
+        ");
+        $st->execute(['e' => $estado, 'p' => $parroquia]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[(int)$r['inspeccion_id']] = [
+                'total'       => (int)$r['total_aptos'],
+                'culminados'  => (int)$r['culminados'],
+                'en_proceso'  => (int)$r['en_proceso'],
+                'sin_iniciar' => (int)$r['sin_iniciar'],
+            ];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
 function recPrioridadColor(?string $decisionFinal): int
 {
     $cat = catalogoDecisionFinal();
@@ -1975,9 +2134,20 @@ function esSistematizador(?int $userId = null): bool
     if (!$userId) return false;
     // Los master siempre pueden.
     if (function_exists('usuarioEsMaster') && usuarioEsMaster()) return true;
-    $st = db()->prepare('SELECT 1 FROM rec_sistematizador WHERE user_id = :u AND activo = 1');
-    $st->execute(['u' => $userId]);
-    return (bool)$st->fetchColumn();
+
+    // 1) Por rol: si el usuario tiene el rol "Sistematizador", lo es.
+    $rol = $_SESSION['rol_nombre'] ?? '';
+    if ($rol !== '' && mb_stripos($rol, 'sistematizador') !== false) return true;
+
+    // 2) Por marca explícita en la tabla (permite designar a cualquiera).
+    try {
+        $st = db()->prepare('SELECT 1 FROM rec_sistematizador WHERE user_id = :u AND activo = 1');
+        $st->execute(['u' => $userId]);
+        return (bool)$st->fetchColumn();
+    } catch (Throwable $e) {
+        // Si la tabla aún no existe, no bloquear: se decide solo por rol.
+        return false;
+    }
 }
 
 // =====================================================================

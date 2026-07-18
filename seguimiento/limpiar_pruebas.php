@@ -26,90 +26,108 @@ $mensaje = null;
 $tipoMsg = 'success';
 
 /**
- * Borra una inspección y TODO lo que cuelga de ella, en orden seguro.
- * Devuelve un resumen de lo eliminado.
+ * Borra el LEVANTAMIENTO TÉCNICO de una inspección, conservando la inspección.
+ * Elimina pisos, apartamentos, ambientes, avances, áreas comunes y las fotos
+ * del levantamiento. La inspección queda limpia y vuelve a "sin asignar",
+ * lista para rehacer el levantamiento desde cero.
  */
-function borrarInspeccionCompleta(PDO $pdo, int $inspeccionId): array
+function borrarLevantamiento(PDO $pdo, int $inspeccionId): array
 {
     $res = ['fotos' => 0, 'ambientes' => 0, 'apartamentos' => 0, 'pisos' => 0, 'edificio' => 0];
 
-    // Localizar el edificio de reconstrucción, si existe.
     $st = $pdo->prepare('SELECT id FROM rec_edificio WHERE inspeccion_id = :i');
     $st->execute(['i' => $inspeccionId]);
     $edificioId = (int)($st->fetchColumn() ?: 0);
+    if ($edificioId <= 0) return $res;   // no tenía levantamiento
 
-    if ($edificioId > 0) {
-        // IDs de pisos, apartamentos y ambientes.
-        $pisos = $pdo->prepare('SELECT id FROM rec_piso WHERE edificio_id = :e');
-        $pisos->execute(['e' => $edificioId]);
-        $pisoIds = $pisos->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    // Recolectar los ids de toda la jerarquía.
+    $pisos = $pdo->prepare('SELECT id FROM rec_piso WHERE edificio_id = :e');
+    $pisos->execute(['e' => $edificioId]);
+    $pisoIds = $pisos->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
-        $aptoIds = [];
-        if ($pisoIds) {
-            $in = implode(',', array_map('intval', $pisoIds));
-            $aptoIds = $pdo->query("SELECT id FROM rec_apartamento WHERE piso_id IN ($in)")
+    $aptoIds = [];
+    if ($pisoIds) {
+        $in = implode(',', array_map('intval', $pisoIds));
+        $aptoIds = $pdo->query("SELECT id FROM rec_apartamento WHERE piso_id IN ($in)")
+                       ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+    $ambIds = [];
+    if ($aptoIds) {
+        $in = implode(',', array_map('intval', $aptoIds));
+        $ambIds = $pdo->query("SELECT id FROM rec_ambiente WHERE apartamento_id IN ($in)")
+                      ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+    $elemIds = [];
+    if ($pisoIds) {
+        $in = implode(',', array_map('intval', $pisoIds));
+        try {
+            $elemIds = $pdo->query("SELECT id FROM rec_elemento_piso WHERE piso_id IN ($in)")
                            ->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        }
+        } catch (Throwable $e) {}
+    }
 
-        $ambIds = [];
-        if ($aptoIds) {
-            $in = implode(',', array_map('intval', $aptoIds));
-            $ambIds = $pdo->query("SELECT id FROM rec_ambiente WHERE apartamento_id IN ($in)")
-                          ->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        }
-
-        // Borrar fotos (archivos en disco + registros).
-        $niveles = [
-            'edificio'    => [$edificioId],
-            'piso'        => $pisoIds,
-            'apartamento' => $aptoIds,
-            'ambiente'    => $ambIds,
-        ];
-        foreach ($niveles as $nivel => $ids) {
-            if (!$ids) continue;
-            $in = implode(',', array_map('intval', $ids));
-            $fotos = $pdo->query("SELECT id, ruta FROM rec_foto WHERE nivel='$nivel' AND ref_id IN ($in)")->fetchAll();
+    // 1) Fotos: archivo en disco + registro.
+    $niveles = [
+        'edificio'      => [$edificioId],
+        'piso'          => $pisoIds,
+        'apartamento'   => $aptoIds,
+        'ambiente'      => $ambIds,
+        'elemento_piso' => $elemIds,
+    ];
+    foreach ($niveles as $nivel => $ids) {
+        if (!$ids) continue;
+        $in = implode(',', array_map('intval', $ids));
+        try {
+            $fotos = $pdo->query("SELECT ruta FROM rec_foto WHERE nivel='$nivel' AND ref_id IN ($in)")->fetchAll();
             foreach ($fotos as $f) {
                 $abs = dirname(__DIR__) . '/' . ltrim($f['ruta'], '/');
                 if (is_file($abs)) @unlink($abs);
                 $res['fotos']++;
             }
             $pdo->exec("DELETE FROM rec_foto WHERE nivel='$nivel' AND ref_id IN ($in)");
-        }
-
-        // Avances y datos dependientes (de abajo hacia arriba).
-        if ($ambIds) {
-            $in = implode(',', array_map('intval', $ambIds));
-            foreach (['rec_avance_ambiente' => 'ambiente_id', 'rec_reparacion' => 'ref_id'] as $t => $col) {
-                try { $pdo->exec("DELETE FROM `$t` WHERE `$col` IN ($in)"); } catch (Throwable $e) {}
-            }
-            $pdo->exec("DELETE FROM rec_ambiente WHERE id IN ($in)");
-            $res['ambientes'] = count($ambIds);
-        }
-        if ($aptoIds) {
-            $in = implode(',', array_map('intval', $aptoIds));
-            try { $pdo->exec("DELETE FROM rec_avance_apto WHERE apartamento_id IN ($in)"); } catch (Throwable $e) {}
-            $pdo->exec("DELETE FROM rec_apartamento WHERE id IN ($in)");
-            $res['apartamentos'] = count($aptoIds);
-        }
-        if ($pisoIds) {
-            $in = implode(',', array_map('intval', $pisoIds));
-            try { $pdo->exec("DELETE FROM rec_elemento_piso WHERE piso_id IN ($in)"); } catch (Throwable $e) {}
-            $pdo->exec("DELETE FROM rec_piso WHERE id IN ($in)");
-            $res['pisos'] = count($pisoIds);
-        }
-        foreach (['rec_area_comun' => 'edificio_id', 'rec_plan_edificio' => 'edificio_id'] as $t => $col) {
-            try { $pdo->exec("DELETE FROM `$t` WHERE `$col` = $edificioId"); } catch (Throwable $e) {}
-        }
-        $pdo->exec("DELETE FROM rec_edificio WHERE id = $edificioId");
-        $res['edificio'] = 1;
+        } catch (Throwable $e) {}
     }
 
-    // Datos ligados a la inspección.
-    foreach (['seguimiento_obras', 'rec_auditoria', 'inspeccion_fotos'] as $t) {
-        try { $pdo->prepare("DELETE FROM `$t` WHERE inspeccion_id = :i")->execute(['i' => $inspeccionId]); } catch (Throwable $e) {}
+    // 2) De abajo hacia arriba: ambientes -> apartamentos -> pisos -> edificio.
+    if ($ambIds) {
+        $in = implode(',', array_map('intval', $ambIds));
+        try { $pdo->exec("DELETE FROM rec_avance_ambiente WHERE ambiente_id IN ($in)"); } catch (Throwable $e) {}
+        try { $pdo->exec("DELETE FROM rec_reparacion WHERE nivel='ambiente' AND ref_id IN ($in)"); } catch (Throwable $e) {}
+        $pdo->exec("DELETE FROM rec_ambiente WHERE id IN ($in)");
+        $res['ambientes'] = count($ambIds);
     }
-    $pdo->prepare('DELETE FROM inspecciones WHERE id = :i')->execute(['i' => $inspeccionId]);
+    if ($aptoIds) {
+        $in = implode(',', array_map('intval', $aptoIds));
+        try { $pdo->exec("DELETE FROM rec_avance_apto WHERE apartamento_id IN ($in)"); } catch (Throwable $e) {}
+        $pdo->exec("DELETE FROM rec_apartamento WHERE id IN ($in)");
+        $res['apartamentos'] = count($aptoIds);
+    }
+    if ($elemIds) {
+        $in = implode(',', array_map('intval', $elemIds));
+        try { $pdo->exec("DELETE FROM rec_reparacion WHERE nivel='elemento_piso' AND ref_id IN ($in)"); } catch (Throwable $e) {}
+        try { $pdo->exec("DELETE FROM rec_elemento_piso WHERE id IN ($in)"); } catch (Throwable $e) {}
+    }
+    if ($pisoIds) {
+        $in = implode(',', array_map('intval', $pisoIds));
+        $pdo->exec("DELETE FROM rec_piso WHERE id IN ($in)");
+        $res['pisos'] = count($pisoIds);
+    }
+    foreach (['rec_area_comun', 'rec_plan_edificio'] as $t) {
+        try { $pdo->exec("DELETE FROM `$t` WHERE edificio_id = $edificioId"); } catch (Throwable $e) {}
+    }
+    $pdo->exec("DELETE FROM rec_edificio WHERE id = $edificioId");
+    $res['edificio'] = 1;
+
+    // 3) La INSPECCIÓN se conserva. Solo se limpia su seguimiento de obra
+    //    para que vuelva a contarse como "sin asignar".
+    try {
+        $pdo->prepare('DELETE FROM seguimiento_obras WHERE inspeccion_id = :i')->execute(['i' => $inspeccionId]);
+    } catch (Throwable $e) {}
+
+    // 4) Dejar constancia en la bitácora.
+    recAuditar('levantamiento_eliminado', $inspeccionId, null,
+        'Levantamiento borrado: ' . $res['pisos'] . ' piso(s), ' . $res['apartamentos']
+        . ' apto(s), ' . $res['ambientes'] . ' ambiente(s), ' . $res['fotos'] . ' foto(s)');
 
     return $res;
 }
@@ -134,38 +152,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'borra
             $st->execute(['i' => $iid]);
             if ($row = $st->fetch()) {
                 $nombres[] = $row['codigo'] . ' — ' . $row['nombre_edificio'];
-                $r = borrarInspeccionCompleta($pdo, $iid);
+                $r = borrarLevantamiento($pdo, $iid);
                 foreach ($r as $k => $v) $tot[$k] += $v;
             }
         }
-        $mensaje = count($nombres) . ' inspección(es) eliminada(s): '
-                 . $tot['edificio'] . ' levantamiento(s), ' . $tot['pisos'] . ' piso(s), '
-                 . $tot['apartamentos'] . ' apartamento(s), ' . $tot['ambientes'] . ' ambiente(s) y '
-                 . $tot['fotos'] . ' foto(s).';
-        registrarLog($_SESSION['user_id'] ?? null, 'inspecciones_prueba_eliminadas', implode(' | ', $nombres));
+        $mensaje = $tot['edificio'] . ' levantamiento(s) eliminado(s). Se borraron '
+                 . $tot['pisos'] . ' piso(s), ' . $tot['apartamentos'] . ' apartamento(s), '
+                 . $tot['ambientes'] . ' ambiente(s) y ' . $tot['fotos'] . ' foto(s). '
+                 . 'Las ' . count($nombres) . ' inspección(es) se conservaron y volvieron a "sin asignar".';
+        registrarLog($_SESSION['user_id'] ?? null, 'levantamientos_eliminados', implode(' | ', $nombres));
     }
 }
 
-// --- Listar candidatas: las más recientes ---
-$limite = max(10, min(100, (int)($_GET['n'] ?? 40)));
+// --- Listar SOLO las que tienen levantamiento técnico ---
+//     Las cerradas (completado=1) van primero: son las que suman a RECONSTRUCCIÓN.
+$soloCerrados = ($_GET['f'] ?? 'cerrados') === 'cerrados';
+$condCompletado = $soloCerrados ? 'AND re.completado = 1' : '';
+$limite = max(10, min(200, (int)($_GET['n'] ?? 40)));
+
 $st = $pdo->prepare("
-    SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.fecha_inspeccion, i.creado_en,
-           i.decision_final,
-           re.id AS edificio_id, re.completado,
+    SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final, i.creado_en,
+           re.id AS edificio_id, re.completado, re.completado_en,
+           re.num_pisos, re.aptos_por_piso,
            (SELECT COUNT(*) FROM rec_piso p WHERE p.edificio_id = re.id) AS n_pisos,
            (SELECT COUNT(*) FROM rec_apartamento a
               JOIN rec_piso p2 ON p2.id = a.piso_id WHERE p2.edificio_id = re.id) AS n_aptos,
-           u.nombre_completo AS creador
+           (SELECT COUNT(*) FROM rec_ambiente m
+              JOIN rec_apartamento a2 ON a2.id = m.apartamento_id
+              JOIN rec_piso p3 ON p3.id = a2.piso_id WHERE p3.edificio_id = re.id) AS n_amb,
+           u.nombre_completo AS cerrado_por
       FROM inspecciones i
-      LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
-      LEFT JOIN usuarios u ON u.id = i.creado_por
-     ORDER BY i.id DESC
+      JOIN rec_edificio re ON re.inspeccion_id = i.id
+      LEFT JOIN usuarios u ON u.id = re.completado_por
+     WHERE 1=1 $condCompletado
+     ORDER BY re.completado DESC, re.id DESC
      LIMIT $limite
 ");
 $st->execute();
 $filas = $st->fetchAll();
 
-$pageTitle    = 'Limpiar inspecciones de prueba';
+$pageTitle    = 'Limpiar levantamientos de prueba';
 $pageSubtitle = 'Herramienta de mantenimiento';
 $activeModule = 'seguimiento';
 include __DIR__ . '/../includes/header.php';
@@ -191,11 +217,11 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="lp-card">
     <div class="lp-aviso">
-        <strong style="color:#A61C1C;"><i class="bi bi-exclamation-triangle-fill"></i> Esta acción no se puede deshacer.</strong>
+        <strong style="color:#A61C1C;"><i class="bi bi-exclamation-triangle-fill"></i> Se borra el levantamiento, no la inspección.</strong>
         <div style="font-size:12px;color:#55617f;margin-top:4px;">
-            Al eliminar una inspección se borran también su levantamiento técnico, pisos,
-            apartamentos, ambientes, avances y las fotos guardadas en el servidor.
-            Revise bien la lista antes de confirmar.
+            Se eliminan los pisos, apartamentos, ambientes, avances y fotos del levantamiento técnico.
+            <strong>La inspección se conserva</strong> y vuelve a contarse como <em>sin asignar</em>,
+            lista para rehacer el levantamiento desde cero. Esta acción no se puede deshacer.
         </div>
     </div>
 
@@ -204,25 +230,37 @@ include __DIR__ . '/../includes/header.php';
 
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
             <div style="font-weight:700;color:#22366F;">
-                <i class="bi bi-list-check"></i> Últimas <?= count($filas) ?> inspecciones registradas
+                <i class="bi bi-list-check"></i>
+                <?= $soloCerrados ? 'Levantamientos CERRADOS' : 'Todos los levantamientos' ?>
+                (<?= count($filas) ?>)
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <span class="text-sm text-muted">Mostrar:</span>
-                <?php foreach ([20, 40, 60, 100] as $n): ?>
-                <a href="?n=<?= $n ?>" class="btn btn-outline btn-sm" style="<?= $limite === $n ? 'background:#eef2fb;' : '' ?>"><?= $n ?></a>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <a href="?f=cerrados&n=<?= $limite ?>" class="btn btn-outline btn-sm"
+                   style="<?= $soloCerrados ? 'background:#eef2fb;font-weight:700;' : '' ?>">Solo cerrados</a>
+                <a href="?f=todos&n=<?= $limite ?>" class="btn btn-outline btn-sm"
+                   style="<?= !$soloCerrados ? 'background:#eef2fb;font-weight:700;' : '' ?>">Todos</a>
+                <span class="text-sm text-muted" style="margin-left:6px;">Mostrar:</span>
+                <?php foreach ([20, 40, 100, 200] as $n): ?>
+                <a href="?f=<?= $soloCerrados ? 'cerrados' : 'todos' ?>&n=<?= $n ?>"
+                   class="btn btn-outline btn-sm" style="<?= $limite === $n ? 'background:#eef2fb;' : '' ?>"><?= $n ?></a>
                 <?php endforeach; ?>
             </div>
         </div>
 
+        <?php if (!$filas): ?>
+            <p class="text-muted" style="margin:14px 0;">
+                No hay levantamientos <?= $soloCerrados ? 'cerrados' : '' ?> registrados.
+            </p>
+        <?php else: ?>
         <table class="lp-tabla">
             <thead><tr>
                 <th style="width:34px;"><input type="checkbox" onclick="marcarTodo(this)"></th>
                 <th style="width:44px;">ID</th>
                 <th>Edificación</th>
-                <th style="width:120px;">Código</th>
-                <th style="width:110px;">Parroquia</th>
-                <th style="width:130px;">Levantamiento</th>
-                <th style="width:130px;">Registrada</th>
+                <th style="width:118px;">Código</th>
+                <th style="width:100px;">Parroquia</th>
+                <th style="width:150px;">Contenido</th>
+                <th style="width:140px;">Cerrado</th>
             </tr></thead>
             <tbody>
             <?php foreach ($filas as $f): ?>
@@ -232,29 +270,39 @@ include __DIR__ . '/../includes/header.php';
                 <td style="color:#97a0b8;"><?= (int)$f['id'] ?></td>
                 <td>
                     <div style="font-weight:600;color:#2a3140;"><?= e($f['nombre_edificio'] ?: 'Sin nombre') ?></div>
-                    <?php if (!empty($f['creador'])): ?>
-                    <div style="font-size:10px;color:#97a0b8;">por <?= e($f['creador']) ?></div>
-                    <?php endif; ?>
+                    <div style="font-size:10px;color:#97a0b8;">
+                        Registrada <?= !empty($f['creado_en']) ? date('d/m/Y', strtotime($f['creado_en'])) : '—' ?>
+                    </div>
                 </td>
                 <td style="color:#767c94;font-size:11px;"><?= e($f['codigo']) ?></td>
                 <td style="font-size:11px;"><?= e($f['parroquia'] ?: '—') ?></td>
                 <td>
-                    <?php if (!empty($f['edificio_id'])): ?>
-                        <span class="lp-chip"><?= (int)$f['n_pisos'] ?> piso(s) · <?= (int)$f['n_aptos'] ?> apto(s)</span>
-                        <?php if ((int)$f['completado'] === 1): ?>
-                        <span class="lp-chip" style="background:#2E7D3218;color:#2E7D32;">Cerrado</span>
-                        <?php endif; ?>
-                    <?php else: ?>
-                        <span style="color:#c4c9d6;font-size:11px;">Sin levantamiento</span>
+                    <span class="lp-chip"><?= (int)$f['n_pisos'] ?> piso(s)</span>
+                    <span class="lp-chip"><?= (int)$f['n_aptos'] ?> apto(s)</span>
+                    <?php if ((int)$f['n_amb'] > 0): ?>
+                    <span class="lp-chip"><?= (int)$f['n_amb'] ?> amb.</span>
                     <?php endif; ?>
                 </td>
-                <td style="font-size:11px;color:#767c94;">
-                    <?= !empty($f['creado_en']) ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '—' ?>
+                <td style="font-size:11px;">
+                    <?php if ((int)$f['completado'] === 1): ?>
+                        <span class="lp-chip" style="background:#2E7D3218;color:#2E7D32;">Cerrado</span>
+                        <?php if (!empty($f['completado_en'])): ?>
+                        <div style="color:#97a0b8;font-size:10px;margin-top:2px;">
+                            <?= date('d/m/Y H:i', strtotime($f['completado_en'])) ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($f['cerrado_por'])): ?>
+                        <div style="color:#97a0b8;font-size:10px;"><?= e($f['cerrado_por']) ?></div>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <span style="color:#C9A227;">En proceso</span>
+                    <?php endif; ?>
                 </td>
             </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
+        <?php endif; ?>
 
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eef0f5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
@@ -264,7 +312,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <button type="submit" class="btn" style="background:#A61C1C;color:#fff;border:0;"
                     onclick="return confirmarBorrado()">
-                <i class="bi bi-trash3"></i> Eliminar seleccionadas (<span id="lp-contador">0</span>)
+                <i class="bi bi-trash3"></i> Borrar levantamiento (<span id="lp-contador">0</span>)
             </button>
             <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline">Cancelar</a>
         </div>
@@ -285,8 +333,8 @@ function contar() {
 }
 function confirmarBorrado() {
     const n = document.querySelectorAll('input[name="ids[]"]:checked').length;
-    if (n === 0) { alert('Seleccione al menos una inspección.'); return false; }
-    return confirm('Se eliminarán ' + n + ' inspección(es) con todos sus datos y fotos.\n\nEsta acción no se puede deshacer. ¿Continuar?');
+    if (n === 0) { alert('Seleccione al menos un levantamiento.'); return false; }
+    return confirm('Se borrará el levantamiento de ' + n + ' edificación(es): pisos, apartamentos, ambientes y fotos.\n\nLa inspección se conserva y volverá a "sin asignar".\n\n¿Continuar?');
 }
 contar();
 </script>

@@ -30,6 +30,10 @@ $cat = catalogoDecisionFinal();
 $datos = [];
 foreach ($misParroquias as $parr) {
     $panel = recPanelParroquia($estadoUsr, $parr);
+    // Resumen de apartamentos y sub-asignaciones (1 consulta cada uno).
+    $panel['resumen_aptos'] = recResumenAptosParroquia($estadoUsr, $parr);
+    $panel['asignaciones']  = asigDeParroquia($estadoUsr, $parr);
+    $panel['carga_gdc']     = asigCargaPorMiembro($estadoUsr, $parr, 'gdc');
     $datos[$parr] = $panel;
 }
 
@@ -61,6 +65,16 @@ include __DIR__ . '/../includes/header.php';
 .mp-tramo.activo { background:#eef2fb; box-shadow:0 0 0 3px #22366F22; }
 .mp-tramo .n { font-size:26px; font-weight:800; line-height:1; }
 .mp-tramo .l { font-size:10px; text-transform:uppercase; letter-spacing:.3px; color:#55617f; margin-top:3px; }
+.mp-mini { font-size:10px; padding:2px 8px; border-radius:10px; background:#eef2fb; color:#55617f;
+           display:inline-flex; align-items:center; gap:4px; }
+.mp-btn-asig { border:1px dashed #C9A227; background:#fff; color:#8a6d1a; cursor:pointer; }
+.mp-btn-asig:hover { background:#C9A22712; }
+#mp-modal { position:fixed; inset:0; background:rgba(20,25,40,.5); z-index:1300;
+            display:none; align-items:center; justify-content:center; padding:16px; }
+#mp-modal .caja { background:#fff; border-radius:12px; max-width:520px; width:100%; max-height:88vh; overflow-y:auto; }
+.mp-opt { display:block; width:100%; text-align:left; border:1px solid #e5e8f0; background:#fff;
+          border-radius:9px; padding:11px 13px; margin-bottom:7px; cursor:pointer; }
+.mp-opt:hover { background:#f4f7fd; border-color:#2d448855; }
 @media (max-width: 640px) {
     .mp-edif { flex-wrap:wrap; }
     .mp-edif > div:first-child { flex:1 1 100%; }
@@ -151,6 +165,24 @@ foreach ($edifs as $e) {
     </div>
 </div>
 
+<!-- Carga de trabajo por integrante del equipo GDC -->
+<?php $carga = $d['carga_gdc'] ?? []; ?>
+<?php if ($carga): ?>
+<div class="mp-card">
+    <div class="mp-tit"><i class="bi bi-person-workspace"></i> Carga por integrante (equipo GDC)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <?php foreach ($carga as $miembro => $n): ?>
+        <button type="button" class="mp-tramo" style="min-width:110px;border-color:#2d448833;"
+                onclick="buscarMiembro('<?= e(addslashes($miembro)) ?>')">
+            <div class="n" style="color:#2d4488;font-size:22px;"><?= (int)$n ?></div>
+            <div class="l"><?= e($miembro) ?></div>
+        </button>
+        <?php endforeach; ?>
+    </div>
+    <p class="text-sm text-muted" style="margin:8px 0 0;">Toque un nombre para ver sus edificaciones.</p>
+</div>
+<?php endif; ?>
+
 <!-- Listado con buscador y orden -->
 <div class="mp-card">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
@@ -160,6 +192,11 @@ foreach ($edifs as $e) {
         </div>
         <input type="text" id="mp-buscar" class="form-control" style="width:210px;"
                placeholder="Buscar edificación…" oninput="filtrarLista()">
+        <select id="mp-asignado" class="form-control" style="width:160px;" onchange="filtrarLista()">
+            <option value="">Asignadas y no</option>
+            <option value="1">Solo asignadas</option>
+            <option value="0">Sin asignar</option>
+        </select>
         <select id="mp-orden" class="form-control" style="width:190px;" onchange="filtrarLista()">
             <option value="color">Amarillo, rojo, verde</option>
             <option value="avance_desc">Mayor avance primero</option>
@@ -181,19 +218,48 @@ foreach ($edifs as $e) {
         $colorDec = $cat[$ed['decision_final'] ?? '']['color'] ?? '#767c94';
         $tramo = $av >= 100 ? 'listo' : ($av >= 75 ? 'avanzado' : ($av >= 25 ? 'medio' : ($av > 0 ? 'inicial' : 'sin')));
     ?>
+    <?php
+        $iid  = (int)$ed['id'];
+        $ra   = $d['resumen_aptos'][$iid] ?? null;
+        $asig = $d['asignaciones'][$iid] ?? [];
+        $resp = $asig['gdc'] ?? null;
+    ?>
     <div class="mp-edif" data-tramo="<?= $tramo ?>" data-avance="<?= $av ?>"
          data-color="<?= recPrioridadColor($ed['decision_final'] ?? null) ?>"
-         data-nombre="<?= e(mb_strtolower(($ed['nombre'] ?? '') . ' ' . ($ed['codigo'] ?? ''), 'UTF-8')) ?>">
+         data-asignado="<?= $resp ? '1' : '0' ?>"
+         data-nombre="<?= e(mb_strtolower(($ed['nombre'] ?? '') . ' ' . ($ed['codigo'] ?? '') . ' ' . ($resp ?? ''), 'UTF-8')) ?>">
         <span style="width:11px;height:11px;border-radius:50%;background:<?= $colorDec ?>;flex-shrink:0;"></span>
         <div style="flex:1;min-width:0;">
             <div style="font-weight:600;color:#2a3140;font-size:14px;"><?= e($ed['nombre'] ?? 'Sin nombre') ?></div>
             <div style="font-size:11px;color:#767c94;">
                 <?= e($ed['codigo'] ?? '') ?><?php if (!empty($ed['ente'])): ?> · <?= e($ed['ente']) ?><?php endif; ?>
             </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center;">
+                <?php if ($ra && $ra['total'] > 0): ?>
+                <span class="mp-mini" title="Apartamentos culminados de un total">
+                    <i class="bi bi-door-open"></i> <?= $ra['culminados'] ?>/<?= $ra['total'] ?> aptos
+                </span>
+                <?php if ($ra['en_proceso'] > 0): ?>
+                <span class="mp-mini" style="background:#C9A22718;color:#8a6d1a;">
+                    <?= $ra['en_proceso'] ?> en proceso
+                </span>
+                <?php endif; ?>
+                <?php endif; ?>
+                <?php if ($resp): ?>
+                <span class="mp-mini" style="background:#2d448818;color:#2d4488;">
+                    <i class="bi bi-person-check-fill"></i> <?= e($resp) ?>
+                </span>
+                <?php else: ?>
+                <button type="button" class="mp-mini mp-btn-asig"
+                        onclick="abrirAsignar(<?= $iid ?>, '<?= e(addslashes($ed['nombre'] ?? '')) ?>')">
+                    <i class="bi bi-person-plus"></i> Asignar responsable
+                </button>
+                <?php endif; ?>
+            </div>
         </div>
         <div class="mp-barra"><div style="width:<?= $av ?>%;height:100%;background:<?= $col ?>;"></div></div>
         <span class="mp-pct" style="color:<?= $col ?>;"><?= $av ?>%</span>
-        <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$ed['id'] ?>"
+        <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= $iid ?>"
            class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i></a>
     </div>
     <?php endforeach; ?>
@@ -256,7 +322,27 @@ foreach ($edifs as $e) {
 
 <?php endforeach; ?>
 
+<!-- Modal de asignación a integrante del frente -->
+<div id="mp-modal">
+    <div class="caja">
+        <div style="background:#22366F;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <div style="font-size:10px;opacity:.75;text-transform:uppercase;letter-spacing:.4px;">Asignar responsable</div>
+                <b id="mp-modal-tit">Edificación</b>
+            </div>
+            <button onclick="cerrarAsignar()" style="background:transparent;border:0;color:#fff;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div id="mp-modal-body" style="padding:16px 18px;"></div>
+    </div>
+</div>
+
 <script>
+const MP_PARROQUIA = <?= json_encode($misParroquias[0] ?? '') ?>;
+const MP_ESTADO = <?= json_encode($estadoUsr) ?>;
+const MP_URL = <?= json_encode(APP_URL_BASE . 'seguimiento/') ?>;
+let _inspSel = 0;
+let _frentesCache = null;
+
 let _tramoActivo = 'todos';
 
 function filtrarTramo(t) {
@@ -269,6 +355,7 @@ function filtrarTramo(t) {
 function filtrarLista() {
     const txt = (document.getElementById('mp-buscar').value || '').toLowerCase().trim();
     const orden = document.getElementById('mp-orden').value;
+    const asig = document.getElementById('mp-asignado').value;
     const cont = document.getElementById('mp-lista');
     const filas = Array.from(cont.querySelectorAll('.mp-edif'));
 
@@ -276,7 +363,8 @@ function filtrarLista() {
     filas.forEach(f => {
         const okTramo = _tramoActivo === 'todos' || f.dataset.tramo === _tramoActivo;
         const okTexto = !txt || (f.dataset.nombre || '').includes(txt);
-        const ver = okTramo && okTexto;
+        const okAsig = asig === '' || f.dataset.asignado === asig;
+        const ver = okTramo && okTexto && okAsig;
         f.style.display = ver ? '' : 'none';
         if (ver) visibles++;
     });
@@ -293,6 +381,80 @@ function filtrarLista() {
 
     document.getElementById('mp-contador').textContent = visibles;
     document.getElementById('mp-vacio').style.display = visibles ? 'none' : '';
+}
+
+// Buscar por integrante desde las tarjetas de carga.
+function buscarMiembro(nombre) {
+    document.getElementById('mp-buscar').value = nombre;
+    filtrarLista();
+    document.getElementById('mp-lista').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// --- Asignación a un integrante del frente ---
+async function abrirAsignar(inspeccionId, nombreEdif) {
+    _inspSel = inspeccionId;
+    document.getElementById('mp-modal-tit').textContent = nombreEdif || 'Edificación';
+    const body = document.getElementById('mp-modal-body');
+    body.innerHTML = '<p class="text-muted">Cargando equipos…</p>';
+    document.getElementById('mp-modal').style.display = 'flex';
+
+    if (!_frentesCache) {
+        try {
+            const res = await fetch(MP_URL + 'asignar_frente.php', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ accion:'integrantes', estado: MP_ESTADO, parroquia: MP_PARROQUIA })
+            });
+            const d = await res.json();
+            if (!d.ok) { body.innerHTML = '<p class="text-muted">' + (d.mensaje || 'No se pudo cargar.') + '</p>'; return; }
+            _frentesCache = d;
+        } catch (e) {
+            body.innerHTML = '<p class="text-muted">Error de red.</p>'; return;
+        }
+    }
+    pintarOpciones(body);
+}
+
+function pintarOpciones(body) {
+    const tipos = _frentesCache.tipos || {};
+    const iconos = { gdc:'bi-people-fill', sistematizador:'bi-clipboard-data',
+                     corporacion:'bi-tools', movilizaciones:'bi-megaphone' };
+    let html = '';
+    (_frentesCache.frentes || []).forEach(f => {
+        const sector = f.sector ? ` <span style="background:#C9A22722;color:#8a6d1a;font-size:10px;padding:1px 6px;border-radius:10px;">${f.sector}</span>` : '';
+        html += `<div style="margin-bottom:14px;">
+            <div style="font-size:10px;text-transform:uppercase;color:#97a0b8;letter-spacing:.3px;margin-bottom:5px;">
+                <i class="bi ${iconos[f.tipo]||'bi-dot'}"></i> ${tipos[f.tipo] || f.tipo}${sector}
+            </div>`;
+        f.integrantes.forEach(m => {
+            html += `<button type="button" class="mp-opt" onclick="guardarAsignacion(${f.frente_id}, '${f.tipo}', ${JSON.stringify(m).replace(/'/g,"&#39;")})">
+                       <strong style="color:#22366F;">${m}</strong>
+                       <div style="font-size:11px;color:#97a0b8;">del equipo ${f.nombre}</div>
+                     </button>`;
+        });
+        html += '</div>';
+    });
+    body.innerHTML = html || '<p class="text-muted">No hay frentes de trabajo registrados en esta parroquia.</p>';
+}
+
+async function guardarAsignacion(frenteId, tipo, miembro) {
+    const body = document.getElementById('mp-modal-body');
+    body.innerHTML = '<p class="text-muted">Guardando…</p>';
+    try {
+        const res = await fetch(MP_URL + 'asignar_frente.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ inspeccion_id: _inspSel, frente_id: frenteId, tipo: tipo, miembro: miembro })
+        });
+        const d = await res.json();
+        if (d.sesion_expirada) { alert(d.mensaje); return; }
+        if (!d.ok) { body.innerHTML = '<p class="text-muted">' + (d.mensaje || 'Error.') + '</p>'; return; }
+        location.reload();
+    } catch (e) {
+        body.innerHTML = '<p class="text-muted">Error de red.</p>';
+    }
+}
+
+function cerrarAsignar() {
+    document.getElementById('mp-modal').style.display = 'none';
 }
 
 filtrarTramo('todos');

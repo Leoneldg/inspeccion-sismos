@@ -95,8 +95,8 @@ $flashes = obtenerFlashes();
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
                 </a>
                 <?php if (usuarioEsMaster()): ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar inspecciones de prueba">
-                    <i class="bi bi-trash3"></i> <span>Limpiar pruebas</span>
+                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar levantamientos de prueba">
+                    <i class="bi bi-trash3"></i> <span>Limpiar levantamientos</span>
                 </a>
                 <?php endif; ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/representantes.php" class="nav-item <?= $activeModule==='representantes'?'active':'' ?>" title="Representantes por parroquia">
@@ -151,6 +151,9 @@ $flashes = obtenerFlashes();
                 <?php if (puede('usuarios','ver')): ?>
                 <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule==='usuarios'?'active':'' ?>" title="Usuarios">
                     <i class="bi bi-people-fill"></i> <span>Usuarios</span>
+                </a>
+                <a href="<?= APP_URL_BASE ?>admin/sistematizadores.php" class="nav-item <?= $activeModule==='sistematizadores'?'active':'' ?>" title="Sistematizadores">
+                    <i class="bi bi-person-check-fill"></i> <span>Sistematizadores</span>
                 </a>
                 <?php if (puede('usuarios','editar')): ?>
                 <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule==='roles'?'active':'' ?>" title="Roles y Permisos">
