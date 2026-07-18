@@ -19,6 +19,9 @@ try {
     $edificioId = (int)($_GET['edificio_id'] ?? 0);
     if ($edificioId <= 0) { echo json_encode(['ok' => false]); exit; }
 
+    // Si viene ?apto=N, se devuelve SOLO ese apartamento (mucho más rápido).
+    $soloApto = (int)($_GET['apto'] ?? 0);
+
     $pisos = recPisos($edificioId);
     $out = [];
 
@@ -27,6 +30,7 @@ try {
         $aptosOut = [];
         foreach (recApartamentos($pisoId) as $ap) {
             $aptoId = (int)$ap['id'];
+            if ($soloApto > 0 && $aptoId !== $soloApto) continue;
 
             // Fotos del apartamento (antes = las del levantamiento, durante = fase obra).
             $fotosApto = recFotos('apartamento', $aptoId);

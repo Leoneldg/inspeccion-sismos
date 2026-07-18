@@ -20,8 +20,9 @@ try {
     $estado    = trim($_GET['estado'] ?? '');
     $enteId    = trim($_GET['ente_id'] ?? '');
     $color     = trim($_GET['color'] ?? '');
+    $uso       = trim($_GET['uso'] ?? '');
 
-    if ($q === '' && $parroquia === '' && $enteId === '' && $color === '') {
+    if ($q === '' && $parroquia === '' && $enteId === '' && $color === '' && $uso === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
         exit;
     }
@@ -47,6 +48,11 @@ try {
     if ($enteId !== '') {
         $conds[] = 'so.ente_id = :ente';
         $params['ente'] = (int)$enteId;
+    }
+    // Filtro por uso de la edificación.
+    if ($uso !== '') {
+        $conds[] = 'i.uso_edificacion = :uso';
+        $params['uso'] = $uso;
     }
     // Filtro por status/color de la vivienda.
     if ($color !== '') {

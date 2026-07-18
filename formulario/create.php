@@ -1,4 +1,19 @@
 <?php
+/**
+ * MÓDULO OCULTO: el sistema está enfocado en Seguimiento y Control.
+ * Este archivo redirige a la página principal. Para reactivar el módulo,
+ * borre este bloque (hasta la línea con "FIN DEL BLOQUE").
+ */
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/auth.php';
+requireLogin();
+if (!usuarioEsMaster()) {
+    header('Location: ' . APP_URL_BASE . 'seguimiento/index.php');
+    exit;
+}
+// FIN DEL BLOQUE
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';

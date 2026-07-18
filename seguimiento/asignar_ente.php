@@ -50,6 +50,7 @@ try {
     }
 
     $ente = segAsignarEnte($inspeccionId, $enteId);
+    recAuditar('ente_asignado', $inspeccionId, null, 'Ente: ' . ($ente['nombre'] ?? ('#' . $enteId)));
 
     // Mensaje de confirmación solicitado.
     $texto = 'Se asignó al ente ' . $ente['nombre']

@@ -167,6 +167,15 @@ include __DIR__ . '/../includes/header.php';
                 </select>
             </div>
             <div class="field" style="margin:0;">
+                <label class="text-sm">Uso</label>
+                <select id="f-uso" class="form-control" style="width:180px;" onchange="ejecutarBusqueda()">
+                    <option value="">TODOS LOS USOS</option>
+                    <?php foreach (catalogoUsoEdificacion() as $u): ?>
+                    <option value="<?= e($u) ?>"><?= e(mb_strtoupper($u, 'UTF-8')) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
                 <label class="text-sm">Status</label>
                 <select id="f-color" class="form-control" style="width:150px;" onchange="ejecutarBusqueda()">
                     <option value="">Todos</option>
@@ -273,7 +282,7 @@ const CONTEO_PARROQUIAS = <?= json_encode($conteoParroquias, JSON_UNESCAPED_UNIC
 const FASES        = <?= json_encode($fasesCat, JSON_UNESCAPED_UNICODE) ?>;
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const APP_URL_BASE = '<?= APP_URL_BASE ?>';
-const PARROQUIA_URL = APP_URL_BASE + 'dashboard/api_parroquia.php';
+const PARROQUIA_URL = APP_URL_BASE + 'seguimiento/api_parroquia.php';
 const PUNTOS_URL = APP_URL_BASE + 'seguimiento/puntos_parroquia.php';
 const BUSCAR_URL = APP_URL_BASE + 'seguimiento/buscar_edificios.php';
 
@@ -495,7 +504,7 @@ function pintarPanelParroquia(d) {
 }
 
 function descargarPdfParroquia(estado, parroquia) {
-    window.location.href = APP_URL_BASE + 'dashboard/pdf_parroquia.php?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia);
+    window.location.href = APP_URL_BASE + 'seguimiento/pdf_parroquia.php?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia);
 }
 
 // Mapa normaliza texto para casar parroquia del geojson con la del conteo.
@@ -602,8 +611,9 @@ async function ejecutarBusqueda() {
     const estado = document.getElementById('f-estado').value;
     const enteId = document.getElementById('f-ente').value;
     const color = document.getElementById('f-color').value;
+    const uso = document.getElementById('f-uso').value;
 
-    if (!q && !parroquia && !enteId && !color) { limpiarBusqueda(); return; }
+    if (!q && !parroquia && !enteId && !color && !uso) { limpiarBusqueda(); return; }
 
     const cont = document.getElementById('f-resultados');
     cont.style.display = 'block';
@@ -614,7 +624,8 @@ async function ejecutarBusqueda() {
                   + '&parroquia=' + encodeURIComponent(parroquia)
                   + '&estado=' + encodeURIComponent(estado)
                   + '&ente_id=' + encodeURIComponent(enteId)
-                  + '&color=' + encodeURIComponent(color);
+                  + '&color=' + encodeURIComponent(color)
+                  + '&uso=' + encodeURIComponent(uso);
         const res = await fetch(url);
         const d = await res.json();
         if (!d.ok) { cont.innerHTML = '<p class="text-muted" style="margin:0;">' + (d.mensaje || 'Error.') + '</p>'; return; }

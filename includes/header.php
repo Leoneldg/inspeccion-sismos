@@ -75,12 +75,12 @@ $flashes = obtenerFlashes();
                 <i class="bi bi-chevron-down group-chevron"></i>
             </div>
             <div class="nav-group-items">
-                <?php if (puede('dashboard','ver')): ?>
+                <?php if (false && puede('dashboard','ver')): // OCULTO: sistema enfocado en Seguimiento y Control ?>
                 <a href="<?= APP_URL_BASE ?>dashboard/index.php" class="nav-item <?= $activeModule==='dashboard'?'active':'' ?>" title="Dashboard">
                     <i class="bi bi-bar-chart-line-fill"></i> <span>Dashboard</span>
                 </a>
                 <?php endif; ?>
-                <?php if (puede('formulario','ver')): ?>
+                <?php if (false && puede('formulario','ver')): // OCULTO: sistema enfocado en Seguimiento y Control ?>
                 <a href="<?= APP_URL_BASE ?>formulario/index.php" class="nav-item <?= $activeModule==='formulario'?'active':'' ?>" title="Formulario de Inspección">
                     <i class="bi bi-clipboard2-check-fill"></i> <span>Formulario</span>
                 </a>

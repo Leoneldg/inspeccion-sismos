@@ -698,6 +698,7 @@ function segAsignarEnte(int $inspeccionId, int $enteId): array
 /** Lista todos los representantes activos con sus parroquias asignadas. */
 function repListar(): array
 {
+    repAsegurarTablas();
     $pdo = db();
     $reps = $pdo->query('SELECT * FROM representantes WHERE activo = 1 ORDER BY nombre')->fetchAll();
     if (!$reps) return [];
@@ -731,8 +732,45 @@ function repDeParroquia(string $estado, string $parroquia): array
 }
 
 /** Crea un representante y devuelve su id. */
+/**
+ * Asegura que existan las tablas de representantes (por si no se corrió el SQL).
+ */
+function repAsegurarTablas(): void
+{
+    static $verificado = false;
+    if ($verificado) return;
+    $verificado = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS representantes (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            nombre VARCHAR(180) NOT NULL,
+            cedula VARCHAR(30) DEFAULT NULL,
+            telefono VARCHAR(30) DEFAULT NULL,
+            email VARCHAR(150) DEFAULT NULL,
+            cargo VARCHAR(120) DEFAULT NULL,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            creado_por INT UNSIGNED DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), KEY idx_rep_activo (activo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        db()->exec("CREATE TABLE IF NOT EXISTS representante_parroquia (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            representante_id INT UNSIGNED NOT NULL,
+            estado VARCHAR(100) NOT NULL,
+            municipio VARCHAR(120) DEFAULT NULL,
+            parroquia VARCHAR(120) NOT NULL,
+            asignado_por INT UNSIGNED DEFAULT NULL,
+            asignado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_rep_parroquia (representante_id, estado, parroquia),
+            KEY idx_rp_parroquia (estado, parroquia)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* si no se puede, seguir */ }
+}
+
 function repCrear(array $datos): int
 {
+    repAsegurarTablas();
     $st = db()->prepare(
         'INSERT INTO representantes (nombre, cedula, telefono, email, cargo, creado_por)
          VALUES (:n, :c, :t, :e, :ca, :u)'
@@ -1005,14 +1043,32 @@ function recGuardarApartamento(int $apartamentoId, array $d): void
 
     db()->prepare(
         'UPDATE rec_apartamento SET num_habitaciones=:h, num_salas=:s, num_balcones=:b, num_cocinas=:c,
-            num_banos=:ban, jefe_nombre=:jn, jefe_cedula=:jc, jefe_telefono=:jt, completado=1 WHERE id=:id'
+            num_banos=:ban, jefe_nombre=:jn, jefe_cedula=:jc, jefe_telefono=:jt, completado=1,
+            registrado_por=:rp, registrado_en=NOW() WHERE id=:id'
     )->execute([
         'h'=>$nh, 's'=>$ns, 'b'=>$nb, 'c'=>$nc, 'ban'=>$nban,
         'jn'=>trim($d['jefe_nombre'] ?? '') ?: null,
         'jc'=>trim($d['jefe_cedula'] ?? '') ?: null,
         'jt'=>trim($d['jefe_telefono'] ?? '') ?: null,
+        'rp'=>$_SESSION['user_id'] ?? null,
         'id'=>$apartamentoId,
     ]);
+
+    // Auditoría: quién registró este apartamento.
+    try {
+        $st = db()->prepare(
+            'SELECT ap.identificador, pi.edificio_id, re.inspeccion_id
+               FROM rec_apartamento ap
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+               JOIN rec_edificio re ON re.id = pi.edificio_id
+              WHERE ap.id = :a'
+        );
+        $st->execute(['a' => $apartamentoId]);
+        if ($r = $st->fetch()) {
+            recAuditar('apartamento_registrado', (int)$r['inspeccion_id'], (int)$r['edificio_id'],
+                'Apto ' . $r['identificador'] . ' · jefe de familia: ' . (trim($d['jefe_nombre'] ?? '') ?: 'sin nombre'));
+        }
+    } catch (Throwable $e) { /* no interrumpir */ }
 
     // Generar los ambientes según las cantidades (sin duplicar los existentes).
     $tipos = [
@@ -1411,21 +1467,201 @@ function recPanelParroquia(string $estado, string $parroquia): array
  * su avance registrado. (El flujo Antes/Durante/Después afinará esto luego.)
  * Devuelve un entero 0..100.
  */
-function recAvanceEdificio(int $edificioId): int
+/**
+ * Trae TODO el árbol del edificio (pisos → apartamentos) con sus porcentajes,
+ * en una sola consulta, para cargar la ficha de seguimiento al instante.
+ *
+ * Jerarquía de porcentajes:
+ *   - % apartamento = lo registrado en rec_avance_apto (0 si no tiene).
+ *   - % piso        = promedio de los apartamentos de ese piso.
+ *   - % edificio    = promedio de los pisos (que ya son promedio de sus aptos).
+ */
+function recArbolAvance(int $edificioId): array
 {
-    // Promedio simple del avance de todos los apartamentos del edificio.
+    recAsegurarTablasAvance();
     $pdo = db();
     $st = $pdo->prepare(
-        "SELECT COALESCE(av.porcentaje, 0) AS pct
-           FROM rec_apartamento ap
-           JOIN rec_piso pi ON pi.id = ap.piso_id
+        "SELECT pi.id AS piso_id, pi.numero_piso,
+                ap.id AS apto_id, ap.identificador,
+                ap.jefe_nombre, ap.jefe_cedula, ap.jefe_telefono,
+                COALESCE(av.porcentaje, 0) AS pct,
+                (SELECT COUNT(*) FROM rec_foto f
+                  WHERE f.nivel='apartamento' AND f.ref_id=ap.id AND f.parte='durante') AS fotos_durante
+           FROM rec_piso pi
+           LEFT JOIN rec_apartamento ap ON ap.piso_id = pi.id
            LEFT JOIN rec_avance_apto av ON av.apartamento_id = ap.id
-          WHERE pi.edificio_id = :e"
+          WHERE pi.edificio_id = :e
+          ORDER BY pi.numero_piso, ap.id"
     );
     $st->execute(['e' => $edificioId]);
-    $vals = $st->fetchAll(PDO::FETCH_COLUMN);
-    if (!$vals) return 0;
-    return (int)round(array_sum($vals) / count($vals));
+
+    $pisos = [];
+    foreach ($st->fetchAll() as $r) {
+        $pid = (int)$r['piso_id'];
+        if (!isset($pisos[$pid])) {
+            $pisos[$pid] = [
+                'piso_id'      => $pid,
+                'numero_piso'  => (int)$r['numero_piso'],
+                'etiqueta'     => (int)$r['numero_piso'] === 0 ? 'Planta Baja' : 'Piso ' . (int)$r['numero_piso'],
+                'apartamentos' => [],
+                'avance'       => 0,
+            ];
+        }
+        if ($r['apto_id'] !== null) {
+            $pisos[$pid]['apartamentos'][] = [
+                'id'            => (int)$r['apto_id'],
+                'identificador' => $r['identificador'],
+                'jefe_nombre'   => $r['jefe_nombre'],
+                'jefe_cedula'   => $r['jefe_cedula'],
+                'jefe_telefono' => $r['jefe_telefono'],
+                'avance'        => (int)$r['pct'],
+                'tiene_foto_durante' => ((int)$r['fotos_durante']) > 0,
+            ];
+        }
+    }
+
+    // % de cada piso = promedio de sus apartamentos.
+    $sumaPisos = 0; $nPisos = 0;
+    foreach ($pisos as $pid => $p) {
+        $aptos = $p['apartamentos'];
+        if ($aptos) {
+            $suma = array_sum(array_column($aptos, 'avance'));
+            $pisos[$pid]['avance'] = (int)round($suma / count($aptos));
+        }
+        $sumaPisos += $pisos[$pid]['avance'];
+        $nPisos++;
+    }
+    // % del edificio = promedio de los pisos.
+    $avanceEdificio = $nPisos > 0 ? (int)round($sumaPisos / $nPisos) : 0;
+
+    return [
+        'pisos'          => array_values($pisos),
+        'avance_edificio'=> $avanceEdificio,
+        'total_pisos'    => $nPisos,
+        'total_aptos'    => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
+    ];
+}
+
+/** Asegura que exista la tabla de avance por apartamento. */
+// =====================================================================
+// AUDITORÍA: quién hizo qué y cuándo.
+// =====================================================================
+
+/** Crea la tabla de auditoría y las columnas de trazabilidad si faltan. */
+function recAsegurarAuditoria(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_auditoria (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            inspeccion_id INT UNSIGNED DEFAULT NULL,
+            edificio_id INT UNSIGNED DEFAULT NULL,
+            accion VARCHAR(60) NOT NULL,
+            detalle VARCHAR(400) DEFAULT NULL,
+            usuario_id INT UNSIGNED DEFAULT NULL,
+            usuario_nombre VARCHAR(150) DEFAULT NULL,
+            ip VARCHAR(45) DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            KEY idx_aud_inspeccion (inspeccion_id),
+            KEY idx_aud_edificio (edificio_id),
+            KEY idx_aud_fecha (creado_en)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $cols = db()->query("SHOW COLUMNS FROM rec_edificio")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('completado_por', $cols, true)) db()->exec("ALTER TABLE rec_edificio ADD COLUMN completado_por INT UNSIGNED DEFAULT NULL");
+        if (!in_array('completado_en', $cols, true))  db()->exec("ALTER TABLE rec_edificio ADD COLUMN completado_en DATETIME DEFAULT NULL");
+        $ca = db()->query("SHOW COLUMNS FROM rec_apartamento")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('registrado_por', $ca, true)) db()->exec("ALTER TABLE rec_apartamento ADD COLUMN registrado_por INT UNSIGNED DEFAULT NULL");
+        if (!in_array('registrado_en', $ca, true))  db()->exec("ALTER TABLE rec_apartamento ADD COLUMN registrado_en DATETIME DEFAULT NULL");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/** Registra una acción en la bitácora. Nunca interrumpe el flujo si falla. */
+function recAuditar(string $accion, ?int $inspeccionId = null, ?int $edificioId = null, ?string $detalle = null): void
+{
+    try {
+        recAsegurarAuditoria();
+        $nombre = $_SESSION['user_nombre'] ?? ($_SESSION['nombre'] ?? null);
+        if (!$nombre && !empty($_SESSION['user_id'])) {
+            $st = db()->prepare('SELECT nombre FROM usuarios WHERE id = :id');
+            $st->execute(['id' => (int)$_SESSION['user_id']]);
+            $nombre = $st->fetchColumn() ?: null;
+        }
+        db()->prepare(
+            'INSERT INTO rec_auditoria (inspeccion_id, edificio_id, accion, detalle, usuario_id, usuario_nombre, ip)
+             VALUES (:i, :e, :a, :d, :u, :un, :ip)'
+        )->execute([
+            'i'  => $inspeccionId,
+            'e'  => $edificioId,
+            'a'  => mb_substr($accion, 0, 60),
+            'd'  => $detalle !== null ? mb_substr($detalle, 0, 400) : null,
+            'u'  => $_SESSION['user_id'] ?? null,
+            'un' => $nombre,
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (Throwable $e) { /* la auditoría nunca debe romper la operación */ }
+}
+
+/** Historial de una inspección (para mostrarlo en la ficha). */
+function recHistorial(int $inspeccionId, int $limite = 100): array
+{
+    recAsegurarAuditoria();
+    try {
+        $st = db()->prepare(
+            'SELECT accion, detalle, usuario_nombre, ip, creado_en
+               FROM rec_auditoria
+              WHERE inspeccion_id = :i
+              ORDER BY creado_en DESC, id DESC
+              LIMIT ' . max(1, min(500, $limite))
+        );
+        $st->execute(['i' => $inspeccionId]);
+        return $st->fetchAll();
+    } catch (Throwable $e) { return []; }
+}
+
+/** Quién hizo el levantamiento técnico de un edificio (para la ficha). */
+function recResponsableLevantamiento(int $edificioId): array
+{
+    recAsegurarAuditoria();
+    try {
+        $st = db()->prepare(
+            "SELECT u1.nombre AS creado_por_nombre, re.creado_en,
+                    u2.nombre AS completado_por_nombre, re.completado_en, re.completado
+               FROM rec_edificio re
+               LEFT JOIN usuarios u1 ON u1.id = re.creado_por
+               LEFT JOIN usuarios u2 ON u2.id = re.completado_por
+              WHERE re.id = :e"
+        );
+        $st->execute(['e' => $edificioId]);
+        return $st->fetch() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+function recAsegurarTablasAvance(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_avance_apto (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            apartamento_id INT UNSIGNED NOT NULL,
+            porcentaje TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            observaciones VARCHAR(400) DEFAULT NULL,
+            actualizado_por INT UNSIGNED DEFAULT NULL,
+            actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_avance_apto (apartamento_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+function recAvanceEdificio(int $edificioId): int
+{
+    // Coherente con recArbolAvance: promedio de pisos (cada piso = promedio de sus aptos).
+    $arbol = recArbolAvance($edificioId);
+    return (int)$arbol['avance_edificio'];
 }
 
 /** Avance registrado de un apartamento (0 si no tiene). */
@@ -1440,6 +1676,7 @@ function recAvanceApartamento(int $apartamentoId): int
 /** Guarda el % de avance de un apartamento (solo sistematizador). */
 function recGuardarAvanceApto(int $apartamentoId, int $porcentaje, ?string $obs = null): void
 {
+    recAsegurarTablasAvance();
     $porcentaje = max(0, min(100, $porcentaje));
     db()->prepare(
         'INSERT INTO rec_avance_apto (apartamento_id, porcentaje, observaciones, actualizado_por)
@@ -1448,6 +1685,22 @@ function recGuardarAvanceApto(int $apartamentoId, int $porcentaje, ?string $obs 
     )->execute([
         'a' => $apartamentoId, 'p' => $porcentaje, 'o' => $obs, 'u' => $_SESSION['user_id'] ?? null,
     ]);
+
+    // Auditoría: quién movió el avance y a cuánto.
+    try {
+        $st = db()->prepare(
+            'SELECT ap.identificador, pi.edificio_id, re.inspeccion_id
+               FROM rec_apartamento ap
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+               JOIN rec_edificio re ON re.id = pi.edificio_id
+              WHERE ap.id = :a'
+        );
+        $st->execute(['a' => $apartamentoId]);
+        if ($r = $st->fetch()) {
+            recAuditar('avance_actualizado', (int)$r['inspeccion_id'], (int)$r['edificio_id'],
+                'Apto ' . $r['identificador'] . ' → ' . $porcentaje . '%');
+        }
+    } catch (Throwable $e) { /* no interrumpir */ }
 }
 
 /** ¿El apartamento tiene al menos una foto del "durante"? (requisito para subir %) */

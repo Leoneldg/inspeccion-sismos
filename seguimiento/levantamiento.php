@@ -476,9 +476,9 @@ async function guardarEdificio(ev) {
     });
     const data = await res.json();
     if (data.ok) {
-        // Recargar para que se generen los pisos y aparezcan en el paso 2.
+        // Los pisos ya vienen creados: recargar en el paso 2 para dibujarlos.
         location.href = 'levantamiento.php?inspeccion=' + INSPECCION_ID + '&paso=2';
-    } else alert(data.mensaje || 'Error al guardar.');
+    } else alert(data.mensaje || 'Error al guardar: ' + (data.mensaje || ''));
     return false;
 }
 
@@ -653,6 +653,7 @@ async function guardarApto(btn, aptoId) {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const data = await res.json();
+    if (data.sesion_expirada) { alert(data.mensaje); return; }
     if (data.ok) pintarAmbientes(data.ambientes, cont.querySelector('.amb-lista'));
     else alert(data.mensaje || 'Error.');
 }

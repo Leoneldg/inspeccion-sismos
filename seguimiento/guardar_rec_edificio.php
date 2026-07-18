@@ -40,13 +40,23 @@ try {
         ]);
         // Guardar el plan de tiempo estimado.
         recGuardarPlan($edificioId, $b);
+
+        // Marcar el levantamiento como COMPLETADO, con quién y cuándo.
+        try {
+            recAsegurarAuditoria();
+            db()->prepare(
+                'UPDATE rec_edificio SET completado=1, completado_por=:u, completado_en=NOW() WHERE id=:id'
+            )->execute(['u' => $_SESSION['user_id'] ?? null, 'id' => $edificioId]);
+        } catch (Throwable $e) { /* seguir */ }
+
+        recAuditar('levantamiento_cerrado', $inspeccionId, $edificioId, 'Levantamiento técnico cerrado');
         resp(true, 'Cierre guardado.', ['edificio_id' => $edificioId]);
     }
 
     // --- Modo PASO 1: datos básicos + generar pisos ---
-    // Solo actualiza los campos básicos, sin tocar la azotea (que va en el cierre).
+    // NO marca completado: eso ocurre solo al cerrar el levantamiento (paso 3).
     db()->prepare(
-        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac, completado=1 WHERE id=:id'
+        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac WHERE id=:id'
     )->execute([
         'np'  => ($b['num_pisos'] ?? '') !== '' ? (int)$b['num_pisos'] : null,
         'app' => ($b['aptos_por_piso'] ?? '') !== '' ? (int)$b['aptos_por_piso'] : null,
@@ -60,11 +70,25 @@ try {
     }
 
     $numPisos = (int)($b['num_pisos'] ?? 0);
+    $aptosPorPiso = (int)($b['aptos_por_piso'] ?? 0);
     if ($numPisos > 0 && $numPisos <= 200) {
         recGenerarPisos($edificioId, $numPisos);
+        // Generar también los apartamentos de cada piso, para que todo
+        // quede listo de una vez y la ficha cargue completa al instante.
+        if ($aptosPorPiso > 0 && $aptosPorPiso <= 100) {
+            foreach (recPisos($edificioId) as $piso) {
+                recGenerarApartamentos((int)$piso['id'], $aptosPorPiso, (int)$piso['numero_piso']);
+            }
+        }
     }
 
-    resp(true, 'Datos del edificio guardados.', ['edificio_id' => $edificioId]);
+    // Devolver el árbol completo (pisos + apartamentos) para dibujarlo sin recargar.
+    recAuditar('levantamiento_paso1', $inspeccionId, $edificioId,
+        $numPisos . ' piso(s), ' . $aptosPorPiso . ' apto(s) por piso');
+    resp(true, 'Datos del edificio guardados.', [
+        'edificio_id' => $edificioId,
+        'arbol'       => recArbolAvance($edificioId),
+    ]);
 } catch (Throwable $e) {
     resp(false, APP_DEBUG ? $e->getMessage() : 'Error al guardar.');
 }

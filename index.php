@@ -5,10 +5,9 @@ require_once __DIR__ . '/includes/auth.php';
 
 requireLogin();
 
-if (puede('dashboard', 'ver')) {
-    header('Location: ' . APP_URL_BASE . 'dashboard/index.php');
-} elseif (puede('formulario', 'ver')) {
-    header('Location: ' . APP_URL_BASE . 'formulario/index.php');
+// El sistema está enfocado en SEGUIMIENTO Y CONTROL: esa es la página principal.
+if (puede('seguimiento', 'ver')) {
+    header('Location: ' . APP_URL_BASE . 'seguimiento/index.php');
 } elseif (puede('usuarios', 'ver')) {
     header('Location: ' . APP_URL_BASE . 'admin/usuarios.php');
 } else {

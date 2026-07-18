@@ -21,6 +21,20 @@ require_once __DIR__ . '/../includes/seguimiento.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+/** Convierte valores tipo "2M", "8M", "512K" de php.ini a bytes. */
+function return_bytes(string $val): int {
+    $val = trim($val);
+    if ($val === '') return 0;
+    $last = strtolower($val[strlen($val) - 1]);
+    $num = (int)$val;
+    switch ($last) {
+        case 'g': $num *= 1024; // no break
+        case 'm': $num *= 1024; // no break
+        case 'k': $num *= 1024;
+    }
+    return $num;
+}
+
 function jresp(bool $ok, string $msg = '', array $extra = []): void {
     echo json_encode(array_merge(['ok' => $ok, 'mensaje' => $msg], $extra), JSON_UNESCAPED_UNICODE);
     exit;
@@ -67,12 +81,31 @@ try {
         jresp(false, 'Seleccione una foto.');
     }
 
+    // Traducir los errores de PHP a mensajes claros para el usuario.
+    $errCode = (int)($_FILES['foto']['error'] ?? UPLOAD_ERR_OK);
+    if ($errCode !== UPLOAD_ERR_OK) {
+        $limite = ini_get('upload_max_filesize');
+        $msgs = [
+            UPLOAD_ERR_INI_SIZE   => "La foto es muy pesada para el servidor (límite actual: {$limite}). Tome la foto en calidad media o pida al administrador subir el límite.",
+            UPLOAD_ERR_FORM_SIZE  => 'La foto excede el tamaño permitido por el formulario.',
+            UPLOAD_ERR_PARTIAL    => 'La foto se subió a medias. Revise su conexión e intente de nuevo.',
+            UPLOAD_ERR_NO_TMP_DIR => 'Error del servidor: falta la carpeta temporal. Avise al administrador.',
+            UPLOAD_ERR_CANT_WRITE => 'Error del servidor: no se pudo escribir en disco. Avise al administrador.',
+            UPLOAD_ERR_EXTENSION  => 'Una extensión de PHP bloqueó la subida. Avise al administrador.',
+        ];
+        jresp(false, $msgs[$errCode] ?? 'No se pudo subir la foto (código ' . $errCode . ').');
+    }
+
     // Validar tipo y tamaño.
     $f = $_FILES['foto'];
     $permitidos = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $mime = mime_content_type($f['tmp_name']) ?: '';
     if (!isset($permitidos[$mime])) jresp(false, 'Formato no válido (use JPG, PNG o WEBP).');
-    if ($f['size'] > 12 * 1024 * 1024) jresp(false, 'La imagen supera los 12 MB.');
+    // Tope real del servidor, para no prometer más de lo que PHP acepta.
+    $topeBytes = min(12 * 1024 * 1024, (int)(ini_get('upload_max_filesize') ? return_bytes(ini_get('upload_max_filesize')) : 12 * 1024 * 1024));
+    if ($f['size'] > $topeBytes) {
+        jresp(false, 'La imagen supera el máximo permitido (' . round($topeBytes / 1048576, 1) . ' MB).');
+    }
 
     // Carpeta destino: uploads/levantamiento/{nivel}/{ref_id}/
     $rel = 'uploads/levantamiento/' . $nivel . '/' . $refId;
@@ -91,6 +124,8 @@ try {
     }
 
     $id = recGuardarFoto($nivel, $refId, $rutaRel, $parte, $desc);
+    recAuditar('foto_subida', null, null,
+        'Nivel ' . $nivel . ' #' . $refId . ($parte ? ' · ' . $parte : '') . ' (' . round($f['size'] / 1024) . ' KB)');
     jresp(true, 'Foto guardada.', [
         'foto' => ['id' => $id, 'ruta' => APP_URL_BASE . $rutaRel, 'parte' => $parte, 'descripcion' => $desc],
     ]);

@@ -14,9 +14,35 @@ function isLoggedIn(): bool
 }
 
 /** Obliga a que exista sesión activa; de lo contrario redirige al login. */
+/**
+ * ¿La petición actual es AJAX / espera JSON?
+ * Sirve para no devolver HTML de login a una llamada de JavaScript.
+ */
+function esPeticionAjax(): bool
+{
+    if (strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest') return true;
+    if (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) return true;
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) return true;
+    // Endpoints del sistema que siempre responden JSON.
+    $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    return (bool)preg_match('/^(guardar_|listar_|buscar_|subir_|calcular_|asignar_|api_|arbol_|puntos_|ficha_)/', $script);
+}
+
 function requireLogin(): void
 {
     if (!isLoggedIn()) {
+        // A las peticiones AJAX se les responde JSON, no HTML de login:
+        // así el usuario ve un mensaje claro y no pierde el trabajo en silencio.
+        if (esPeticionAjax()) {
+            http_response_code(401);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'ok' => false,
+                'sesion_expirada' => true,
+                'mensaje' => 'Su sesión expiró. Abra el sistema en otra pestaña, inicie sesión y vuelva a intentarlo (no cierre esta ventana para no perder lo que lleva).',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         $redirect = urlencode($_SERVER['REQUEST_URI'] ?? '');
         header('Location: ' . APP_URL_BASE . 'login.php?next=' . $redirect);
         exit;
@@ -100,6 +126,12 @@ function requierePermiso(string $modulo, string $accion = 'ver'): void
 {
     requireLogin();
     if (!puede($modulo, $accion)) {
+        if (esPeticionAjax()) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'mensaje' => 'No tiene permiso para realizar esta acción.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         http_response_code(403);
         include __DIR__ . '/../403.php';
         exit;
