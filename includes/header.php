@@ -98,6 +98,9 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="nav-item <?= $activeModule==='nueva_edif'?'active':'' ?>" title="Agregar edificación">
                     <i class="bi bi-plus-circle"></i> <span>Agregar edificación</span>
                 </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="nav-item <?= $activeModule==='agregadas'?'active':'' ?>" title="Edificaciones agregadas en campo">
+                    <i class="bi bi-clipboard-plus"></i> <span>Agregadas en campo</span>
+                </a>
                 <?php endif; ?>
                 <?php if (usuarioEsMaster()): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar levantamientos de prueba">
@@ -106,6 +109,9 @@ $flashes = obtenerFlashes();
                 <?php endif; ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/representantes.php" class="nav-item <?= $activeModule==='representantes'?'active':'' ?>" title="Representantes por parroquia">
                     <i class="bi bi-people-fill"></i> <span>Representantes</span>
+                </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="nav-item <?= $activeModule==='frentes'?'active':'' ?>" title="Frentes de trabajo y cuadrillas">
+                    <i class="bi bi-diagram-3-fill"></i> <span>Frentes de trabajo</span>
                 </a>
                 <?php endif; ?>
             </div>

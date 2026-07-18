@@ -106,10 +106,12 @@ try {
 
     $codigo = generarCodigoInspeccion();
 
+    // La dirección se guarda en avenida_calle (la tabla no tiene "direccion")
+    // y las familias en la columna "familias".
     $sql = 'INSERT INTO inspecciones
               (codigo, nombre_edificio, fecha_inspeccion, estado, municipio, parroquia,
-               direccion, latitud, longitud, uso_edificacion, num_pisos,
-               numero_familias, numero_personas, decision_final, observaciones,
+               avenida_calle, latitud, longitud, uso_edificacion, num_pisos,
+               familias, numero_personas, decision_final, observaciones,
                ing1_nombre, ing1_cedula, creado_por, creado_en)
             VALUES
               (:cod, :nom, :fecha, :est, :mun, :parr,

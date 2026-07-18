@@ -1,0 +1,200 @@
+<?php
+/**
+ * Gestión de frentes de trabajo, su equipo de supervisión y sus cuadrillas.
+ * Todas las acciones llegan por JSON con el campo "accion".
+ */
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/territorial.php';
+require_once __DIR__ . '/../includes/seguimiento.php';
+
+header('Content-Type: application/json; charset=utf-8');
+
+function jr(bool $ok, string $msg = '', array $extra = []): void {
+    echo json_encode(array_merge(['ok' => $ok, 'mensaje' => $msg], $extra), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+try {
+    requierePermiso('seguimiento', 'editar');
+    frenteNumAsegurarTablas();
+
+    $b = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($b)) jr(false, 'Datos inválidos.');
+
+    $accion = $b['accion'] ?? '';
+    $estado = estadoDelUsuario() ?: 'Distrito Capital';
+    $pdo = db();
+
+    // ---------- FRENTE ----------
+    if ($accion === 'crear_frente') {
+        $numero = (int)($b['numero'] ?? 0);
+        if ($numero < 1) jr(false, 'Indique el número del frente.');
+
+        $st = $pdo->prepare('SELECT id FROM frente WHERE numero = :n AND estado = :e');
+        $st->execute(['n' => $numero, 'e' => $estado]);
+        if ($st->fetch()) jr(false, 'Ya existe el Frente de Trabajo ' . $numero . '.');
+
+        $pdo->prepare(
+            'INSERT INTO frente (numero, nombre, ente_id, estado, creado_por)
+             VALUES (:n, :nom, :ente, :e, :u)'
+        )->execute([
+            'n'    => $numero,
+            'nom'  => trim($b['nombre'] ?? '') ?: null,
+            'ente' => (int)($b['ente_id'] ?? 0) ?: null,
+            'e'    => $estado,
+            'u'    => $_SESSION['user_id'] ?? null,
+        ]);
+        $id = (int)$pdo->lastInsertId();
+        recAuditar('frente_creado', null, null, 'Frente de Trabajo ' . $numero);
+        jr(true, 'Frente creado.', ['frente_id' => $id]);
+    }
+
+    if ($accion === 'desactivar_frente') {
+        $id = (int)($b['frente_id'] ?? 0);
+        if ($id <= 0) jr(false, 'Frente no válido.');
+        $pdo->prepare('UPDATE frente SET activo = 0 WHERE id = :id')->execute(['id' => $id]);
+        // Las obras quedan sin frente, no se borran.
+        $pdo->prepare('DELETE FROM asignacion_frente_obra WHERE frente_id = :id')->execute(['id' => $id]);
+        recAuditar('frente_desactivado', null, null, 'Frente #' . $id);
+        jr(true, 'Frente desactivado.');
+    }
+
+    // ---------- PARROQUIAS ----------
+    if ($accion === 'agregar_parroquia') {
+        $id = (int)($b['frente_id'] ?? 0);
+        $parr = trim($b['parroquia'] ?? '');
+        if ($id <= 0 || $parr === '') jr(false, 'Datos incompletos.');
+        if (!puedeAccederParroquia($parr)) jr(false, 'No tiene asignada esa parroquia.');
+
+        $pdo->prepare(
+            'INSERT IGNORE INTO frente_parroquia (frente_id, estado, parroquia)
+             VALUES (:f, :e, :p)'
+        )->execute(['f' => $id, 'e' => $estado, 'p' => $parr]);
+        jr(true, 'Parroquia agregada.');
+    }
+
+    if ($accion === 'quitar_parroquia') {
+        $id = (int)($b['frente_id'] ?? 0);
+        $parr = trim($b['parroquia'] ?? '');
+        $pdo->prepare(
+            'DELETE FROM frente_parroquia WHERE frente_id = :f AND parroquia = :p'
+        )->execute(['f' => $id, 'p' => $parr]);
+        jr(true, 'Parroquia quitada.');
+    }
+
+    // ---------- SUPERVISIÓN ----------
+    if ($accion === 'agregar_supervisor') {
+        $id = (int)($b['frente_id'] ?? 0);
+        $nom = trim($b['nombre'] ?? '');
+        if ($id <= 0 || $nom === '') jr(false, 'Indique el nombre del supervisor.');
+
+        $pdo->prepare(
+            'INSERT INTO frente_supervisor (frente_id, nombre, cedula, telefono, cargo)
+             VALUES (:f, :n, :c, :t, :ca)'
+        )->execute([
+            'f'  => $id, 'n' => $nom,
+            'c'  => trim($b['cedula'] ?? '') ?: null,
+            't'  => trim($b['telefono'] ?? '') ?: null,
+            'ca' => trim($b['cargo'] ?? '') ?: 'Supervisor',
+        ]);
+        jr(true, 'Supervisor agregado.');
+    }
+
+    if ($accion === 'quitar_supervisor') {
+        $id = (int)($b['supervisor_id'] ?? 0);
+        $pdo->prepare('UPDATE frente_supervisor SET activo = 0 WHERE id = :id')->execute(['id' => $id]);
+        jr(true, 'Supervisor quitado.');
+    }
+
+    // ---------- CUADRILLAS ----------
+    if ($accion === 'agregar_cuadrilla') {
+        $id = (int)($b['frente_id'] ?? 0);
+        if ($id <= 0) jr(false, 'Frente no válido.');
+
+        $numero = cuadrillaSiguienteNumero($id);
+        $pdo->prepare(
+            'INSERT INTO cuadrilla (frente_id, numero, nombre, especialidad)
+             VALUES (:f, :n, :nom, :esp)'
+        )->execute([
+            'f'   => $id, 'n' => $numero,
+            'nom' => trim($b['nombre'] ?? '') ?: null,
+            'esp' => trim($b['especialidad'] ?? '') ?: null,
+        ]);
+        recAuditar('cuadrilla_creada', null, null, 'Cuadrilla ' . $numero . ' del frente #' . $id);
+        jr(true, 'Cuadrilla creada.', ['numero' => $numero]);
+    }
+
+    if ($accion === 'quitar_cuadrilla') {
+        $id = (int)($b['cuadrilla_id'] ?? 0);
+        if ($id <= 0) jr(false, 'Cuadrilla no válida.');
+        $pdo->prepare('DELETE FROM cuadrilla_integrante WHERE cuadrilla_id = :id')->execute(['id' => $id]);
+        $pdo->prepare('UPDATE asignacion_frente_obra SET cuadrilla_id = NULL WHERE cuadrilla_id = :id')
+            ->execute(['id' => $id]);
+        $pdo->prepare('DELETE FROM cuadrilla WHERE id = :id')->execute(['id' => $id]);
+        jr(true, 'Cuadrilla eliminada.');
+    }
+
+    // ---------- INTEGRANTES ----------
+    if ($accion === 'agregar_integrante') {
+        $id = (int)($b['cuadrilla_id'] ?? 0);
+        $nom = trim($b['nombre'] ?? '');
+        if ($id <= 0 || $nom === '') jr(false, 'Indique el nombre.');
+
+        // Si se marca como jefe, se quita el rol al anterior.
+        if (!empty($b['es_jefe'])) {
+            $pdo->prepare('UPDATE cuadrilla_integrante SET es_jefe = 0 WHERE cuadrilla_id = :c')
+                ->execute(['c' => $id]);
+        }
+        $pdo->prepare(
+            'INSERT INTO cuadrilla_integrante (cuadrilla_id, nombre, cedula, telefono, oficio, es_jefe)
+             VALUES (:c, :n, :ced, :t, :o, :j)'
+        )->execute([
+            'c'   => $id, 'n' => $nom,
+            'ced' => trim($b['cedula'] ?? '') ?: null,
+            't'   => trim($b['telefono'] ?? '') ?: null,
+            'o'   => trim($b['oficio'] ?? '') ?: null,
+            'j'   => !empty($b['es_jefe']) ? 1 : 0,
+        ]);
+        jr(true, 'Integrante agregado.');
+    }
+
+    if ($accion === 'quitar_integrante') {
+        $id = (int)($b['integrante_id'] ?? 0);
+        $pdo->prepare('DELETE FROM cuadrilla_integrante WHERE id = :id')->execute(['id' => $id]);
+        jr(true, 'Integrante quitado.');
+    }
+
+    // ---------- ASIGNAR OBRA ----------
+    if ($accion === 'asignar_obra') {
+        $insp = (int)($b['inspeccion_id'] ?? 0);
+        $fre  = (int)($b['frente_id'] ?? 0);
+        if ($insp <= 0) jr(false, 'Edificación no válida.');
+        asignarObraAFrente($insp, $fre, (int)($b['cuadrilla_id'] ?? 0) ?: null);
+        jr(true, 'Frente asignado.');
+    }
+
+    // ---------- CONSULTAR ----------
+    if ($accion === 'listar') {
+        $parr = trim($b['parroquia'] ?? '');
+        $lista = $parr !== '' ? frentesDePar($estado, $parr) : frentesNumerados($estado);
+        // Cuadrillas de cada frente, para el selector.
+        foreach ($lista as &$f) {
+            if (!isset($f['cuadrillas'])) {
+                $st = $pdo->prepare('SELECT id, numero, nombre, especialidad FROM cuadrilla
+                                      WHERE frente_id = :f AND activa = 1 ORDER BY numero');
+                $st->execute(['f' => (int)$f['id']]);
+                $f['cuadrillas'] = $st->fetchAll();
+            }
+        }
+        unset($f);
+        jr(true, '', ['frentes' => $lista]);
+    }
+
+    jr(false, 'Acción no reconocida.');
+
+} catch (Throwable $e) {
+    jr(false, APP_DEBUG ? $e->getMessage() : 'Error al procesar la solicitud.');
+}

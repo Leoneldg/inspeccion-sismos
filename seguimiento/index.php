@@ -160,6 +160,14 @@ include __DIR__ . '/../includes/header.php';
         <div class="seg-kpi-ico" style="background:#f1f2f6;color:#767c94;"><i class="bi bi-clipboard-x"></i></div>
         <div><div class="seg-kpi-num"><?= (int)$kpis['sin_seguimiento'] ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
     </div>
+    <?php if ((int)($kpis['agregadas'] ?? 0) > 0): ?>
+    <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="seg-kpi" style="text-decoration:none;">
+        <div class="seg-kpi-ico" style="background:#eaf7ee;color:#2E7D32;"><i class="bi bi-plus-circle-fill"></i></div>
+        <div><div class="seg-kpi-num" style="color:#2E7D32;"><?= (int)$kpis['agregadas'] ?></div>
+             <div class="seg-kpi-lbl">AGREGADAS EN CAMPO</div></div>
+    </a>
+    <?php endif; ?>
+
     <div class="seg-kpi seg-kpi-wide">
         <div class="seg-kpi-ico" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-graph-up-arrow"></i></div>
         <div style="flex:1;">

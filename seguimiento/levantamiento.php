@@ -1546,9 +1546,11 @@ function subirFotoElemento(btn, pisoId, tipo) {
         alert('Primero guarde los elementos del piso para poder adjuntar fotos.');
         return;
     }
+    const reparaEl = row.querySelector('.el-reparar').checked;
     elegirOrigenFoto({
         nivel:'elemento_piso', refId: row.dataset.elemId,
-        pideParte: row.querySelector('.el-reparar').checked,
+        pideParte: reparaEl,
+        parteFija: reparaEl ? null : 'antes',
         cont: row.querySelector('.elem-fotos')
     });
 }
@@ -1563,6 +1565,9 @@ function fotoAmbiente(btn, ambId) {
     elegirOrigenFoto({
         nivel:'ambiente', refId: ambId,
         pideParte: necesitaReparar,
+        // Sin reparación es la foto del estado inicial: se marca como
+        // "antes" para que el seguimiento la muestre.
+        parteFija: necesitaReparar ? null : 'antes',
         cont: row.querySelector('.amb-fotos')
     });
 }

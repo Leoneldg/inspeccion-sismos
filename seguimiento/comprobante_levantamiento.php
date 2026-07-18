@@ -125,7 +125,7 @@ ob_start();
         <td class="lbl">Código</td><td class="val"><?= esc($insp['codigo'] ?? '—') ?></td></tr>
     <tr><td class="lbl">Parroquia</td><td class="val"><?= esc($insp['parroquia'] ?? '—') ?></td>
         <td class="lbl">Municipio</td><td class="val"><?= esc($insp['municipio'] ?? '—') ?></td></tr>
-    <tr><td class="lbl">Dirección</td><td class="val" colspan="3"><?= esc($insp['direccion'] ?? '—') ?></td></tr>
+    <tr><td class="lbl">Dirección</td><td class="val" colspan="3"><?= esc(trim(implode(', ', array_filter([$insp['avenida_calle'] ?? '', $insp['sector'] ?? '', $insp['urbanizacion'] ?? '']))) ?: '—') ?></td></tr>
     <tr><td class="lbl">Clasificación</td>
         <td class="val" colspan="3">
           <span class="letra" style="color:<?= $sim['color'] ?>;border-color:<?= $sim['color'] ?>;"><?= $sim['letra'] ?></span>

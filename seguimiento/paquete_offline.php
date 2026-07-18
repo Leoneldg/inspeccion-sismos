@@ -85,7 +85,7 @@ try {
             'nombre'         => $insp['nombre_edificio'] ?? '',
             'parroquia'      => $insp['parroquia'] ?? '',
             'municipio'      => $insp['municipio'] ?? '',
-            'direccion'      => $insp['direccion'] ?? '',
+            'direccion'      => trim(implode(', ', array_filter([$insp['avenida_calle'] ?? '', $insp['sector'] ?? '', $insp['urbanizacion'] ?? '']))),
             'decision_final' => $insp['decision_final'] ?? '',
         ],
         'arbol'  => $arbol,

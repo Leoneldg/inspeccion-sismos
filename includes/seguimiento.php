@@ -302,6 +302,65 @@ function segInspeccion(int $inspeccionId): ?array
 }
 
 /** KPIs del módulo (respetando scope). */
+/**
+ * Edificaciones registradas en campo (las que no estaban en el listado).
+ * Se identifican por la bitácora, que es lo más confiable: el prefijo del
+ * código no distingue las creadas por el formulario antiguo.
+ *
+ * $soloConteo = true devuelve solo el número (para el KPI).
+ */
+function segEdificacionesAgregadas(bool $soloConteo = false)
+{
+    recAsegurarAuditoria();
+    recAsegurarColumnasEtiqueta();
+
+    $conds = [];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+    $where = $conds ? (' AND ' . implode(' AND ', $conds)) : '';
+
+    try {
+        if ($soloConteo) {
+            $st = db()->prepare("
+                SELECT COUNT(DISTINCT i.id)
+                  FROM inspecciones i
+                  JOIN rec_auditoria a ON a.inspeccion_id = i.id
+                                      AND a.accion = 'edificacion_agregada'
+                 WHERE 1=1 $where
+            ");
+            $st->execute($params);
+            return (int)$st->fetchColumn();
+        }
+
+        $st = db()->prepare("
+            SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.municipio,
+                   TRIM(CONCAT_WS(', ', NULLIF(i.avenida_calle,''), NULLIF(i.sector,''), NULLIF(i.urbanizacion,''))) AS direccion, i.latitud, i.longitud, i.decision_final,
+                   i.uso_edificacion, i.num_pisos, i.numero_familias, i.numero_personas,
+                   i.observaciones, i.fecha_inspeccion,
+                   re.id AS edificio_id, re.completado,
+                   re.sin_etiqueta, re.etiqueta_motivo, re.etiqueta_obs,
+                   MIN(a.creado_en)    AS registrada_en,
+                   MIN(a.usuario_nombre) AS registrada_por,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel = 'edificio' AND f.ref_id = re.id
+                       AND f.parte = 'etiqueta') AS fotos_etiqueta
+              FROM inspecciones i
+              JOIN rec_auditoria a ON a.inspeccion_id = i.id
+                                  AND a.accion = 'edificacion_agregada'
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+             WHERE 1=1 $where
+             GROUP BY i.id
+             ORDER BY MIN(a.creado_en) DESC
+        ");
+        $st->execute($params);
+        return $st->fetchAll();
+
+    } catch (Throwable $e) {
+        return $soloConteo ? 0 : [];
+    }
+}
+
 function segKpis(): array
 {
     $pdo = db();
@@ -348,6 +407,9 @@ function segKpis(): array
     $recon = (int)$r['en_ejecucion'];
     $culm  = (int)$r['culminadas'];
     $r['sin_seguimiento'] = max(0, $total - $recon - $culm);
+
+    // Edificaciones registradas en campo (no venían en el listado original).
+    $r['agregadas'] = segEdificacionesAgregadas(true);
 
     return $r;
 }
@@ -745,6 +807,460 @@ function repDeParroquia(string $estado, string $parroquia): array
 // =====================================================================
 
 /** Crea la tabla de frentes de trabajo si no existe. */
+// =====================================================================
+// FRENTES DE TRABAJO NUMERADOS (con supervisión y cuadrillas)
+// =====================================================================
+
+/** Crea las tablas de la nueva estructura si faltan. */
+// =====================================================================
+// ROL FRENTE DE TRABAJO: alcance limitado a su propio frente
+// =====================================================================
+
+/** Asegura la columna que vincula usuario y frente, y la tabla obra-cuadrilla. */
+function frenteRolAsegurar(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM usuarios")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('frente_id', $cols, true)) {
+            db()->exec("ALTER TABLE usuarios ADD COLUMN frente_id INT UNSIGNED DEFAULT NULL");
+        }
+        db()->exec("CREATE TABLE IF NOT EXISTS obra_cuadrilla (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            inspeccion_id INT UNSIGNED NOT NULL,
+            cuadrilla_id INT UNSIGNED NOT NULL,
+            tarea VARCHAR(150) DEFAULT NULL,
+            asignado_por INT UNSIGNED DEFAULT NULL,
+            asignado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_obra_cuadrilla (inspeccion_id, cuadrilla_id),
+            KEY idx_oc_cuadrilla (cuadrilla_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/** Frente al que pertenece el usuario actual (0 si no está limitado). */
+function frenteDelUsuario(): int
+{
+    if (usuarioEsMaster()) return 0;
+    if (isset($_SESSION['frente_id'])) return (int)$_SESSION['frente_id'];
+    frenteRolAsegurar();
+    try {
+        $st = db()->prepare('SELECT frente_id FROM usuarios WHERE id = :id');
+        $st->execute(['id' => (int)($_SESSION['user_id'] ?? 0)]);
+        $_SESSION['frente_id'] = (int)($st->fetchColumn() ?: 0);
+        return (int)$_SESSION['frente_id'];
+    } catch (Throwable $e) { return 0; }
+}
+
+/** True si el usuario solo debe ver lo de su frente. */
+function usuarioLimitadoAFrente(): bool
+{
+    return frenteDelUsuario() > 0;
+}
+
+/**
+ * Edificaciones asignadas a un frente, con su avance y las cuadrillas
+ * que ya tienen trabajo en cada una.
+ */
+function obrasDeFrente(int $frenteId): array
+{
+    frenteNumAsegurarTablas();
+    frenteRolAsegurar();
+    if ($frenteId <= 0) return [];
+
+    try {
+        $st = db()->prepare("
+            SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, TRIM(CONCAT_WS(', ', NULLIF(i.avenida_calle,''), NULLIF(i.sector,''), NULLIF(i.urbanizacion,''))) AS direccion,
+                   i.decision_final, i.latitud, i.longitud,
+                   re.id AS edificio_id, re.completado,
+                   a.asignado_en,
+                   COALESCE(ROUND(x.pct), 0) AS avance
+              FROM asignacion_frente_obra a
+              JOIN inspecciones i ON i.id = a.inspeccion_id
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN (
+                  SELECT re2.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS pct
+                    FROM rec_edificio re2
+                    JOIN rec_piso pi ON pi.edificio_id = re2.id
+                    JOIN rec_apartamento ap ON ap.piso_id = pi.id
+                    LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
+                   GROUP BY re2.inspeccion_id
+              ) x ON x.inspeccion_id = i.id
+             WHERE a.frente_id = :f
+             ORDER BY i.parroquia, i.nombre_edificio
+        ");
+        $st->execute(['f' => $frenteId]);
+        $obras = $st->fetchAll();
+        if (!$obras) return [];
+
+        // Cuadrillas asignadas a cada obra.
+        $ids = implode(',', array_map(fn($o) => (int)$o['id'], $obras));
+        $porObra = [];
+        foreach (db()->query("
+            SELECT oc.inspeccion_id, oc.id AS asig_id, oc.tarea,
+                   c.id AS cuadrilla_id, c.numero, c.nombre, c.especialidad
+              FROM obra_cuadrilla oc
+              JOIN cuadrilla c ON c.id = oc.cuadrilla_id
+             WHERE oc.inspeccion_id IN ($ids)
+             ORDER BY c.numero
+        ")->fetchAll() as $r) {
+            $porObra[(int)$r['inspeccion_id']][] = $r;
+        }
+
+        foreach ($obras as &$o) {
+            $o['cuadrillas'] = $porObra[(int)$o['id']] ?? [];
+        }
+        unset($o);
+        return $obras;
+
+    } catch (Throwable $e) { return []; }
+}
+
+/** Asigna una cuadrilla a una edificación (varias pueden trabajar a la vez). */
+function asignarCuadrillaAObra(int $inspeccionId, int $cuadrillaId, ?string $tarea = null): void
+{
+    frenteRolAsegurar();
+    db()->prepare(
+        'INSERT INTO obra_cuadrilla (inspeccion_id, cuadrilla_id, tarea, asignado_por)
+         VALUES (:i, :c, :t, :u)
+         ON DUPLICATE KEY UPDATE tarea = VALUES(tarea), asignado_por = VALUES(asignado_por)'
+    )->execute([
+        'i' => $inspeccionId, 'c' => $cuadrillaId,
+        't' => $tarea ?: null, 'u' => $_SESSION['user_id'] ?? null,
+    ]);
+
+    try {
+        $st = db()->prepare('SELECT numero, nombre FROM cuadrilla WHERE id = :c');
+        $st->execute(['c' => $cuadrillaId]);
+        $c = $st->fetch();
+        recAuditar('cuadrilla_asignada', $inspeccionId, null,
+            'Cuadrilla ' . ($c['numero'] ?? $cuadrillaId)
+            . ($tarea ? ' · ' . $tarea : ''));
+    } catch (Throwable $e) { /* no interrumpir */ }
+}
+
+/** Quita una cuadrilla de una edificación. */
+function quitarCuadrillaDeObra(int $inspeccionId, int $cuadrillaId): void
+{
+    frenteRolAsegurar();
+    db()->prepare('DELETE FROM obra_cuadrilla WHERE inspeccion_id = :i AND cuadrilla_id = :c')
+        ->execute(['i' => $inspeccionId, 'c' => $cuadrillaId]);
+    recAuditar('cuadrilla_removida', $inspeccionId, null, 'Cuadrilla #' . $cuadrillaId);
+}
+
+/** Carga de trabajo de cada cuadrilla del frente. */
+function cargaDeCuadrillas(int $frenteId): array
+{
+    frenteNumAsegurarTablas();
+    frenteRolAsegurar();
+    try {
+        $st = db()->prepare("
+            SELECT c.id, c.numero, c.nombre, c.especialidad,
+                   COUNT(DISTINCT oc.inspeccion_id) AS obras,
+                   (SELECT COUNT(*) FROM cuadrilla_integrante ci
+                     WHERE ci.cuadrilla_id = c.id AND ci.activo = 1) AS personas
+              FROM cuadrilla c
+              LEFT JOIN obra_cuadrilla oc ON oc.cuadrilla_id = c.id
+             WHERE c.frente_id = :f AND c.activa = 1
+             GROUP BY c.id
+             ORDER BY c.numero
+        ");
+        $st->execute(['f' => $frenteId]);
+        return $st->fetchAll();
+    } catch (Throwable $e) { return []; }
+}
+
+function frenteNumAsegurarTablas(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    $t = [
+        "CREATE TABLE IF NOT EXISTS frente (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            numero INT UNSIGNED NOT NULL,
+            nombre VARCHAR(120) DEFAULT NULL,
+            ente_id INT UNSIGNED DEFAULT NULL,
+            estado VARCHAR(100) NOT NULL DEFAULT 'Distrito Capital',
+            observaciones VARCHAR(400) DEFAULT NULL,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            creado_por INT UNSIGNED DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_frente_numero (numero, estado)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        "CREATE TABLE IF NOT EXISTS frente_parroquia (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            frente_id INT UNSIGNED NOT NULL,
+            estado VARCHAR(100) NOT NULL DEFAULT 'Distrito Capital',
+            parroquia VARCHAR(120) NOT NULL,
+            PRIMARY KEY (id), UNIQUE KEY uq_fp (frente_id, estado, parroquia),
+            KEY idx_fp_parroquia (estado, parroquia)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        "CREATE TABLE IF NOT EXISTS frente_supervisor (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            frente_id INT UNSIGNED NOT NULL,
+            nombre VARCHAR(150) NOT NULL,
+            cedula VARCHAR(20) DEFAULT NULL,
+            telefono VARCHAR(40) DEFAULT NULL,
+            cargo VARCHAR(80) DEFAULT NULL,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (id), KEY idx_fs_frente (frente_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        "CREATE TABLE IF NOT EXISTS cuadrilla (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            frente_id INT UNSIGNED NOT NULL,
+            numero INT UNSIGNED NOT NULL,
+            nombre VARCHAR(120) DEFAULT NULL,
+            especialidad VARCHAR(80) DEFAULT NULL,
+            activa TINYINT(1) NOT NULL DEFAULT 1,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_cuadrilla (frente_id, numero)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        "CREATE TABLE IF NOT EXISTS cuadrilla_integrante (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            cuadrilla_id INT UNSIGNED NOT NULL,
+            nombre VARCHAR(150) NOT NULL,
+            cedula VARCHAR(20) DEFAULT NULL,
+            telefono VARCHAR(40) DEFAULT NULL,
+            oficio VARCHAR(80) DEFAULT NULL,
+            es_jefe TINYINT(1) NOT NULL DEFAULT 0,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (id), KEY idx_ci_cuadrilla (cuadrilla_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        "CREATE TABLE IF NOT EXISTS asignacion_frente_obra (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            inspeccion_id INT UNSIGNED NOT NULL,
+            frente_id INT UNSIGNED NOT NULL,
+            cuadrilla_id INT UNSIGNED DEFAULT NULL,
+            asignado_por INT UNSIGNED DEFAULT NULL,
+            asignado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_afo_inspeccion (inspeccion_id),
+            KEY idx_afo_frente (frente_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    ];
+    foreach ($t as $sql) {
+        try { db()->exec($sql); } catch (Throwable $e) { /* seguir */ }
+    }
+}
+
+/** Etiqueta legible de un frente: "Frente de Trabajo 3". */
+function frenteEtiqueta(array $f): string
+{
+    $txt = 'Frente de Trabajo ' . (int)($f['numero'] ?? 0);
+    if (!empty($f['nombre'])) $txt .= ' · ' . $f['nombre'];
+    return $txt;
+}
+
+/** Lista los frentes con sus parroquias, supervisores y cuadrillas. */
+function frentesNumerados(?string $estado = null, bool $soloActivos = true): array
+{
+    frenteNumAsegurarTablas();
+    try {
+        $conds = [];
+        $params = [];
+        if ($soloActivos) $conds[] = 'f.activo = 1';
+        if ($estado)      { $conds[] = 'f.estado = :e'; $params['e'] = $estado; }
+        $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
+
+        $st = db()->prepare("
+            SELECT f.*, e.nombre AS ente_nombre
+              FROM frente f
+              LEFT JOIN entes e ON e.id = f.ente_id
+              $where
+             ORDER BY f.numero
+        ");
+        $st->execute($params);
+        $frentes = $st->fetchAll();
+        if (!$frentes) return [];
+
+        $ids = implode(',', array_map(fn($f) => (int)$f['id'], $frentes));
+
+        // Parroquias
+        $parr = [];
+        foreach (db()->query("SELECT frente_id, parroquia FROM frente_parroquia
+                               WHERE frente_id IN ($ids) ORDER BY parroquia")->fetchAll() as $r) {
+            $parr[(int)$r['frente_id']][] = $r['parroquia'];
+        }
+        // Supervisores
+        $sup = [];
+        foreach (db()->query("SELECT * FROM frente_supervisor
+                               WHERE frente_id IN ($ids) AND activo = 1 ORDER BY id")->fetchAll() as $r) {
+            $sup[(int)$r['frente_id']][] = $r;
+        }
+        // Cuadrillas con sus integrantes
+        $cuad = [];
+        $cuadrillas = db()->query("SELECT * FROM cuadrilla
+                                    WHERE frente_id IN ($ids) AND activa = 1 ORDER BY numero")->fetchAll();
+        if ($cuadrillas) {
+            $cids = implode(',', array_map(fn($c) => (int)$c['id'], $cuadrillas));
+            $ints = [];
+            foreach (db()->query("SELECT * FROM cuadrilla_integrante
+                                   WHERE cuadrilla_id IN ($cids) AND activo = 1
+                                   ORDER BY es_jefe DESC, nombre")->fetchAll() as $r) {
+                $ints[(int)$r['cuadrilla_id']][] = $r;
+            }
+            foreach ($cuadrillas as $c) {
+                $c['integrantes'] = $ints[(int)$c['id']] ?? [];
+                $cuad[(int)$c['frente_id']][] = $c;
+            }
+        }
+        // Obras asignadas
+        $obras = [];
+        foreach (db()->query("SELECT frente_id, COUNT(*) AS n FROM asignacion_frente_obra
+                               WHERE frente_id IN ($ids) GROUP BY frente_id")->fetchAll() as $r) {
+            $obras[(int)$r['frente_id']] = (int)$r['n'];
+        }
+
+        foreach ($frentes as &$f) {
+            $id = (int)$f['id'];
+            $f['etiqueta']    = frenteEtiqueta($f);
+            $f['parroquias']  = $parr[$id] ?? [];
+            $f['supervisores']= $sup[$id] ?? [];
+            $f['cuadrillas']  = $cuad[$id] ?? [];
+            $f['obras']       = $obras[$id] ?? 0;
+        }
+        unset($f);
+        return $frentes;
+
+    } catch (Throwable $e) { return []; }
+}
+
+/** Frentes que cubren una parroquia concreta. */
+function frentesDePar(string $estado, string $parroquia): array
+{
+    frenteNumAsegurarTablas();
+    try {
+        $st = db()->prepare("
+            SELECT f.*
+              FROM frente f
+              JOIN frente_parroquia fp ON fp.frente_id = f.id
+             WHERE f.activo = 1 AND fp.estado = :e AND fp.parroquia = :p
+             ORDER BY f.numero
+        ");
+        $st->execute(['e' => $estado, 'p' => $parroquia]);
+        $r = $st->fetchAll();
+        foreach ($r as &$f) $f['etiqueta'] = frenteEtiqueta($f);
+        unset($f);
+        return $r;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Siguiente número libre de frente. */
+function frenteSiguienteNumero(string $estado = 'Distrito Capital'): int
+{
+    frenteNumAsegurarTablas();
+    try {
+        $st = db()->prepare('SELECT COALESCE(MAX(numero), 0) + 1 FROM frente WHERE estado = :e');
+        $st->execute(['e' => $estado]);
+        return (int)$st->fetchColumn();
+    } catch (Throwable $e) { return 1; }
+}
+
+/** Siguiente número de cuadrilla dentro de un frente. */
+function cuadrillaSiguienteNumero(int $frenteId): int
+{
+    frenteNumAsegurarTablas();
+    try {
+        $st = db()->prepare('SELECT COALESCE(MAX(numero), 0) + 1 FROM cuadrilla WHERE frente_id = :f');
+        $st->execute(['f' => $frenteId]);
+        return (int)$st->fetchColumn();
+    } catch (Throwable $e) { return 1; }
+}
+
+/** Asigna una edificación a un frente (y opcionalmente a una cuadrilla). */
+function asignarObraAFrente(int $inspeccionId, int $frenteId, ?int $cuadrillaId = null): void
+{
+    frenteNumAsegurarTablas();
+    if ($frenteId <= 0) {
+        db()->prepare('DELETE FROM asignacion_frente_obra WHERE inspeccion_id = :i')
+            ->execute(['i' => $inspeccionId]);
+        recAuditar('frente_removido', $inspeccionId, null, 'Sin frente asignado');
+        return;
+    }
+    db()->prepare(
+        'INSERT INTO asignacion_frente_obra (inspeccion_id, frente_id, cuadrilla_id, asignado_por)
+         VALUES (:i, :f, :c, :u)
+         ON DUPLICATE KEY UPDATE frente_id = VALUES(frente_id),
+             cuadrilla_id = VALUES(cuadrilla_id), asignado_por = VALUES(asignado_por)'
+    )->execute([
+        'i' => $inspeccionId, 'f' => $frenteId,
+        'c' => $cuadrillaId ?: null, 'u' => $_SESSION['user_id'] ?? null,
+    ]);
+
+    try {
+        $st = db()->prepare('SELECT numero, nombre FROM frente WHERE id = :f');
+        $st->execute(['f' => $frenteId]);
+        $f = $st->fetch();
+        recAuditar('frente_asignado', $inspeccionId, null,
+            $f ? frenteEtiqueta($f) : ('Frente #' . $frenteId));
+    } catch (Throwable $e) { /* no interrumpir */ }
+}
+
+/** Frente asignado a una edificación. */
+function frenteDeObra(int $inspeccionId): ?array
+{
+    frenteNumAsegurarTablas();
+    try {
+        $st = db()->prepare("
+            SELECT f.*, a.cuadrilla_id, c.numero AS cuadrilla_numero, c.nombre AS cuadrilla_nombre
+              FROM asignacion_frente_obra a
+              JOIN frente f ON f.id = a.frente_id
+              LEFT JOIN cuadrilla c ON c.id = a.cuadrilla_id
+             WHERE a.inspeccion_id = :i
+        ");
+        $st->execute(['i' => $inspeccionId]);
+        $r = $st->fetch();
+        if (!$r) return null;
+        $r['etiqueta'] = frenteEtiqueta($r);
+        return $r;
+    } catch (Throwable $e) { return null; }
+}
+
+/** Progreso de cada frente: obras asignadas y su avance. */
+function frenteProgreso(?string $estado = null): array
+{
+    frenteNumAsegurarTablas();
+    try {
+        $conds = ['f.activo = 1'];
+        $params = [];
+        if ($estado) { $conds[] = 'f.estado = :e'; $params['e'] = $estado; }
+        $where = 'WHERE ' . implode(' AND ', $conds);
+
+        $st = db()->prepare("
+            SELECT f.id, f.numero, f.nombre,
+                   COUNT(DISTINCT a.inspeccion_id) AS obras,
+                   COALESCE(ROUND(AVG(x.pct)), 0) AS avance,
+                   SUM(CASE WHEN x.pct >= 100 THEN 1 ELSE 0 END) AS culminadas
+              FROM frente f
+              LEFT JOIN asignacion_frente_obra a ON a.frente_id = f.id
+              LEFT JOIN (
+                  SELECT re.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS pct
+                    FROM rec_edificio re
+                    JOIN rec_piso pi ON pi.edificio_id = re.id
+                    JOIN rec_apartamento ap ON ap.piso_id = pi.id
+                    LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
+                   GROUP BY re.inspeccion_id
+              ) x ON x.inspeccion_id = a.inspeccion_id
+              $where
+             GROUP BY f.id
+             ORDER BY f.numero
+        ");
+        $st->execute($params);
+        $r = $st->fetchAll();
+        foreach ($r as &$f) $f['etiqueta'] = frenteEtiqueta($f);
+        unset($f);
+        return $r;
+    } catch (Throwable $e) { return []; }
+}
+
 function frenteAsegurarTabla(): void
 {
     static $ok = false;
@@ -1635,7 +2151,8 @@ function recArbolAvance(int $edificioId): array
                 am.necesita_reparacion,
                 COALESCE(ava.porcentaje, 0) AS amb_pct,
                 (SELECT COUNT(*) FROM rec_foto f
-                  WHERE f.nivel='ambiente' AND f.ref_id=am.id AND f.parte='antes') AS amb_fotos_antes,
+                  WHERE f.nivel='ambiente' AND f.ref_id=am.id
+                    AND (f.parte='antes' OR f.parte IS NULL OR f.parte='')) AS amb_fotos_antes,
                 (SELECT COUNT(*) FROM rec_foto f
                   WHERE f.nivel='ambiente' AND f.ref_id=am.id AND f.parte='durante') AS amb_fotos_durante,
                 (SELECT COUNT(*) FROM rec_foto f
