@@ -16,7 +16,7 @@
  */
 'use strict';
 
-const VERSION = 'obras-pwa-v2';
+const VERSION = 'obras-pwa-v4';
 const CACHE_ESTATICO = VERSION + '-estatico';
 const CACHE_PAGINAS  = VERSION + '-paginas';
 
@@ -24,6 +24,9 @@ const CACHE_PAGINAS  = VERSION + '-paginas';
 // Las rutas son relativas al scope donde se registra el service worker.
 const PRECACHE = [
   'seguimiento/index.php?pwa=1',
+  'assets/js/obras-offline.js',
+  'assets/js/obras-fotos.js',
+  'assets/js/mantener-sesion.js',
   'assets/css/style.css',
   'assets/js/main.js',
   'assets/js/offline.js',
@@ -61,10 +64,11 @@ function noCachear(request, url) {
   if (request.method !== 'GET') return true; // POST/PUT/DELETE nunca
   // Sesion: nunca deben servirse desde cache (rompen el login/logout).
   if (url.pathname.endsWith('logout.php')) return true;
+  if (url.pathname.endsWith('ping.php')) return true;
   if (url.pathname.endsWith('login.php')) return true;
   if (url.pathname.endsWith('save.php')) return true;
   // Endpoints del modulo de seguimiento (siempre datos frescos).
-  if (/\/(guardar_|listar_|buscar_|subir_|calcular_|asignar_|arbol_|puntos_|ficha_|pdf_)/.test(url.pathname)) return true;
+  if (/\/(guardar_|listar_|buscar_|subir_|calcular_|asignar_|arbol_|puntos_|ficha_|pdf_|paquete_)/.test(url.pathname)) return true;
   if (url.pathname.includes('/api_') || url.pathname.endsWith('_json.php')) return true;
   if (url.pathname.endsWith('guardar_ingeniero.php')) return true;
   return false;

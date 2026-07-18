@@ -693,12 +693,33 @@ function descargarPdfParroquia(estado, parroquia) {
     window.location.href = APP_URL_BASE + 'seguimiento/pdf_parroquia.php?estado=' + encodeURIComponent(estado) + '&parroquia=' + encodeURIComponent(parroquia);
 }
 
-// Mapa normaliza texto para casar parroquia del geojson con la del conteo.
-function normTxt(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+// Normaliza el nombre de parroquia para casar el geojson con la base de datos.
+// Además de quitar acentos y mayúsculas, corrige errores de escritura
+// conocidos, para que un dato viejo no deje la parroquia sin conteo.
+const CORRECCIONES_PARR = {
+    'san bernandino': 'san bernardino',   // error histórico en los datos
+    'antimano': 'antimano',
+    'el junquito': 'el junquito',
+};
+function normTxt(s){
+    let t = (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+    t = t.replace(/\s+/g, ' ');
+    return CORRECCIONES_PARR[t] || t;
+}
 
-// Índice de conteo por parroquia (normalizado).
+// Índice de conteo por parroquia. Si dos grafías caen en el mismo nombre
+// normalizado, se SUMAN en vez de perderse una.
 const CONTEO_IDX = {};
-CONTEO_PARROQUIAS.forEach(c => { CONTEO_IDX[normTxt(c.parroquia)] = c; });
+CONTEO_PARROQUIAS.forEach(c => {
+    const k = normTxt(c.parroquia);
+    if (CONTEO_IDX[k]) {
+        CONTEO_IDX[k] = Object.assign({}, CONTEO_IDX[k], {
+            total: (parseInt(CONTEO_IDX[k].total) || 0) + (parseInt(c.total) || 0),
+        });
+    } else {
+        CONTEO_IDX[k] = c;
+    }
+});
 
 let capaPuntos = null;       // capa de puntos de la parroquia seleccionada
 let capaBurbujas = null;     // capa de burbujas de conteo
@@ -727,9 +748,29 @@ let parroquiaActiva = null;
                     layer.on('mouseout', () => layer.setStyle({ fillOpacity:0.08, weight:1.5 }));
                     layer.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
 
-                    // Burbuja con el conteo de la parroquia.
+                    // Etiqueta de la parroquia. Si no tiene edificaciones, igual
+                    // se muestra el nombre para que no parezca que falta del mapa.
                     const c = CONTEO_IDX[normTxt(nombre)];
                     const total = c ? parseInt(c.total) : 0;
+
+                    if (total === 0) {
+                        const centro0 = layer.getBounds().getCenter();
+                        const etiqueta = L.marker(centro0, {
+                            icon: L.divIcon({
+                                className: 'parr-etiqueta',
+                                html: `<div style="width:26px;height:26px;background:#5b6478cc;border:2px solid #fff;`
+                                    + `border-radius:50%;display:flex;align-items:center;justify-content:center;`
+                                    + `color:#fff;font-weight:700;font-size:11px;box-shadow:0 2px 5px rgba(0,0,0,.3);`
+                                    + `cursor:pointer;">0</div>`
+                                    + `<div style="text-align:center;font-size:10px;color:#fff;`
+                                    + `text-shadow:0 1px 2px #000;font-weight:600;margin-top:1px;">${nombre}</div>`,
+                                iconSize: [26, 26], iconAnchor: [13, 13],
+                            })
+                        });
+                        etiqueta.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
+                        capaBurbujas.addLayer(etiqueta);
+                    }
+
                     if (total > 0) {
                         const centro = layer.getBounds().getCenter();
                         const size = 34 + Math.min(26, Math.round(total/40));

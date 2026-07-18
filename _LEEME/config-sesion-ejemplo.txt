@@ -1,0 +1,56 @@
+if (session_status() === PHP_SESSION_NONE) {
+    // ---------------------------------------------------------------
+    // DURACIÓN DE LA SESIÓN
+    // El personal en campo llena formularios largos y a veces deja el
+    // teléfono un rato. Con los valores por defecto (24 min) la sesión
+    // se cerraba sola constantemente.
+    //
+    // OJO: gc_maxlifetime = 0 NO significa "sin límite": hace que la
+    // sesión pueda borrarse de inmediato. Por eso se fija un valor alto.
+    // ---------------------------------------------------------------
+    define('SESION_DURACION', 12 * 60 * 60);   // 12 horas: una jornada completa
+
+    ini_set('session.gc_maxlifetime', (string)SESION_DURACION);
+    // Carpeta propia para las sesiones: así el recolector de otros sitios
+    // del servidor no borra las nuestras antes de tiempo.
+    $dirSesiones = __DIR__ . '/../storage/sesiones';
+    if (!is_dir($dirSesiones)) { @mkdir($dirSesiones, 0770, true); }
+    if (is_dir($dirSesiones) && is_writable($dirSesiones)) {
+        ini_set('session.save_path', $dirSesiones);
+    }
+
+    ini_set('session.cookie_httponly', 1);
+    ini_set('session.use_strict_mode', 1);
+    ini_set('session.cookie_samesite', 'Lax');
+
+    $esHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+        || (($_SERVER['SERVER_PORT'] ?? '') == 443);
+    if ($esHttps) {
+        ini_set('session.cookie_secure', 1);
+    }
+
+    session_name('inspsismo_sess');
+    // La cookie dura lo mismo que la sesión: así no se pierde al cambiar
+    // de aplicación o bloquear la pantalla del teléfono.
+    session_set_cookie_params([
+        'lifetime' => SESION_DURACION,
+        'path'     => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure'   => $esHttps,
+    ]);
+    session_start();
+
+    // Renovar la cookie en cada visita, para que el tiempo se cuente
+    // desde la última actividad y no desde el inicio de sesión.
+    if (!empty($_SESSION['user_id'])) {
+        setcookie(session_name(), session_id(), [
+            'expires'  => time() + SESION_DURACION,
+            'path'     => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure'   => $esHttps,
+        ]);
+    }
+}
