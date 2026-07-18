@@ -95,6 +95,23 @@ include __DIR__ . '/../includes/header.php';
 }
 </style>
 
+<?php if (count($misParroquias) > 1): ?>
+<div class="mp-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <div>
+        <div style="font-weight:700;color:#22366F;font-size:16px;">
+            <i class="bi bi-collection-fill"></i> Mis <?= count($misParroquias) ?> parroquias
+        </div>
+        <div class="text-sm text-muted" style="margin-top:2px;">
+            <?= e(implode(' · ', $misParroquias)) ?>
+        </div>
+    </div>
+    <a href="<?= APP_URL_BASE ?>seguimiento/pdf_mi_parroquia.php?estado=<?= urlencode($estadoUsr) ?>"
+       target="_blank" class="btn btn-primary">
+        <i class="bi bi-file-earmark-pdf-fill"></i> Informe general en PDF
+    </a>
+</div>
+<?php endif; ?>
+
 <?php foreach ($datos as $parr => $d):
     $pc = $d['por_color'] ?? [];
     $edifs = $d['edificaciones'] ?? [];

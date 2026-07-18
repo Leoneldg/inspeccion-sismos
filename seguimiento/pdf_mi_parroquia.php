@@ -16,27 +16,73 @@ requierePermiso('seguimiento', 'ver');
 
 $parroquia = trim($_GET['parroquia'] ?? '');
 $estado    = trim($_GET['estado'] ?? 'Distrito Capital');
-if ($parroquia === '') { http_response_code(400); exit('Falta la parroquia.'); }
-
-// El responsable solo puede sacar el informe de sus parroquias.
-if (!puedeAccederParroquia($parroquia)) {
-    http_response_code(403);
-    exit('No tiene asignada esta parroquia.');
-}
 
 function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
+function colPct(int $p): string {
+    if ($p >= 100) return '#2E7D32';
+    if ($p >= 75)  return '#5a9e3f';
+    if ($p > 0)    return '#a8871f';
+    return '#5b6478';
+}
 
-$d     = recPanelParroquia($estado, $parroquia);
-$asigs = asigDeParroquia($estado, $parroquia);
+// Modo: una parroquia concreta, o TODAS las asignadas al responsable.
+$misParroquias = parroquiasDelUsuario();
+if ($parroquia !== '') {
+    if (!puedeAccederParroquia($parroquia)) {
+        http_response_code(403);
+        exit('No tiene asignada esta parroquia.');
+    }
+    $lista = [$parroquia];
+} else {
+    if (!$misParroquias) { http_response_code(400); exit('Indique una parroquia.'); }
+    $lista = $misParroquias;
+}
+$esGeneral = count($lista) > 1;
+$cat = catalogoDecisionFinal();
+
+// Datos por parroquia + consolidado general.
+$datos = [];
+$gTotal = 0; $gSuma = 0; $gCulm = 0;
+$gColor = ['rojo'=>0,'amarillo'=>0,'verde'=>0,'derrumbado'=>0];
+$gProg  = [];
+foreach ($lista as $pa) {
+    $dd = recPanelParroquia($estado, $pa);
+    $dd['progreso'] = asigProgresoPorMiembro($estado, $pa, 'gdc');
+    $dd['asigs']    = asigDeParroquia($estado, $pa);
+    $ee = $dd['edificaciones'] ?? [];
+    recOrdenarPorColor($ee);
+    $dd['edificaciones'] = $ee;
+    $n  = count($ee);
+    $su = array_sum(array_column($ee, 'avance'));
+    $dd['total']      = $n;
+    $dd['avance']     = $n > 0 ? (int)round($su / $n) : 0;
+    $dd['culminadas'] = count(array_filter($ee, fn($x) => ($x['avance'] ?? 0) >= 100));
+    $gTotal += $n; $gSuma += $su; $gCulm += $dd['culminadas'];
+    foreach ($gColor as $k => $_) $gColor[$k] += (int)($dd['por_color'][$k] ?? 0);
+    foreach ($dd['progreso'] as $m => $pr) {
+        if (!isset($gProg[$m])) $gProg[$m] = ['total'=>0,'culminadas'=>0,'en_proceso'=>0,'sin_comenzar'=>0,'suma'=>0,'avance'=>0,'parroquias'=>[]];
+        foreach (['total','culminadas','en_proceso','sin_comenzar','suma'] as $k) $gProg[$m][$k] += $pr[$k];
+        $gProg[$m]['parroquias'][] = $pa;
+    }
+    $datos[$pa] = $dd;
+}
+foreach ($gProg as $m => $pr) {
+    $gProg[$m]['avance'] = $pr['total'] > 0 ? (int)round($pr['suma'] / $pr['total']) : 0;
+}
+uasort($gProg, fn($a, $b) => $b['avance'] <=> $a['avance']);
+$gAvance = $gTotal > 0 ? (int)round($gSuma / $gTotal) : 0;
+
+// Variables que usa el resto de la plantilla.
+$parroquia = $lista[0];
+$d     = $datos[$parroquia];
+$asigs = $d['asigs'];
 $resAp = recResumenAptosParroquia($estado, $parroquia);
-$edifs = $d['edificaciones'] ?? [];
-$pc    = $d['por_color'] ?? [];
-$cat   = catalogoDecisionFinal();
+$edifs = $d['edificaciones'];
+$pc    = $gColor;
+$avg   = $gAvance;
 
-// Promedio general y agrupación por tramos.
-$avg = $edifs ? (int)round(array_sum(array_column($edifs, 'avance')) / count($edifs)) : 0;
 $tramos = ['listo'=>0,'avanzado'=>0,'medio'=>0,'inicial'=>0,'sin'=>0];
-foreach ($edifs as $e) {
+foreach ($datos as $dd) foreach ($dd['edificaciones'] as $e) {
     $a = (int)($e['avance'] ?? 0);
     if ($a >= 100)    $tramos['listo']++;
     elseif ($a >= 75) $tramos['avanzado']++;
@@ -44,7 +90,6 @@ foreach ($edifs as $e) {
     elseif ($a > 0)   $tramos['inicial']++;
     else              $tramos['sin']++;
 }
-recOrdenarPorColor($edifs);
 
 $fecha = date('d/m/Y');
 $hora  = date('H:i');
@@ -95,6 +140,7 @@ ob_start();
   .equipo td { font-size: 9.5px; padding: 4px 5px; border-bottom: 1px solid #f0f2f7; }
   .equipo .rol { font-size: 8px; text-transform: uppercase; color: #97a0b8; }
 
+  .salto { page-break-before: always; }
   .pie { margin-top: 18px; padding-top: 8px; border-top: 1px solid #e8ebf3;
          font-size: 8.5px; color: #97a0b8; text-align: center; }
 </style></head><body>
@@ -102,8 +148,9 @@ ob_start();
 
   <div class="cab">
     <div class="fecha"><?= $fecha ?><br><?= $hora ?></div>
-    <h1><?= esc(mb_strtoupper($parroquia, 'UTF-8')) ?></h1>
-    <div class="sub">Informe de reconstrucción · <?= esc($estado) ?></div>
+    <h1><?= $esGeneral ? 'MIS PARROQUIAS' : esc(mb_strtoupper($parroquia, 'UTF-8')) ?></h1>
+    <div class="sub">Informe de reconstrucción · <?= esc($estado) ?><?php if ($esGeneral): ?>
+      · <?= count($lista) ?> parroquias: <?= esc(implode(', ', $lista)) ?><?php endif; ?></div>
   </div>
 
   <!-- Resumen ejecutivo -->
@@ -123,6 +170,79 @@ ob_start();
       </td>
     </tr></table>
   </div>
+
+  <?php if ($esGeneral): ?>
+  <!-- Total por parroquia (solo en el informe general) -->
+  <div class="bloque">
+    <h2>Total por parroquia</h2>
+    <table class="det">
+      <thead><tr>
+        <th>Parroquia</th>
+        <th style="width:62px;">Total</th>
+        <th style="width:74px;">Culminadas</th>
+        <th style="width:74px;">En proceso</th>
+        <th style="width:80px;">Avance</th>
+        <th style="width:42px;"></th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($datos as $pa => $dd): $c = colPct((int)$dd['avance']); ?>
+      <tr>
+        <td style="font-weight:700;color:#22366F;"><?= esc(mb_strtoupper($pa, 'UTF-8')) ?></td>
+        <td><strong><?= (int)$dd['total'] ?></strong></td>
+        <td style="color:#2E7D32;"><strong><?= (int)$dd['culminadas'] ?></strong></td>
+        <td style="color:#a8871f;"><strong><?= (int)$dd['total'] - (int)$dd['culminadas'] ?></strong></td>
+        <td><span class="mini"><span style="display:block;width:<?= (int)$dd['avance'] ?>%;background:<?= $c ?>;height:100%;"></span></span></td>
+        <td class="pt" style="color:<?= $c ?>;"><?= (int)$dd['avance'] ?>%</td>
+      </tr>
+      <?php endforeach; ?>
+      <tr style="background:#eef2fb;">
+        <td style="font-weight:800;color:#22366F;">TOTAL GENERAL</td>
+        <td><strong><?= $gTotal ?></strong></td>
+        <td style="color:#2E7D32;"><strong><?= $gCulm ?></strong></td>
+        <td style="color:#a8871f;"><strong><?= $gTotal - $gCulm ?></strong></td>
+        <td><span class="mini"><span style="display:block;width:<?= $gAvance ?>%;background:<?= colPct($gAvance) ?>;height:100%;"></span></span></td>
+        <td class="pt" style="color:<?= colPct($gAvance) ?>;"><?= $gAvance ?>%</td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+  <?php endif; ?>
+
+  <!-- Asignaciones y progreso del equipo de trabajo -->
+  <?php if ($gProg): ?>
+  <div class="bloque">
+    <h2>Asignaciones del equipo de trabajo<?= $esGeneral ? ' (consolidado)' : '' ?></h2>
+    <table style="width:100%;border-collapse:separate;border-spacing:6px;">
+      <tr>
+      <?php $i = 0; foreach ($gProg as $miembro => $pr):
+        $c = colPct((int)$pr['avance']);
+        if ($i > 0 && $i % 2 === 0) echo '</tr><tr>';
+        $i++;
+      ?>
+        <td style="width:50%;border:1px solid #dde3ef;border-radius:9px;padding:10px 12px;vertical-align:top;">
+          <span style="font-weight:800;font-size:18px;float:right;color:<?= $c ?>;"><?= (int)$pr['avance'] ?>%</span>
+          <span style="font-weight:700;color:#22366F;font-size:13.5px;"><?= esc($miembro) ?></span>
+          <div style="background:#eef0f6;border-radius:20px;height:10px;overflow:hidden;margin:7px 0 6px;border:1px solid #dde3ef;">
+            <div style="width:<?= (int)$pr['avance'] ?>%;background:<?= $c ?>;height:100%;"></div>
+          </div>
+          <div style="font-size:11px;color:#3a4256;">
+            <strong><?= (int)$pr['total'] ?></strong> asignadas &nbsp;·&nbsp;
+            <span style="color:#2E7D32;"><strong><?= (int)$pr['culminadas'] ?></strong> listas</span> &nbsp;·&nbsp;
+            <span style="color:#a8871f;"><strong><?= (int)$pr['en_proceso'] ?></strong> en obra</span> &nbsp;·&nbsp;
+            <span style="color:#5b6478;"><strong><?= (int)$pr['sin_comenzar'] ?></strong> sin iniciar</span>
+          </div>
+          <?php if ($esGeneral): ?>
+          <div style="font-size:10px;color:#767c94;margin-top:3px;">
+            <?= esc(implode(', ', array_unique($pr['parroquias']))) ?>
+          </div>
+          <?php endif; ?>
+        </td>
+      <?php endforeach; ?>
+      <?php if ($i % 2 === 1) echo '<td style="border:0;"></td>'; ?>
+      </tr>
+    </table>
+  </div>
+  <?php endif; ?>
 
   <!-- Distribución por avance -->
   <div class="bloque">
@@ -174,9 +294,22 @@ ob_start();
   </div>
   <?php endif; ?>
 
-  <!-- Detalle completo -->
-  <div class="bloque">
-    <h2>PARROQUIA <?= esc(mb_strtoupper($parroquia, 'UTF-8')) ?> · Detalle por edificación (<?= count($edifs) ?>)</h2>
+  <!-- Detalle completo, una seccion por parroquia -->
+  <?php $primeraP = true; foreach ($datos as $pa => $dd):
+      $edifs = $dd['edificaciones'];
+      $asigs = $dd['asigs'];
+      $resAp = recResumenAptosParroquia($estado, $pa);
+  ?>
+  <div class="bloque <?= (!$primeraP && $esGeneral) ? 'salto' : '' ?>">
+    <?php if ($esGeneral): ?>
+    <div style="background:#22366F;color:#fff;padding:8px 12px;border-radius:7px;font-size:15px;font-weight:700;margin-bottom:10px;">
+      PARROQUIA <?= esc(mb_strtoupper($pa, 'UTF-8')) ?>
+      <span style="float:right;font-weight:600;font-size:13px;">
+        <?= (int)$dd['total'] ?> edificaciones · <?= (int)$dd['avance'] ?>% de avance
+      </span>
+    </div>
+    <?php endif; ?>
+    <h2>PARROQUIA <?= esc(mb_strtoupper($pa, 'UTF-8')) ?> · Detalle por edificación (<?= count($edifs) ?>)</h2>
     <div style="background:#f4f7fd;border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:11px;">
       <strong>Cómo leer esta tabla:</strong>
       <span class="letra" style="color:#C9A227;border-color:#C9A227;">A</span> amarillo, precaución &nbsp;
@@ -222,9 +355,10 @@ ob_start();
       </tbody>
     </table>
   </div>
+  <?php $primeraP = false; endforeach; ?>
 
   <div class="pie">
-    Sistema de Seguimiento y Control de Reconstrucción ·
+    Gestión de Obras Avanzadas · Seguimiento y Control de la Reconstrucción ·
     Generado el <?= $fecha ?> a las <?= $hora ?> por <?= esc($_SESSION['user_nombre'] ?? $_SESSION['nombre'] ?? 'usuario del sistema') ?>
   </div>
 
