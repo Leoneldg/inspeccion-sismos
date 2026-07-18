@@ -634,33 +634,41 @@ function pintarPanelParroquia(d) {
         enc = '<div style="color:#9aa1b4;font-style:italic;font-size:13px;">Sin encargado asignado a esta parroquia.</div>';
     }
 
-    // Frentes de trabajo, en orden, debajo del responsable.
+    // Frentes de trabajo numerados, debajo del responsable.
     if (d.frentes && d.frentes.length) {
-        const tipos = d.frente_tipos || {};
-        const iconos = {
-            gdc: 'bi-people-fill', sistematizador: 'bi-clipboard-data',
-            corporacion: 'bi-tools', movilizaciones: 'bi-megaphone'
-        };
-        let filas = d.frentes.map(f => {
-            const sector = f.sector
-                ? `<span style="background:#C9A22722;color:#8a6d1a;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;">${f.sector}</span>`
-                : '';
-            return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #f0f2f7;">
-                <i class="bi ${iconos[f.tipo]||'bi-dot'}" style="color:#2d4488;margin-top:2px;"></i>
+        const filas = d.frentes.map(f => {
+            const nBrig = (f.brigadas || []).length;
+            const brigadas = nBrig
+                ? (f.brigadas || []).map(b =>
+                    `<span style="background:#eef2fb;color:#22366F;border-radius:7px;`
+                    + `padding:2px 8px;font-size:11px;font-weight:700;margin-right:4px;">`
+                    + `Brigada ${b.numero}</span>`).join('')
+                : '<span style="font-size:11px;color:#97a0b8;font-style:italic;">sin brigadas</span>';
+
+            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #f0f2f7;">
+                <span style="background:#22366F;color:#fff;width:28px;height:28px;border-radius:7px;
+                             display:flex;align-items:center;justify-content:center;font-weight:800;
+                             font-size:13px;flex-shrink:0;">${f.numero}</span>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-size:10px;text-transform:uppercase;color:#97a0b8;letter-spacing:.3px;">${tipos[f.tipo]||f.tipo}</div>
-                    <div style="font-size:13px;color:#2a3140;font-weight:600;">${f.nombre}${sector}</div>
-                    ${f.telefono ? `<div style="font-size:11px;color:#767c94;">${f.telefono}</div>` : ''}
+                    <div style="font-size:13.5px;color:#2a3140;font-weight:700;">
+                        Frente de Trabajo ${f.numero}
+                    </div>
+                    <div style="margin-top:4px;">${brigadas}</div>
+                    ${f.obras ? `<div style="font-size:11px;color:#767c94;margin-top:3px;">
+                        ${f.obras} edificación(es) asignada(s)</div>` : ''}
                 </div>
             </div>`;
         }).join('');
-        enc += `<div style="margin-top:10px;">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#55617f;letter-spacing:.4px;margin-bottom:4px;">
-                <i class="bi bi-diagram-3"></i> Frentes de trabajo
+
+        enc += `<div style="margin-top:12px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#55617f;
+                        letter-spacing:.4px;margin-bottom:5px;">
+                <i class="bi bi-diagram-3-fill"></i> Frentes de trabajo (${d.frentes.length})
             </div>
             ${filas}
         </div>`;
     }
+
     const pc = d.por_color || {};
     const card = (lbl,val,color) =>
         `<div style="flex:1;text-align:center;padding:10px 6px;background:${color}14;border-radius:9px;border:1px solid ${color}44;">

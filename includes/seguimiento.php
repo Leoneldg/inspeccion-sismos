@@ -1192,6 +1192,54 @@ function totalesPorParroquia(array $parroquias): array
     } catch (Throwable $e) { return []; }
 }
 
+/**
+ * Progreso de cada frente en una parroquia: cuántas obras tiene
+ * y cómo van. Reemplaza al progreso por integrante del equipo GDC.
+ */
+function progresoFrentesParroquia(string $estado, string $parroquia): array
+{
+    frenteRespAsegurar();
+    $avances = recAvancesDeParroquia($estado, $parroquia);
+    try {
+        $st = db()->prepare("
+            SELECT f.id, f.numero,
+                   a.inspeccion_id,
+                   (SELECT COUNT(*) FROM brigada b
+                     WHERE b.frente_id = f.id AND b.activa = 1) AS brigadas
+              FROM frente f
+              LEFT JOIN asignacion_frente_obra a ON a.frente_id = f.id
+             WHERE f.activo = 1 AND f.parroquia = :p
+             ORDER BY f.numero
+        ");
+        $st->execute(['p' => $parroquia]);
+
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $fid = (int)$r['id'];
+            if (!isset($out[$fid])) {
+                $out[$fid] = [
+                    'numero' => (int)$r['numero'],
+                    'brigadas' => (int)$r['brigadas'],
+                    'total' => 0, 'culminadas' => 0, 'en_proceso' => 0,
+                    'sin_comenzar' => 0, 'suma' => 0, 'avance' => 0,
+                ];
+            }
+            if ($r['inspeccion_id']) {
+                $pct = (int)($avances[(int)$r['inspeccion_id']] ?? 0);
+                $out[$fid]['total']++;
+                $out[$fid]['suma'] += $pct;
+                if ($pct >= 100)   $out[$fid]['culminadas']++;
+                elseif ($pct > 0)  $out[$fid]['en_proceso']++;
+                else               $out[$fid]['sin_comenzar']++;
+            }
+        }
+        foreach ($out as $k => $v) {
+            $out[$k]['avance'] = $v['total'] > 0 ? (int)round($v['suma'] / $v['total']) : 0;
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
 /** Crea una brigada en un frente, con número correlativo interno. */
 function brigadaCrear(int $frenteId): array
 {
@@ -2487,8 +2535,9 @@ function recPanelParroquia(string $estado, string $parroquia): array
         'estado'         => $estado,
         'parroquia'      => $parroquia,
         'encargados'     => $encargados,
-        'frentes'        => frentesDeParroquia($estado, $parroquia),
-        'frente_tipos'   => frenteTipos(),
+        // Frentes numerados que operan en la parroquia (reemplazan a los
+        // equipos GDC por nombre: ahora es "Frente de Trabajo 1, 2, 3…").
+        'frentes'        => frentesEnParroquia($parroquia),
         'total'          => $totalEdif,
         'por_color'      => $porColor,
         'comenzadas'     => count($comenzadas),

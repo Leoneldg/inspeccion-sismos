@@ -32,9 +32,20 @@ foreach ($misParroquias as $parr) {
     $panel = recPanelParroquia($estadoUsr, $parr);
     // Resumen de apartamentos y sub-asignaciones (1 consulta cada uno).
     $panel['resumen_aptos'] = recResumenAptosParroquia($estadoUsr, $parr);
-    $panel['asignaciones']  = asigDeParroquia($estadoUsr, $parr);
-    $panel['carga_gdc']     = asigCargaPorMiembro($estadoUsr, $parr, 'gdc');
-    $panel['progreso_gdc']  = asigProgresoPorMiembro($estadoUsr, $parr, 'gdc');
+    // Frente asignado a cada edificación de la parroquia.
+    $panel['frentes_obra'] = [];
+    try {
+        $stFO = db()->prepare("SELECT a.inspeccion_id, f.numero
+                                 FROM asignacion_frente_obra a
+                                 JOIN frente f ON f.id = a.frente_id
+                                 JOIN inspecciones i ON i.id = a.inspeccion_id
+                                WHERE i.parroquia = :p");
+        $stFO->execute(['p' => $parr]);
+        foreach ($stFO->fetchAll() as $r) {
+            $panel['frentes_obra'][(int)$r['inspeccion_id']] = (int)$r['numero'];
+        }
+    } catch (Throwable $e) {}
+    $panel['progreso_frentes'] = progresoFrentesParroquia($estadoUsr, $parr);
     $datos[$parr] = $panel;
 }
 
@@ -271,31 +282,36 @@ foreach ($edifs as $e) {
 </div>
 
 <!-- Carga de trabajo por integrante del equipo GDC -->
-<?php $prog = $d['progreso_gdc'] ?? []; ?>
+<?php $prog = $d['progreso_frentes'] ?? []; ?>
 <?php if ($prog): ?>
 <div class="mp-card">
-    <div class="mp-tit"><i class="bi bi-person-workspace"></i> Progreso por integrante del equipo</div>
+    <div class="mp-tit"><i class="bi bi-diagram-3-fill"></i> Progreso por frente de trabajo</div>
     <p class="text-sm text-muted" style="margin:-4px 0 12px;">
-        Toque un nombre para ver solo sus edificaciones.
+        Toque un frente para ver solo sus edificaciones.
     </p>
     <div class="mp-personas">
-        <?php foreach ($prog as $miembro => $pr):
+        <?php foreach ($prog as $fid => $pr):
             $av = (int)$pr['avance'];
             $col = $av >= 100 ? '#2E7D32' : ($av >= 75 ? '#5a9e3f' : ($av > 0 ? '#a8871f' : '#5b6478'));
         ?>
-        <button type="button" class="mp-persona" onclick="buscarMiembro('<?= e(addslashes($miembro)) ?>')">
+        <button type="button" class="mp-persona" onclick="filtrarPorFrente(<?= (int)$pr['numero'] ?>)">
             <div class="mp-persona-cab">
-                <span class="mp-persona-nom"><i class="bi bi-person-fill"></i> <?= e($miembro) ?></span>
+                <span class="mp-persona-nom">
+                    <span style="background:#22366F;color:#fff;width:22px;height:22px;border-radius:6px;
+                                 display:inline-flex;align-items:center;justify-content:center;
+                                 font-size:12px;font-weight:800;margin-right:5px;"><?= (int)$pr['numero'] ?></span>
+                    Frente <?= (int)$pr['numero'] ?>
+                </span>
                 <span class="mp-persona-pct" style="color:<?= $col ?>;"><?= $av ?>%</span>
             </div>
             <div class="mp-persona-barra">
                 <div style="width:<?= $av ?>%;background:<?= $col ?>;"></div>
             </div>
             <div class="mp-persona-det">
-                <span><strong><?= (int)$pr['total'] ?></strong> asignadas</span>
+                <span><strong><?= (int)$pr['total'] ?></strong> obras</span>
                 <span style="color:#2E7D32;"><strong><?= (int)$pr['culminadas'] ?></strong> listas</span>
                 <span style="color:#a8871f;"><strong><?= (int)$pr['en_proceso'] ?></strong> en obra</span>
-                <span style="color:#5b6478;"><strong><?= (int)$pr['sin_comenzar'] ?></strong> sin iniciar</span>
+                <span style="color:#2d4488;"><strong><?= (int)$pr['brigadas'] ?></strong> brigadas</span>
             </div>
         </button>
         <?php endforeach; ?>
@@ -350,8 +366,8 @@ foreach ($edifs as $e) {
     <?php
         $iid  = (int)$ed['id'];
         $ra   = $d['resumen_aptos'][$iid] ?? null;
-        $asig = $d['asignaciones'][$iid] ?? [];
-        $resp = $asig['gdc'] ?? null;
+        $numFrente = $d['frentes_obra'][$iid] ?? null;
+        $resp = $numFrente ? ('Frente ' . $numFrente) : null;
     ?>
     <div class="mp-edif" data-tramo="<?= $tramo ?>" data-avance="<?= $av ?>"
          data-color="<?= recPrioridadColor($ed['decision_final'] ?? null) ?>"
@@ -416,38 +432,52 @@ foreach ($edifs as $e) {
         <p class="text-muted" style="margin:0 0 10px;">Sin responsable registrado.</p>
     <?php endif; ?>
 
-    <?php
-    $frentes = $d['frentes'] ?? [];
-    $tipos = $d['frente_tipos'] ?? [];
-    $iconos = ['gdc'=>'bi-people-fill','sistematizador'=>'bi-clipboard-data',
-               'corporacion'=>'bi-tools','movilizaciones'=>'bi-megaphone'];
-    ?>
+    <?php $frentes = $d['frentes'] ?? []; ?>
     <?php if ($frentes): ?>
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#55617f;letter-spacing:.4px;margin:14px 0 4px;">
-        Frentes de trabajo
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#55617f;
+                letter-spacing:.4px;margin:15px 0 6px;">
+        Frentes de trabajo (<?= count($frentes) ?>)
     </div>
         <?php foreach ($frentes as $f): ?>
-        <div class="mp-frente">
-            <i class="bi <?= $iconos[$f['tipo']] ?? 'bi-dot' ?>" style="color:#2d4488;margin-top:2px;"></i>
+        <div style="display:flex;gap:11px;align-items:flex-start;padding:10px 0;
+                    border-bottom:1px solid #f4f6fa;">
+            <span style="background:#22366F;color:#fff;width:30px;height:30px;border-radius:8px;
+                         display:flex;align-items:center;justify-content:center;font-weight:800;
+                         font-size:14px;flex-shrink:0;"><?= (int)$f['numero'] ?></span>
             <div style="flex:1;min-width:0;">
-                <div style="font-size:10px;text-transform:uppercase;color:#97a0b8;letter-spacing:.3px;">
-                    <?= e($tipos[$f['tipo']] ?? $f['tipo']) ?>
+                <div style="font-size:14px;color:#2a3140;font-weight:700;">
+                    Frente de Trabajo <?= (int)$f['numero'] ?>
                 </div>
-                <div style="font-size:13px;color:#2a3140;font-weight:600;">
-                    <?= e($f['nombre']) ?>
-                    <?php if (!empty($f['sector'])): ?>
-                    <span style="background:#C9A22722;color:#8a6d1a;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;"><?= e($f['sector']) ?></span>
+                <div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;">
+                    <?php if (!empty($f['brigadas'])): foreach ($f['brigadas'] as $b): ?>
+                    <span style="background:#eef2fb;color:#22366F;border-radius:7px;padding:3px 9px;
+                                 font-size:11.5px;font-weight:700;">
+                        Brigada <?= (int)$b['numero'] ?>
+                        <?php if ((int)($b['obras'] ?? 0) > 0): ?>
+                        <span style="font-weight:400;color:#5b6478;">· <?= (int)$b['obras'] ?></span>
+                        <?php endif; ?>
+                    </span>
+                    <?php endforeach; else: ?>
+                    <span style="font-size:11.5px;color:#97a0b8;font-style:italic;">Sin brigadas</span>
                     <?php endif; ?>
                 </div>
-                <?php if (!empty($f['telefono'])): ?>
-                <div style="font-size:11px;color:#767c94;"><?= e($f['telefono']) ?></div>
-                <?php endif; ?>
             </div>
+            <?php if ((int)($f['obras'] ?? 0) > 0): ?>
+            <div style="text-align:center;min-width:52px;">
+                <div style="font-size:16px;font-weight:800;color:#a8871f;"><?= (int)$f['obras'] ?></div>
+                <div style="font-size:9.5px;color:#767c94;text-transform:uppercase;">obras</div>
+            </div>
+            <?php endif; ?>
         </div>
         <?php endforeach; ?>
     <?php else: ?>
-        <p class="text-muted" style="margin:0;">Sin frentes de trabajo registrados para esta parroquia.</p>
+        <p class="text-muted" style="margin:12px 0 0;font-size:13px;">
+            Esta parroquia no tiene frentes de trabajo.
+            <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php">Crear uno</a>.
+        </p>
     <?php endif; ?>
+</div>
+
 </div>
 
 <?php endforeach; ?>
@@ -514,6 +544,11 @@ function filtrarLista() {
 }
 
 // Buscar por integrante desde las tarjetas de carga.
+function filtrarPorFrente(numero) {
+    const b = document.getElementById('mp-buscar');
+    if (b) { b.value = 'frente ' + numero; filtrarLista(); b.scrollIntoView({behavior:'smooth', block:'center'}); }
+}
+
 function buscarMiembro(nombre) {
     document.getElementById('mp-buscar').value = nombre;
     filtrarLista();
