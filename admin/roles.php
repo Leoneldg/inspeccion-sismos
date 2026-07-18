@@ -23,6 +23,24 @@ foreach ($permisosRaw as $p) {
 include __DIR__ . '/../includes/header.php';
 ?>
 
+<div class="card" style="margin-bottom:14px;">
+    <div class="card-body" style="background:#eef2fb;">
+        <strong style="color:#22366F;"><i class="bi bi-info-circle-fill"></i> Qué significa cada permiso</strong>
+        <div style="font-size:12px;color:#55617f;margin-top:6px;line-height:1.7;">
+            <strong>Ver</strong>: entra al módulo y consulta la información. Sin esto, el módulo ni aparece en el menú.<br>
+            <strong>Crear</strong>: registra elementos nuevos.<br>
+            <strong>Editar</strong>: modifica lo existente. En <em>Seguimiento y Control</em> es lo que habilita
+            <strong>registrar el avance y subir fotos del durante</strong> (necesario para el sistematizador).<br>
+            <strong>Eliminar</strong>: borra registros. Consérvelo solo en roles administrativos.
+        </div>
+        <div style="font-size:12px;color:#8a6d1a;background:#C9A22715;border-radius:7px;padding:8px 10px;margin-top:8px;">
+            <i class="bi bi-shield-exclamation"></i>
+            El sistema no le permitirá quitarle a su propio rol el acceso a <strong>Usuarios</strong>,
+            para que no quede bloqueado fuera de la administración.
+        </div>
+    </div>
+</div>
+
 <?php if (puede('usuarios', 'crear')): ?>
 <div class="card" style="margin-bottom:16px;">
     <div class="card-header"><h2><i class="bi bi-plus-circle-fill"></i> Crear nuevo rol</h2></div>
@@ -84,8 +102,9 @@ include __DIR__ . '/../includes/header.php';
                 <?php foreach ($modulos as $mod):
                     $p = $matriz[$rol['id']][$mod['id']] ?? ['ver'=>0,'crear'=>0,'editar'=>0,'eliminar'=>0];
                     $disabled = puede('usuarios', 'editar') ? '' : 'disabled';
-                    // El módulo de seguimiento solo usa ver/crear/eliminar (editar no aplica).
-                    $esSeguimiento = ($mod['nombre'] === 'Seguimiento y Control');
+                    // En seguimiento, 'editar' SÍ aplica: habilita registrar avance
+                    // y subir fotos del durante (rol sistematizador).
+                    $esSeguimiento = false;
                 ?>
                     <tr>
                         <td><i class="bi <?= e($mod['icono']) ?>"></i> <?= e($mod['nombre']) ?></td>

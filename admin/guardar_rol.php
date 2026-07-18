@@ -64,7 +64,26 @@ try {
         requierePermiso('usuarios', 'editar');
         $rolId = (int)($_POST['rol_id'] ?? 0);
         $permisos = $_POST['permisos'] ?? [];
-        $modulos = $pdo->query('SELECT id FROM modulos')->fetchAll();
+        $modulos = $pdo->query('SELECT id, clave FROM modulos')->fetchAll();
+
+        // PROTECCION: no permitir que el usuario se quite a si mismo el acceso
+        // a Usuarios; de lo contrario quedaria bloqueado fuera del sistema.
+        $miRol = (int)($_SESSION['rol_id'] ?? 0);
+        if ($rolId === $miRol && !usuarioEsMaster()) {
+            $idUsuarios = null;
+            foreach ($modulos as $m) {
+                if (($m['clave'] ?? '') === 'usuarios') { $idUsuarios = (int)$m['id']; break; }
+            }
+            if ($idUsuarios !== null) {
+                $conservaVer    = !empty($permisos[$idUsuarios]['ver']);
+                $conservaEditar = !empty($permisos[$idUsuarios]['editar']);
+                if (!$conservaVer || !$conservaEditar) {
+                    flash('error', 'No puede quitarle a su propio rol el acceso a Usuarios: quedaria sin poder administrar el sistema.');
+                    header('Location: ' . APP_URL_BASE . 'admin/roles.php');
+                    exit;
+                }
+            }
+        }
 
         $stmt = $pdo->prepare(
             'INSERT INTO rol_modulo_permisos (rol_id, modulo_id, ver, crear, editar, eliminar)
