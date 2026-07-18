@@ -134,11 +134,28 @@ try {
     if ($accion === 'desactivar_frente') {
         $id = (int)($b['frente_id'] ?? 0);
         if ($id <= 0) jr(false, 'Frente no válido.');
-        $pdo->prepare('UPDATE frente SET activo = 0 WHERE id = :id')->execute(['id' => $id]);
-        // Las obras quedan sin frente, no se borran.
+
+        $st = $pdo->prepare('SELECT numero FROM frente WHERE id = :id');
+        $st->execute(['id' => $id]);
+        $numero = (int)($st->fetchColumn() ?: 0);
+
+        // Se elimina de verdad para que su número quede libre y la
+        // secuencia no deje saltos. Las obras no se borran: solo pierden
+        // la asignación al frente.
         $pdo->prepare('DELETE FROM asignacion_frente_obra WHERE frente_id = :id')->execute(['id' => $id]);
-        recAuditar('frente_desactivado', null, null, 'Frente #' . $id);
-        jr(true, 'Frente desactivado.');
+        try {
+            $pdo->prepare('DELETE FROM obra_brigada WHERE brigada_id IN
+                            (SELECT id FROM brigada WHERE frente_id = :id)')->execute(['id' => $id]);
+            $pdo->prepare('DELETE FROM brigada WHERE frente_id = :id')->execute(['id' => $id]);
+        } catch (Throwable $e) { /* sin brigadas */ }
+        try {
+            $pdo->prepare('DELETE FROM frente_supervisor WHERE frente_id = :id')->execute(['id' => $id]);
+            $pdo->prepare('DELETE FROM frente_parroquia WHERE frente_id = :id')->execute(['id' => $id]);
+        } catch (Throwable $e) {}
+        $pdo->prepare('DELETE FROM frente WHERE id = :id')->execute(['id' => $id]);
+
+        recAuditar('frente_eliminado', null, null, 'Frente de Trabajo ' . $numero);
+        jr(true, 'Frente eliminado. El número ' . $numero . ' queda libre.');
     }
 
     // ---------- PARROQUIAS ----------

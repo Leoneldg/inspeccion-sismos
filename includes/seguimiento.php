@@ -1012,15 +1012,26 @@ function frenteRespAsegurar(): void
 }
 
 /**
- * Siguiente número de frente. La numeración es CORRELATIVA GLOBAL:
- * el sistema toma el mayor existente y suma uno, sin importar
- * responsable ni parroquia. Así los frentes nunca se repiten.
+ * Siguiente número de frente. La numeración es CORRELATIVA GLOBAL y
+ * REUTILIZA los huecos: si se borró el Frente 3, el próximo será el 3.
+ * Así la secuencia no deja saltos cuando se elimina alguno.
  */
 function frenteSiguienteGlobal(): int
 {
     frenteRespAsegurar();
     try {
-        return (int)db()->query('SELECT COALESCE(MAX(numero), 0) + 1 FROM frente')->fetchColumn();
+        // Números en uso (solo los activos: los desactivados liberan el suyo).
+        $usados = db()->query('SELECT numero FROM frente WHERE activo = 1 ORDER BY numero')
+                      ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $usados = array_map('intval', $usados);
+
+        // Buscar el primer hueco disponible.
+        $n = 1;
+        foreach ($usados as $u) {
+            if ($u > $n) break;   // encontramos el hueco
+            if ($u === $n) $n++;
+        }
+        return $n;
     } catch (Throwable $e) { return 1; }
 }
 

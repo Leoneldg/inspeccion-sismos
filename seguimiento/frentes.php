@@ -62,6 +62,18 @@ foreach ($frentes as $ff) {
 }
 ksort($porParroquia);
 $siguiente = frenteSiguienteGlobal();
+
+// Responsable de cada parroquia, para autocompletar al elegirla.
+$respPorParroquia = [];
+try {
+    $stRP = db()->query("SELECT rp.parroquia, r.id, r.nombre
+                           FROM representante_parroquia rp
+                           JOIN representantes r ON r.id = rp.representante_id
+                          WHERE r.activo = 1");
+    foreach ($stRP->fetchAll() as $r) {
+        $respPorParroquia[$r['parroquia']] = ['id' => (int)$r['id'], 'nombre' => $r['nombre']];
+    }
+} catch (Throwable $e) {}
 $progreso  = [];
 foreach (frenteProgreso($estadoUsr) as $p) $progreso[(int)$p['id']] = $p;
 
@@ -176,7 +188,7 @@ include __DIR__ . '/../includes/header.php';
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
         <div class="field" style="flex:1;min-width:180px;margin:0;">
           <label class="text-sm">Parroquia *</label>
-          <select id="nf-parroquia" class="form-control">
+          <select id="nf-parroquia" class="form-control" onchange="autoResponsable()">
             <option value="">— Seleccione —</option>
             <?php
             $parrDisp = $misParroquias;
@@ -198,11 +210,12 @@ include __DIR__ . '/../includes/header.php';
         <div class="field" style="flex:1;min-width:180px;margin:0;">
           <label class="text-sm">Responsable de parroquia</label>
           <select id="nf-responsable" class="form-control">
-            <option value="">— Ninguno —</option>
+            <option value="">— Se toma de la parroquia —</option>
             <?php foreach ($responsables as $r): ?>
             <option value="<?= (int)$r['id'] ?>"><?= e($r['nombre']) ?></option>
             <?php endforeach; ?>
           </select>
+          <div id="nf-resp-aviso" class="text-sm" style="margin-top:4px;font-size:12px;"></div>
         </div>
         <div class="field" style="width:120px;margin:0;">
           <label class="text-sm">Cuántos</label>
@@ -316,6 +329,30 @@ include __DIR__ . '/../includes/header.php';
 
 <script>
 const URL_F = '<?= APP_URL_BASE ?>seguimiento/guardar_frente.php';
+const RESP_PARROQUIA = <?= json_encode($respPorParroquia, JSON_UNESCAPED_UNICODE) ?>;
+
+/**
+ * Al elegir la parroquia, selecciona solo a su responsable.
+ * Cada parroquia tiene uno asignado, así que no hace falta buscarlo.
+ */
+function autoResponsable() {
+    const parr = document.getElementById('nf-parroquia').value;
+    const sel = document.getElementById('nf-responsable');
+    const aviso = document.getElementById('nf-resp-aviso');
+    if (!parr) { sel.value = ''; aviso.textContent = ''; return; }
+
+    const r = RESP_PARROQUIA[parr];
+    if (r) {
+        sel.value = r.id;
+        aviso.style.color = '#2E7D32';
+        aviso.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + r.nombre;
+    } else {
+        sel.value = '';
+        aviso.style.color = '#a8871f';
+        aviso.innerHTML = '<i class="bi bi-exclamation-circle"></i> '
+            + 'Esta parroquia no tiene responsable asignado. Elíjalo a mano.';
+    }
+}
 
 async function api(datos) {
     try {
