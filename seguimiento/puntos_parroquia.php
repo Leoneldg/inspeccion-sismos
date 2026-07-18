@@ -57,7 +57,7 @@ try {
             'pisos'         => (int)($ed['num_pisos'] ?? 0),
             'personas'      => (int)($ed['numero_personas'] ?? 0),
             'fecha'         => $ed['fecha_inspeccion'] ?: '—',
-            'ente'          => null,
+            'ente'          => $ed['ente_nombre'] ?: null,
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,
             'fase'          => $fase,

@@ -1456,10 +1456,11 @@ function segPuntosDeParroquia(string $estado, string $parroquia): array
                    i.latitud, i.longitud, i.parroquia, i.municipio, i.estado,
                    i.uso_edificacion, i.num_pisos, i.numero_personas,
                    i.decision_final, i.fecha_inspeccion,
-                   so.estado_obra, so.avance_pct,
+                   so.estado_obra, so.avance_pct, so.ente_id, e.nombre AS ente_nombre,
                    re.id AS rec_edificio_id, re.completado
               FROM inspecciones i
               LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+              LEFT JOIN entes e ON e.id = so.ente_id
               LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
               $where";
     $st = $pdo->prepare($sql);

@@ -233,9 +233,28 @@ include __DIR__ . '/../includes/header.php';
                     <!-- Mensaje de estado / confirmación -->
                     <div id="sp-msg" style="display:none;margin-bottom:10px;padding:10px 11px;border-radius:8px;font-size:13px;line-height:1.4;"></div>
 
-                    <!-- Botón según estado: si NO hay levantamiento, se llena;
-                         si YA está completo, se va a la ficha de seguimiento. -->
-                    <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;">
+                    <!-- PASO 1: Asignar ente (aparece primero, antes del levantamiento) -->
+                    <div id="sp-asignar-ente">
+                        <label style="font-size:12px;font-weight:600;color:#22366F;display:block;margin-bottom:5px;"><i class="bi bi-building-gear"></i> Asignar ente responsable</label>
+                        <select id="sp-ente-select" class="form-control" style="width:100%;margin-bottom:8px;">
+                            <option value="">Seleccione un ente…</option>
+                            <?php foreach ($entes as $ente): ?>
+                            <option value="<?= (int)$ente['id'] ?>"><?= e(mb_strtoupper($ente['nombre'], 'UTF-8')) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" class="btn btn-primary" style="width:100%;justify-content:center;" onclick="asignarEnteAlPunto()">
+                            <i class="bi bi-check-lg"></i> Asignar ente
+                        </button>
+                    </div>
+
+                    <!-- Ente ya asignado (se muestra cuando hay ente) -->
+                    <div id="sp-ente-asignado" style="display:none;background:#eef2fb;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px;">
+                        <i class="bi bi-building-check" style="color:#2E7D32;"></i> Ente: <b id="sp-ente-nombre">—</b>
+                        <a href="#" onclick="cambiarEnte();return false;" style="font-size:11px;margin-left:6px;">cambiar</a>
+                    </div>
+
+                    <!-- PASO 2: Botones de levantamiento / ficha (solo con ente asignado) -->
+                    <a href="#" id="sp-levantamiento" class="btn btn-primary" style="width:100%;justify-content:center;display:none;">
                         <i class="bi bi-building-gear"></i> Levantamiento técnico
                     </a>
                     <a href="#" id="sp-ficha" class="btn btn-primary" style="width:100%;justify-content:center;display:none;">
@@ -303,17 +322,32 @@ function abrirPanel(p) {
     document.getElementById('sp-codigo').textContent = p.codigo;
     document.getElementById('sp-ficha').href = APP_URL_BASE + 'seguimiento/remodelacion.php?inspeccion=' + p.id;
     document.getElementById('sp-levantamiento').href = p.levantamiento_url;
+    document.getElementById('sp-msg').style.display = 'none';
 
-    // Según el estado: si el levantamiento está completo, mostrar "Ficha de
-    // seguimiento"; si no, mostrar "Levantamiento técnico".
+    const divAsignar = document.getElementById('sp-asignar-ente');
+    const divAsignado = document.getElementById('sp-ente-asignado');
     const btnLev = document.getElementById('sp-levantamiento');
     const btnFicha = document.getElementById('sp-ficha');
-    if (p.levantamiento_completo) {
+
+    if (!p.ente) {
+        // PASO 1: sin ente -> mostrar selector para asignar, ocultar el resto.
+        divAsignar.style.display = '';
+        divAsignado.style.display = 'none';
         btnLev.style.display = 'none';
-        btnFicha.style.display = '';
-    } else {
-        btnLev.style.display = '';
         btnFicha.style.display = 'none';
+        document.getElementById('sp-ente-select').value = '';
+    } else {
+        // PASO 2: con ente -> mostrar el ente y habilitar levantamiento/ficha.
+        divAsignar.style.display = 'none';
+        divAsignado.style.display = '';
+        document.getElementById('sp-ente-nombre').textContent = p.ente;
+        if (p.levantamiento_completo) {
+            btnLev.style.display = 'none';
+            btnFicha.style.display = '';
+        } else {
+            btnLev.style.display = '';
+            btnFicha.style.display = 'none';
+        }
     }
 
     const f = FASES[p.fase];
@@ -343,8 +377,41 @@ function abrirPanel(p) {
     document.getElementById('seg-panel').classList.add('open');
 }
 
-/* ---------- Inicialización del mapa ---------- */
-// ===================== PANEL DE PARROQUIA =====================
+/* ---------- Asignar ente al punto seleccionado ---------- */
+async function asignarEnteAlPunto() {
+    if (!seleccionado) return;
+    const enteId = document.getElementById('sp-ente-select').value;
+    if (!enteId) { mostrarMsg('Seleccione un ente primero.', false); return; }
+    const enteNombre = document.getElementById('sp-ente-select').selectedOptions[0].textContent;
+
+    try {
+        const fd = new FormData();
+        fd.append('inspeccion_id', seleccionado.id);
+        fd.append('ente_id', enteId);
+        const res = await fetch(APP_URL_BASE + 'seguimiento/asignar_ente.php', { method:'POST', body: fd });
+        const d = await res.json();
+        if (d.ok) {
+            seleccionado.ente = enteNombre;
+            mostrarMsg('Ente asignado correctamente.', true);
+            // Reabrir el panel para reflejar el nuevo estado (ya con ente).
+            abrirPanel(seleccionado);
+        } else {
+            mostrarMsg(d.mensaje || 'No se pudo asignar.', false);
+        }
+    } catch(e) {
+        mostrarMsg('Error de red al asignar.', false);
+    }
+}
+
+function cambiarEnte() {
+    if (!seleccionado) return;
+    // Volver a mostrar el selector para reasignar.
+    document.getElementById('sp-asignar-ente').style.display = '';
+    document.getElementById('sp-ente-asignado').style.display = 'none';
+    document.getElementById('sp-levantamiento').style.display = 'none';
+    document.getElementById('sp-ficha').style.display = 'none';
+}
+
 async function abrirPanelParroquia(estado, nombreParroquia) {
     const panel = document.getElementById('panel-parroquia');
     document.getElementById('pp-nombre').textContent = nombreParroquia;
