@@ -106,7 +106,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hourglass-split"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">Reconstruccion/div></div>
+        <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">Reconstrucción</div></div>
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#e5f7ee;color:#2E7D32;"><i class="bi bi-check-circle-fill"></i></div>
