@@ -1281,13 +1281,15 @@ function recPanelParroquia(string $estado, string $parroquia): array
     );
     $st->execute(['e' => $estado, 'p' => $parroquia]);
     $cat = catalogoDecisionFinal();
-    $porColor = ['rojo' => 0, 'amarillo' => 0, 'verde' => 0, 'otro' => 0];
+    $porColor = ['rojo' => 0, 'amarillo' => 0, 'verde' => 0, 'derrumbado' => 0, 'otro' => 0];
     $totalEdif = 0;
     foreach ($st->fetchAll() as $row) {
         $n = (int)$row['n'];
         $totalEdif += $n;
-        $color = $cat[$row['decision_final']]['color'] ?? '';
-        if ($color === '#A61C1C') $porColor['rojo'] += $n;
+        $decision = $row['decision_final'] ?? '';
+        $color = $cat[$decision]['color'] ?? '';
+        if ($decision === 'Derrumbado') $porColor['derrumbado'] += $n;
+        elseif ($color === '#A61C1C') $porColor['rojo'] += $n;
         elseif ($color === '#C9A227') $porColor['amarillo'] += $n;
         elseif ($color === '#2E7D32') $porColor['verde'] += $n;
         else $porColor['otro'] += $n;

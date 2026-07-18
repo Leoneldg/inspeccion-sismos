@@ -12,19 +12,8 @@ $pageTitle    = 'Seguimiento y Control';
 $pageSubtitle = 'Mapa de recuperación de edificaciones inspeccionadas';
 $activeModule = 'seguimiento';
 
-$filtros = [
-    'q'           => trim($_GET['q'] ?? ''),
-    'estado'      => trim($_GET['estado'] ?? ''),
-    'estado_obra' => trim($_GET['estado_obra'] ?? ''),
-    'ente_id'     => trim($_GET['ente_id'] ?? ''),
-    'solo_mias'   => !empty($_GET['solo_mias']),
-];
-
 $kpis        = segKpis();
-$edificios   = segListaEdificios($filtros);
-$entes       = segEntes(usuarioEsMaster() ? null : estadoDelUsuario());
 $decisiones  = catalogoDecisionFinal();
-$estadosObra = segEstadosObra();
 $fasesCat    = segFasesRecuperacion();
 $puedeEditar = puede('seguimiento', 'editar');
 
@@ -142,48 +131,33 @@ include __DIR__ . '/../includes/header.php';
 <!-- Filtros -->
 <div class="card" style="margin-bottom:14px;">
     <div class="card-body">
-        <form method="get" class="flex gap-8" style="flex-wrap:wrap;align-items:flex-end;">
+        <div class="flex gap-8" style="flex-wrap:wrap;align-items:flex-end;">
             <div class="field" style="margin:0;">
-                <label class="text-sm">Buscar</label>
-                <input type="text" name="q" class="form-control" style="width:230px;" placeholder="Edificio o código…" value="<?= e($filtros['q']) ?>">
+                <label class="text-sm">Buscar edificación</label>
+                <input type="text" id="f-buscar" class="form-control" style="width:250px;" placeholder="Nombre o código…" onkeydown="if(event.key==='Enter')ejecutarBusqueda()">
             </div>
-            <?php if (usuarioEsMaster()): ?>
             <div class="field" style="margin:0;">
-                <label class="text-sm">Estado</label>
-                <select name="estado" class="form-control" style="width:170px;">
-                    <option value="">Todos</option>
-                    <?php foreach (catalogoEstados() as $est): ?>
-                        <option value="<?= e($est) ?>" <?= $filtros['estado'] === $est ? 'selected' : '' ?>><?= e($est) ?></option>
+                <label class="text-sm">Parroquia</label>
+                <select id="f-parroquia" class="form-control" style="width:200px;" onchange="ejecutarBusqueda()">
+                    <option value="">Todas las parroquias</option>
+                    <?php
+                    // Parroquias que tienen inspecciones (del conteo), ordenadas.
+                    $parrOrden = $conteoParroquias;
+                    usort($parrOrden, fn($a, $b) => strcmp($a['parroquia'], $b['parroquia']));
+                    foreach ($parrOrden as $cp):
+                    ?>
+                    <option value="<?= e($cp['parroquia']) ?>" data-estado="<?= e($cp['estado']) ?>">
+                        <?= e(mb_strtoupper($cp['parroquia'], 'UTF-8')) ?> (<?= (int)$cp['total'] ?>)
+                    </option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <?php endif; ?>
-            <div class="field" style="margin:0;">
-                <label class="text-sm">Estado de obra</label>
-                <select name="estado_obra" class="form-control" style="width:160px;">
-                    <option value="">Todas</option>
-                    <option value="__sin__" <?= $filtros['estado_obra'] === '__sin__' ? 'selected' : '' ?>>Sin seguimiento</option>
-                    <?php foreach (array_keys($estadosObra) as $eo): ?>
-                        <option value="<?= e($eo) ?>" <?= $filtros['estado_obra'] === $eo ? 'selected' : '' ?>><?= e($eo) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="field" style="margin:0;">
-                <label class="text-sm">Ente</label>
-                <select name="ente_id" class="form-control" style="width:180px;">
-                    <option value="">Todos</option>
-                    <?php foreach ($entes as $ente): ?>
-                        <option value="<?= (int)$ente['id'] ?>" <?= (string)$filtros['ente_id'] === (string)$ente['id'] ? 'selected' : '' ?>><?= e($ente['nombre']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <label class="check-row" style="margin:0 4px 6px;">
-                <input type="checkbox" name="solo_mias" value="1" <?= $filtros['solo_mias'] ? 'checked' : '' ?>>
-                <span class="text-sm">Solo asignadas a mí</span>
-            </label>
-            <button class="btn btn-outline"><i class="bi bi-funnel"></i> Filtrar</button>
+            <button class="btn btn-primary" onclick="ejecutarBusqueda()"><i class="bi bi-search"></i> Buscar</button>
+            <button class="btn btn-outline" onclick="limpiarBusqueda()"><i class="bi bi-x-circle"></i> Limpiar</button>
             <a href="<?= APP_URL_BASE ?>seguimiento/entes.php" class="btn btn-outline"><i class="bi bi-building-gear"></i> Entes</a>
-        </form>
+        </div>
+        <!-- Resultados de la búsqueda -->
+        <div id="f-resultados" style="display:none;margin-top:14px;border-top:1px solid #eef0f5;padding-top:12px;"></div>
     </div>
 </div>
 
@@ -249,6 +223,7 @@ const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const APP_URL_BASE = '<?= APP_URL_BASE ?>';
 const PARROQUIA_URL = APP_URL_BASE + 'dashboard/api_parroquia.php';
 const PUNTOS_URL = APP_URL_BASE + 'seguimiento/puntos_parroquia.php';
+const BUSCAR_URL = APP_URL_BASE + 'seguimiento/buscar_edificios.php';
 
 let map;
 let marcadores = {};      // id -> marker
@@ -375,10 +350,11 @@ function pintarPanelParroquia(d) {
             <div style="font-size:22px;font-weight:bold;color:${color};">${val}</div>
             <div style="font-size:10px;color:#555;text-transform:uppercase;">${lbl}</div></div>`;
     const tarjetas =
-        `<div style="display:flex;gap:7px;margin:12px 0;">
+        `<div style="display:flex;gap:6px;margin:12px 0;flex-wrap:wrap;">
             ${card('Rojo', pc.rojo||0, '#A61C1C')}
             ${card('Amarillo', pc.amarillo||0, '#C9A227')}
             ${card('Verde', pc.verde||0, '#2E7D32')}
+            ${card('Derrumbado', pc.derrumbado||0, '#2B2B2B')}
         </div>`;
     let edifs = '';
     if (d.edificaciones && d.edificaciones.length) {
@@ -514,6 +490,77 @@ function volverVistaParroquias() {
     capaPuntos.clearLayers();
     map.setView([10.5061, -66.9146], 12);
     cerrarPanelParroquia();
+}
+
+// ===================== BÚSQUEDA DE EDIFICACIONES =====================
+async function ejecutarBusqueda() {
+    const q = document.getElementById('f-buscar').value.trim();
+    const sel = document.getElementById('f-parroquia');
+    const parroquia = sel.value;
+    const estado = parroquia ? (sel.options[sel.selectedIndex].dataset.estado || 'Distrito Capital') : '';
+
+    if (!q && !parroquia) { limpiarBusqueda(); return; }
+
+    const cont = document.getElementById('f-resultados');
+    cont.style.display = 'block';
+    cont.innerHTML = '<p class="text-muted" style="margin:0;">Buscando…</p>';
+
+    try {
+        const url = BUSCAR_URL + '?q=' + encodeURIComponent(q) + '&parroquia=' + encodeURIComponent(parroquia) + '&estado=' + encodeURIComponent(estado);
+        const res = await fetch(url);
+        const d = await res.json();
+        if (!d.ok) { cont.innerHTML = '<p class="text-muted" style="margin:0;">' + (d.mensaje || 'Error.') + '</p>'; return; }
+        pintarResultados(d.puntos);
+        dibujarPuntosEnMapa(d.puntos);
+    } catch(e) {
+        cont.innerHTML = '<p class="text-muted" style="margin:0;">Error de red.</p>';
+    }
+}
+
+function pintarResultados(puntos) {
+    const cont = document.getElementById('f-resultados');
+    if (!puntos.length) {
+        cont.innerHTML = '<p class="text-muted" style="margin:0;"><i class="bi bi-search"></i> Sin resultados.</p>';
+        return;
+    }
+    let filas = puntos.map(p => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid #f0f2f7;cursor:pointer;"
+             onclick='abrirPanel(${JSON.stringify(p).replace(/'/g, "&#39;")})'>
+            <span style="width:11px;height:11px;border-radius:50%;background:${p.color};flex-shrink:0;"></span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;color:#2a3140;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.nombre||'Sin nombre'}</div>
+                <div style="font-size:11px;color:#767c94;">${p.codigo} · ${p.parroquia} · ${p.decision}</div>
+            </div>
+            ${p.tiene_coord ? '<i class="bi bi-geo-alt-fill" style="color:#2d4488;" title="Ubicada en el mapa"></i>' : '<i class="bi bi-geo" style="color:#c9a227;" title="Sin coordenadas"></i>'}
+        </div>`).join('');
+    cont.innerHTML = `<div style="font-weight:700;color:#22366F;margin-bottom:8px;"><i class="bi bi-list-ul"></i> ${puntos.length} resultado(s)</div>
+        <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
+}
+
+function dibujarPuntosEnMapa(puntos) {
+    capaBurbujas.clearLayers();
+    capaPuntos.clearLayers();
+    marcadores = {};
+    const coords = [];
+    puntos.forEach(p => {
+        if (!p.tiene_coord) return;
+        const m = L.marker([p.lat, p.lng], { icon: iconoPunto(p), title: p.nombre });
+        m.on('click', () => abrirPanel(p));
+        marcadores[p.id] = m;
+        capaPuntos.addLayer(m);
+        coords.push([p.lat, p.lng]);
+    });
+    if (coords.length) map.fitBounds(L.latLngBounds(coords).pad(0.2));
+}
+
+function limpiarBusqueda() {
+    document.getElementById('f-buscar').value = '';
+    document.getElementById('f-parroquia').value = '';
+    document.getElementById('f-resultados').style.display = 'none';
+    document.getElementById('f-resultados').innerHTML = '';
+    capaPuntos.clearLayers();
+    // Volver a mostrar las burbujas de conteo por parroquia.
+    location.reload();
 }
 </script>
 
