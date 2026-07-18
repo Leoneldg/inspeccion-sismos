@@ -1796,3 +1796,27 @@ body.sidebar-collapsed .sidebar .nav-group-items { max-height: none !important; 
 /* Indicador visual activo en la cabecera del grupo */
 .sidebar .nav-group.tiene-activo .nav-group-header { color: #f0a63a; }
 .sidebar .nav-group.tiene-activo .group-icon { color: #f0a63a; }
+
+/* =====================================================================
+   AJUSTES TÁCTILES GLOBALES (trabajo en campo desde celular/tablet)
+   ===================================================================== */
+@media (max-width: 900px) {
+    /* 16px evita el zoom automático de iOS al enfocar un campo */
+    .form-control,
+    input[type=text], input[type=number], input[type=tel],
+    input[type=email], input[type=password], input[type=date],
+    select, textarea {
+        font-size: 16px !important;
+    }
+    /* Área de toque cómoda */
+    .btn { min-height: 42px; }
+    input[type=range] { height: 34px; }
+    /* Tablas anchas: se pueden desplazar en vez de romper la pantalla */
+    .table-responsive, .tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* Evita el desbordamiento horizontal en cualquier pantalla */
+@media (max-width: 640px) {
+    body { overflow-x: hidden; }
+    .card-body { padding: 14px !important; }
+}

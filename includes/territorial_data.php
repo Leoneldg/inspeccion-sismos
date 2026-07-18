@@ -124,7 +124,7 @@ return [
         'Tucupita' => ['José Vidal Marcano', 'Juan Millán', 'Leonardo Ruiz Pineda', 'Mariscal Antonio José de Sucre', 'Monseñor Argimiro García', 'San José', 'San Rafael', 'Virgen del Valle'],
     ],
     'Distrito Capital' => [
-        'Libertador' => ['23 de Enero', 'Altagracia', 'Antimano', 'Candelaria', 'Caricuao', 'Catedral', 'Coche', 'El Junquito', 'El Paraíso', 'El Recreo', 'El Valle', 'La Pastora', 'La Vega', 'Macarao', 'San Agustín', 'San Bernandino', 'San José', 'San Juan', 'San Pedro', 'Santa Rosalía', 'Santa Teresa', 'Sucre'],
+        'Libertador' => ['23 de Enero', 'Altagracia', 'Antimano', 'Candelaria', 'Caricuao', 'Catedral', 'Coche', 'El Junquito', 'El Paraíso', 'El Recreo', 'El Valle', 'La Pastora', 'La Vega', 'Macarao', 'San Agustín', 'San Bernardino', 'San José', 'San Juan', 'San Pedro', 'Santa Rosalía', 'Santa Teresa', 'Sucre'],
     ],
     'Falcón' => [
         'Acosta' => ['Capadare', 'La Pastora', 'Libertador', 'San Juan de los Cayos'],

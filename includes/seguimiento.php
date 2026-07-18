@@ -735,6 +735,62 @@ function repDeParroquia(string $estado, string $parroquia): array
 /**
  * Asegura que existan las tablas de representantes (por si no se corrió el SQL).
  */
+// =====================================================================
+// FRENTES DE TRABAJO POR PARROQUIA
+// =====================================================================
+
+/** Crea la tabla de frentes de trabajo si no existe. */
+function frenteAsegurarTabla(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS frente_trabajo (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            estado VARCHAR(100) NOT NULL DEFAULT 'Distrito Capital',
+            parroquia VARCHAR(120) NOT NULL,
+            tipo VARCHAR(60) NOT NULL,
+            nombre VARCHAR(200) NOT NULL,
+            telefono VARCHAR(60) DEFAULT NULL,
+            sector VARCHAR(120) DEFAULT NULL,
+            orden TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            creado_por INT UNSIGNED DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id),
+            KEY idx_frente_parroquia (estado, parroquia),
+            KEY idx_frente_orden (orden)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/** Etiquetas legibles de cada tipo de frente. */
+function frenteTipos(): array
+{
+    return [
+        'gdc'             => 'Equipo de trabajo GDC',
+        'sistematizador'  => 'Sistematizador',
+        'corporacion'     => 'Corporación de Servicios',
+        'movilizaciones'  => 'Vicepresidencia de Movilizaciones',
+    ];
+}
+
+/** Frentes de trabajo de una parroquia, en orden. */
+function frentesDeParroquia(string $estado, string $parroquia): array
+{
+    frenteAsegurarTabla();
+    try {
+        $st = db()->prepare(
+            'SELECT * FROM frente_trabajo
+              WHERE estado = :e AND parroquia = :p AND activo = 1
+              ORDER BY orden, sector IS NULL DESC, sector, nombre'
+        );
+        $st->execute(['e' => $estado, 'p' => $parroquia]);
+        return $st->fetchAll();
+    } catch (Throwable $e) { return []; }
+}
+
 function repAsegurarTablas(): void
 {
     static $verificado = false;
@@ -1454,6 +1510,8 @@ function recPanelParroquia(string $estado, string $parroquia): array
         'estado'         => $estado,
         'parroquia'      => $parroquia,
         'encargados'     => $encargados,
+        'frentes'        => frentesDeParroquia($estado, $parroquia),
+        'frente_tipos'   => frenteTipos(),
         'total'          => $totalEdif,
         'por_color'      => $porColor,
         'comenzadas'     => count($comenzadas),

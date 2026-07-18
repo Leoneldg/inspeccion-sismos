@@ -90,6 +90,48 @@ include __DIR__ . '/../includes/header.php';
         /* Los campos de m² a reparar, 2 por fila */
         .amb-reparacion [style*="width:110px"], .amb-reparacion [style*="width:120px"] { width:calc(50% - 4px) !important; }
         .apto-body .field { width:calc(50% - 5px) !important; }
+
+        /* --- Paso 1: los tres campos (pisos / aptos / total) uno por fila --- */
+        #paso-1 .field { flex:1 1 100% !important; min-width:0 !important; }
+
+        /* --- Selector de piso a ancho completo --- */
+        #selector-piso { width:100% !important; }
+        #paso-2 .field[style*="max-width"] { max-width:100% !important; }
+
+        /* --- Jefe de familia: un campo por fila (se escribe con el pulgar) --- */
+        .jefe-field { width:100% !important; flex:1 1 100% !important; }
+
+        /* --- Áreas comunes: una por fila --- */
+        .area-row { flex-direction:column !important; align-items:stretch !important; gap:8px !important; }
+        .area-row .form-control, .area-row .btn { width:100% !important; }
+        .area-row .area-m2, .area-row .area-trabajo { width:100% !important; }
+
+        /* --- Cierre: los radios de estado no se aprietan --- */
+        .campo-estado { flex-wrap:wrap !important; }
+        .campo-estado .seg-radio { flex:1 1 46%; }
+
+        /* Botonera del wizard */
+        .wz-panel > div:last-child .btn { width:100%; justify-content:center; margin-bottom:6px; }
+    }
+
+    /* Pantallas muy angostas: los ambientes, 2 por fila */
+    @media (max-width: 400px) {
+        .apto-body .field { width:calc(50% - 4px) !important; }
+        .wz-step { flex-basis:100%; }
+    }
+
+    /* --- Ajustes táctiles para trabajo en campo --- */
+    @media (max-width: 900px) {
+        /* 16px evita que iOS haga zoom automático al tocar un campo */
+        .form-control, input[type=text], input[type=number], input[type=tel], input[type=date], select, textarea {
+            font-size: 16px !important;
+        }
+        /* Área de toque cómoda (mínimo recomendado: 44px) */
+        .btn, .btn-sm { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; }
+        .seg-radio { padding: 6px 0; display: inline-flex; align-items: center; gap: 6px; }
+        .seg-radio input[type=checkbox], .seg-radio input[type=radio] { width: 20px; height: 20px; }
+        /* Los sliders de avance necesitan más altura para el dedo */
+        input[type=range] { height: 34px; }
     }
 </style>
 
@@ -596,17 +638,17 @@ function pintarApartamento(a, lista) {
             <div style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
                 <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> Jefe de familia</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <div class="field" style="flex:2;min-width:180px;">
+                    <div class="field jefe-field" style="flex:2;min-width:180px;">
                         <label class="text-sm">Nombre completo *</label>
                         <input type="text" class="form-control jefe-nombre" value="${a.jefe_nombre||''}" placeholder="Nombre y apellido">
                     </div>
-                    <div class="field" style="flex:1;min-width:120px;">
+                    <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Cédula *</label>
-                        <input type="text" class="form-control jefe-cedula" value="${a.jefe_cedula||''}" placeholder="V-12345678">
+                        <input type="text" class="form-control jefe-cedula" value="${a.jefe_cedula||''}" placeholder="V-12345678" inputmode="numeric">
                     </div>
-                    <div class="field" style="flex:1;min-width:120px;">
+                    <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Teléfono *</label>
-                        <input type="text" class="form-control jefe-telefono" value="${a.jefe_telefono||''}" placeholder="0412-1234567">
+                        <input type="tel" class="form-control jefe-telefono" value="${a.jefe_telefono||''}" placeholder="0412-1234567" inputmode="tel">
                     </div>
                 </div>
             </div>

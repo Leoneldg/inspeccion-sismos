@@ -46,9 +46,52 @@ include __DIR__ . '/../includes/header.php';
 .seg-kpi-ico { width: 52px !important; height: 52px !important; font-size: 24px !important; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 .seg-kpi { padding: 18px 20px !important; gap: 14px; align-items: center; }
 .seg-progress-txt { font-size: 20px !important; font-weight: 800 !important; }
-@media (max-width: 640px) {
+
+/* ---- Barra de filtros: se apila en pantallas chicas ---- */
+.seg-filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.seg-filtros .field { margin: 0; }
+.seg-filtros .form-control { max-width: 100%; }
+
+/* ================= RESPONSIVE ================= */
+/* Tablets */
+@media (max-width: 900px) {
+    #seg-map { height: 460px !important; }
     .seg-kpi-num { font-size: 34px !important; }
     .seg-kpi-ico { width: 44px !important; height: 44px !important; font-size: 20px !important; }
+    .seg-kpi { padding: 14px 16px !important; }
+}
+
+/* Teléfonos */
+@media (max-width: 640px) {
+    #seg-map { height: 380px !important; }
+    .seg-kpi-num { font-size: 30px !important; }
+    .seg-kpi-lbl { font-size: 11px !important; }
+    .seg-kpi-ico { width: 40px !important; height: 40px !important; font-size: 18px !important; }
+    .seg-kpi { padding: 12px 14px !important; gap: 10px; }
+
+    /* Cada filtro ocupa el ancho completo: nada de campos de 200px apretados */
+    .seg-filtros { gap: 10px; }
+    .seg-filtros .field { flex: 1 1 100% !important; }
+    .seg-filtros .form-control { width: 100% !important; }
+    .seg-filtros .btn { flex: 1 1 auto; }
+
+    /* Paneles laterales a pantalla completa */
+    .seg-panel {
+        position: fixed !important; inset: auto 0 0 0 !important;
+        width: 100% !important; max-width: 100% !important;
+        max-height: 72vh !important; border-radius: 14px 14px 0 0 !important;
+        box-shadow: 0 -6px 24px rgba(20,30,60,.25) !important;
+    }
+    #panel-parroquia { width: 100% !important; max-width: 100% !important; }
+
+    /* Resultados de búsqueda: más espacio para tocar */
+    #f-resultados > div:last-child { max-height: 46vh !important; }
+}
+
+/* Pantallas muy angostas */
+@media (max-width: 380px) {
+    .seg-kpi-num { font-size: 26px !important; }
+    #seg-map { height: 320px !important; }
 }
 
 /* ---- Mapa de seguimiento ---- */
@@ -132,7 +175,7 @@ include __DIR__ . '/../includes/header.php';
 <!-- Filtros -->
 <div class="card" style="margin-bottom:14px;">
     <div class="card-body">
-        <div class="flex gap-8" style="flex-wrap:wrap;align-items:flex-end;">
+        <div class="seg-filtros">
             <div class="field" style="margin:0;">
                 <label class="text-sm">Buscar edificación</label>
                 <input type="text" id="f-buscar" class="form-control" style="width:250px;" placeholder="Nombre o código…" onkeydown="if(event.key==='Enter')ejecutarBusqueda()">
@@ -452,6 +495,34 @@ function pintarPanelParroquia(d) {
             </div>`).join('');
     } else {
         enc = '<div style="color:#9aa1b4;font-style:italic;font-size:13px;">Sin encargado asignado a esta parroquia.</div>';
+    }
+
+    // Frentes de trabajo, en orden, debajo del responsable.
+    if (d.frentes && d.frentes.length) {
+        const tipos = d.frente_tipos || {};
+        const iconos = {
+            gdc: 'bi-people-fill', sistematizador: 'bi-clipboard-data',
+            corporacion: 'bi-tools', movilizaciones: 'bi-megaphone'
+        };
+        let filas = d.frentes.map(f => {
+            const sector = f.sector
+                ? `<span style="background:#C9A22722;color:#8a6d1a;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;">${f.sector}</span>`
+                : '';
+            return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #f0f2f7;">
+                <i class="bi ${iconos[f.tipo]||'bi-dot'}" style="color:#2d4488;margin-top:2px;"></i>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#97a0b8;letter-spacing:.3px;">${tipos[f.tipo]||f.tipo}</div>
+                    <div style="font-size:13px;color:#2a3140;font-weight:600;">${f.nombre}${sector}</div>
+                    ${f.telefono ? `<div style="font-size:11px;color:#767c94;">${f.telefono}</div>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+        enc += `<div style="margin-top:10px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#55617f;letter-spacing:.4px;margin-bottom:4px;">
+                <i class="bi bi-diagram-3"></i> Frentes de trabajo
+            </div>
+            ${filas}
+        </div>`;
     }
     const pc = d.por_color || {};
     const card = (lbl,val,color) =>

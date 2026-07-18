@@ -50,6 +50,15 @@ $etiquetas = [
 .tz-fila { display:flex; gap:12px; align-items:flex-start; padding:11px 4px; border-bottom:1px solid #f0f2f7; }
 .tz-fila:last-child { border-bottom:0; }
 .tz-ico { width:32px; height:32px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#fff; }
+
+@media (max-width: 640px) {
+    .tz-card { padding:14px 15px; }
+    .tz-box { min-width:100% !important; }
+    .tz-fila { flex-wrap:wrap; gap:8px; }
+    .tz-fila > div:last-child { flex:1 1 100%; text-align:left; font-size:11px; }
+    .tz-fila > div:last-child br { display:none; }
+    .tz-fila > div:last-child span::before { content:' · '; }
+}
 </style>
 
 <div class="tz-card">

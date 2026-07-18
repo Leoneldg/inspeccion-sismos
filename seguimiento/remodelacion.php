@@ -44,6 +44,25 @@ include __DIR__ . '/../includes/header.php';
 <style>
 .hidden { display: none !important; }
 .piso-h:hover { background: #f7f9fd; }
+
+/* ================= RESPONSIVE ================= */
+@media (max-width: 640px) {
+    /* Encabezado del piso: el nombre arriba, la barra debajo */
+    .piso-h { flex-wrap: wrap !important; gap: 8px !important; padding: 12px 14px !important; }
+    .piso-h > span:nth-of-type(1) { flex: 1 1 100% !important; }
+    .piso-h .barra-piso { flex: 1 1 auto !important; width: auto !important; min-width: 120px; }
+
+    /* Filas de apartamento: se apilan para que el slider sea usable */
+    .fs-apto-fila { flex-wrap: wrap !important; gap: 8px !important; }
+    .fs-apto-info { flex: 1 1 100% !important; }
+    .fs-apto-control { flex: 1 1 100% !important; }
+    .fs-apto-control input[type=range] { width: 100% !important; }
+
+    /* Modal de fotos a pantalla casi completa */
+    #fs-modal-fotos > div { max-height: 94vh !important; }
+    .fotos-fila { flex-direction: column !important; }
+    .col-fotos { width: 100% !important; }
+}
     .fs-wrap { max-width:960px; margin:0 auto; }
     .fs-card { background:#fff; border:1px solid #e6e9f2; border-radius:12px; margin-bottom:16px; overflow:hidden; }
     .fs-datos { padding:16px 20px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
@@ -179,7 +198,7 @@ function pintarPisos(pisos) {
                 <i class="bi bi-layers"></i>
                 <span style="flex:1;font-weight:700;">${piso.etiqueta}</span>
                 <span style="font-size:12px;color:#767c94;">${piso.apartamentos.length} apto(s)</span>
-                <div style="width:140px;background:#eef0f6;border-radius:20px;height:18px;position:relative;overflow:hidden;">
+                <div class="barra-piso" style="width:140px;background:#eef0f6;border-radius:20px;height:18px;position:relative;overflow:hidden;">
                     <div style="width:${piso.avance}%;background:${colorPct(piso.avance)};height:100%;transition:width .3s;"></div>
                 </div>
                 <span style="font-weight:800;color:${colorPct(piso.avance)};min-width:44px;text-align:right;"
@@ -234,18 +253,20 @@ function filaApartamento(ap, pisoId) {
                    </div>`;
     }
     return `
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid #f0f2f7;">
-            <div style="flex:1;min-width:0;">
+        <div class="fs-apto-fila" style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid #f0f2f7;">
+            <div class="fs-apto-info" style="flex:1;min-width:0;">
                 <div style="font-weight:600;color:#2a3140;font-size:13px;">
                     <i class="bi bi-door-open"></i> Apartamento ${ap.identificador}
                 </div>
                 ${jefe}
             </div>
-            ${control}
-            <span style="font-weight:800;color:${colorPct(ap.avance)};min-width:44px;text-align:right;"
-                  id="pct-apto-${ap.id}">${ap.avance}%</span>
-            <button type="button" class="btn btn-outline btn-sm" title="Ver fotos"
-                    onclick="verFotosApto(${ap.id}, '${ap.identificador}')"><i class="bi bi-images"></i></button>
+            <div class="fs-apto-control" style="display:flex;align-items:center;gap:10px;">
+                ${control}
+                <span style="font-weight:800;color:${colorPct(ap.avance)};min-width:44px;text-align:right;"
+                      id="pct-apto-${ap.id}">${ap.avance}%</span>
+                <button type="button" class="btn btn-outline btn-sm" title="Ver fotos"
+                        onclick="verFotosApto(${ap.id}, '${ap.identificador}')"><i class="bi bi-images"></i></button>
+            </div>
         </div>`;
 }
 
