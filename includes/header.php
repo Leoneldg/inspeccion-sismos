@@ -86,6 +86,11 @@ $flashes = obtenerFlashes();
                 </a>
                 <?php endif; ?>
                 <?php if (puede('seguimiento','ver')): ?>
+                <?php if (function_exists('usuarioLimitadoAFrente') && usuarioLimitadoAFrente()): ?>
+                <a href="<?= APP_URL_BASE ?>seguimiento/mi_frente.php" class="nav-item <?= $activeModule==='mi_frente'?'active':'' ?>" title="Mi frente de trabajo">
+                    <i class="bi bi-diagram-3-fill"></i> <span>Mi frente</span>
+                </a>
+                <?php endif; ?>
                 <?php if (function_exists('usuarioLimitadoAParroquia') && usuarioLimitadoAParroquia()): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/mi_parroquia.php" class="nav-item <?= $activeModule==='mi_parroquia'?'active':'' ?>" title="Mi parroquia">
                     <i class="bi bi-geo-alt-fill"></i> <span>Mi parroquia</span>
@@ -93,6 +98,9 @@ $flashes = obtenerFlashes();
                 <?php endif; ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
                     <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
+                </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="nav-item <?= $activeModule==='reconstruccion'?'active':'' ?>" title="Edificaciones en obra">
+                    <i class="bi bi-hammer"></i> <span>En reconstrucción</span>
                 </a>
                 <?php if (puede('seguimiento','editar')): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="nav-item <?= $activeModule==='nueva_edif'?'active':'' ?>" title="Agregar edificación">

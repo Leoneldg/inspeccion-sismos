@@ -28,6 +28,85 @@ try {
     $estado = estadoDelUsuario() ?: 'Distrito Capital';
     $pdo = db();
 
+    frenteRespAsegurar();
+
+    // ---------- FRENTE POR RESPONSABLE (numeración correlativa) ----------
+    if ($accion === 'crear_frente_resp') {
+        $parr = trim($b['parroquia'] ?? '');
+        if ($parr === '') jr(false, 'Indique la parroquia.');
+        if (!puedeAccederParroquia($parr)) jr(false, 'No tiene asignada esa parroquia.');
+
+        $r = frenteCrear((int)($b['responsable_id'] ?? 0), $parr, $estado);
+        jr(true, 'Frente creado.', ['frente_id' => $r['id'], 'numero' => $r['numero']]);
+    }
+
+    // ---------- BRIGADAS ----------
+    if ($accion === 'crear_brigada') {
+        $fid = (int)($b['frente_id'] ?? 0);
+        if ($fid <= 0) jr(false, 'Frente no válido.');
+
+        // El usuario de un frente solo crea brigadas en el suyo.
+        $miFrente = frenteDelUsuario();
+        if ($miFrente > 0 && $fid !== $miFrente) {
+            jr(false, 'Solo puede crear brigadas en su propio frente.');
+        }
+
+        $r = brigadaCrear($fid);
+        jr(true, 'Brigada creada.', ['brigada_id' => $r['id'], 'numero' => $r['numero']]);
+    }
+
+    if ($accion === 'quitar_brigada') {
+        $id = (int)($b['brigada_id'] ?? 0);
+        if ($id <= 0) jr(false, 'Brigada no válida.');
+
+        $miFrente = frenteDelUsuario();
+        if ($miFrente > 0) {
+            $st = $pdo->prepare('SELECT frente_id FROM brigada WHERE id = :id');
+            $st->execute(['id' => $id]);
+            if ((int)$st->fetchColumn() !== $miFrente) {
+                jr(false, 'Esa brigada no pertenece a su frente.');
+            }
+        }
+
+        $pdo->prepare('DELETE FROM obra_brigada WHERE brigada_id = :id')->execute(['id' => $id]);
+        $pdo->prepare('DELETE FROM brigada WHERE id = :id')->execute(['id' => $id]);
+        jr(true, 'Brigada eliminada.');
+    }
+
+    if ($accion === 'asignar_obra_brigada') {
+        $insp = (int)($b['inspeccion_id'] ?? 0);
+        $brig = (int)($b['brigada_id'] ?? 0);
+        if ($insp <= 0 || $brig <= 0) jr(false, 'Datos incompletos.');
+
+        $miFrente = frenteDelUsuario();
+        if ($miFrente > 0) {
+            $st = $pdo->prepare('SELECT frente_id FROM brigada WHERE id = :b');
+            $st->execute(['b' => $brig]);
+            if ((int)$st->fetchColumn() !== $miFrente) {
+                jr(false, 'Esa brigada no pertenece a su frente.');
+            }
+        }
+
+        $pdo->prepare(
+            'INSERT INTO obra_brigada (inspeccion_id, brigada_id, asignado_por)
+             VALUES (:i, :b, :u)
+             ON DUPLICATE KEY UPDATE asignado_por = VALUES(asignado_por)'
+        )->execute(['i' => $insp, 'b' => $brig, 'u' => $_SESSION['user_id'] ?? null]);
+
+        $st = $pdo->prepare('SELECT numero FROM brigada WHERE id = :b');
+        $st->execute(['b' => $brig]);
+        recAuditar('brigada_asignada', $insp, null, 'Brigada ' . ($st->fetchColumn() ?: $brig));
+        jr(true, 'Brigada asignada.');
+    }
+
+    if ($accion === 'quitar_obra_brigada') {
+        $insp = (int)($b['inspeccion_id'] ?? 0);
+        $brig = (int)($b['brigada_id'] ?? 0);
+        $pdo->prepare('DELETE FROM obra_brigada WHERE inspeccion_id = :i AND brigada_id = :b')
+            ->execute(['i' => $insp, 'b' => $brig]);
+        jr(true, 'Brigada retirada.');
+    }
+
     // ---------- FRENTE ----------
     if ($accion === 'crear_frente') {
         $numero = (int)($b['numero'] ?? 0);
@@ -174,6 +253,49 @@ try {
         if ($insp <= 0) jr(false, 'Edificación no válida.');
         asignarObraAFrente($insp, $fre, (int)($b['cuadrilla_id'] ?? 0) ?: null);
         jr(true, 'Frente asignado.');
+    }
+
+    // ---------- CUADRILLAS EN UNA OBRA ----------
+    if ($accion === 'asignar_cuadrilla_obra') {
+        $insp = (int)($b['inspeccion_id'] ?? 0);
+        $cuad = (int)($b['cuadrilla_id'] ?? 0);
+        if ($insp <= 0 || $cuad <= 0) jr(false, 'Datos incompletos.');
+
+        // El usuario de un frente solo puede tocar sus propias obras.
+        $miFrente = frenteDelUsuario();
+        if ($miFrente > 0) {
+            $st = $pdo->prepare('SELECT frente_id FROM asignacion_frente_obra WHERE inspeccion_id = :i');
+            $st->execute(['i' => $insp]);
+            if ((int)$st->fetchColumn() !== $miFrente) {
+                jr(false, 'Esa edificación no pertenece a su frente.');
+            }
+            $st = $pdo->prepare('SELECT frente_id FROM cuadrilla WHERE id = :c');
+            $st->execute(['c' => $cuad]);
+            if ((int)$st->fetchColumn() !== $miFrente) {
+                jr(false, 'Esa cuadrilla no pertenece a su frente.');
+            }
+        }
+
+        asignarCuadrillaAObra($insp, $cuad, trim($b['tarea'] ?? '') ?: null);
+        jr(true, 'Cuadrilla asignada.');
+    }
+
+    if ($accion === 'quitar_cuadrilla_obra') {
+        $insp = (int)($b['inspeccion_id'] ?? 0);
+        $cuad = (int)($b['cuadrilla_id'] ?? 0);
+        if ($insp <= 0 || $cuad <= 0) jr(false, 'Datos incompletos.');
+
+        $miFrente = frenteDelUsuario();
+        if ($miFrente > 0) {
+            $st = $pdo->prepare('SELECT frente_id FROM asignacion_frente_obra WHERE inspeccion_id = :i');
+            $st->execute(['i' => $insp]);
+            if ((int)$st->fetchColumn() !== $miFrente) {
+                jr(false, 'Esa edificación no pertenece a su frente.');
+            }
+        }
+
+        quitarCuadrillaDeObra($insp, $cuad);
+        jr(true, 'Cuadrilla retirada.');
     }
 
     // ---------- CONSULTAR ----------

@@ -148,10 +148,11 @@ include __DIR__ . '/../includes/header.php';
         <div class="seg-kpi-ico" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-buildings-fill"></i></div>
         <div><div class="seg-kpi-num"><?= (int)$kpis['total_edificios'] ?></div><div class="seg-kpi-lbl">INSPECCIONES</div></div>
     </div>
-    <div class="seg-kpi">
+    <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="seg-kpi" style="text-decoration:none;"
+       title="Ver las edificaciones en obra y sus plazos">
         <div class="seg-kpi-ico" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hourglass-split"></i></div>
         <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">RECONSTRUCCIÓN</div></div>
-    </div>
+    </a>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#e5f7ee;color:#2E7D32;"><i class="bi bi-check-circle-fill"></i></div>
         <div><div class="seg-kpi-num"><?= (int)$kpis['culminadas'] ?></div><div class="seg-kpi-lbl">CULMINADAS</div></div>

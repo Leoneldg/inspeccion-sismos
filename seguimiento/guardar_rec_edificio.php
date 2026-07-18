@@ -45,6 +45,17 @@ try {
         resp(true, 'Registrado.', ['edificio_id' => $edificioId]);
     }
 
+    // --- Fechas de inicio y entrega de la obra ---
+    if (($b['accion'] ?? '') === 'plazo') {
+        recGuardarPlan($edificioId, [
+            'fecha_inicio_estimada' => $b['fecha_inicio_estimada'] ?? null,
+            'fecha_fin_estimada'    => $b['fecha_fin_estimada'] ?? null,
+        ]);
+        recAuditar('plazo_definido', $inspeccionId, $edificioId,
+            'Entrega: ' . ($b['fecha_fin_estimada'] ?? 'sin fecha'));
+        resp(true, 'Plazo guardado.', ['edificio_id' => $edificioId]);
+    }
+
     if (($b['accion'] ?? '') === 'cierre') {
         $estados = ['Buena','Regular','Requiere reparación','No aplica'];
         $norm = fn($v) => in_array($v, $estados, true) ? $v : null;

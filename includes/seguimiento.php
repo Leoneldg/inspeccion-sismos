@@ -896,22 +896,24 @@ function obrasDeFrente(int $frenteId): array
         $obras = $st->fetchAll();
         if (!$obras) return [];
 
-        // Cuadrillas asignadas a cada obra.
+        // Brigadas asignadas a cada obra.
         $ids = implode(',', array_map(fn($o) => (int)$o['id'], $obras));
         $porObra = [];
-        foreach (db()->query("
-            SELECT oc.inspeccion_id, oc.id AS asig_id, oc.tarea,
-                   c.id AS cuadrilla_id, c.numero, c.nombre, c.especialidad
-              FROM obra_cuadrilla oc
-              JOIN cuadrilla c ON c.id = oc.cuadrilla_id
-             WHERE oc.inspeccion_id IN ($ids)
-             ORDER BY c.numero
-        ")->fetchAll() as $r) {
-            $porObra[(int)$r['inspeccion_id']][] = $r;
-        }
+        try {
+            foreach (db()->query("
+                SELECT ob.inspeccion_id, b.id AS brigada_id, b.numero
+                  FROM obra_brigada ob
+                  JOIN brigada b ON b.id = ob.brigada_id
+                 WHERE ob.inspeccion_id IN ($ids)
+                 ORDER BY b.numero
+            ")->fetchAll() as $r) {
+                $porObra[(int)$r['inspeccion_id']][] = $r;
+            }
+        } catch (Throwable $e) { /* sin brigadas */ }
 
         foreach ($obras as &$o) {
-            $o['cuadrillas'] = $porObra[(int)$o['id']] ?? [];
+            $o['brigadas'] = $porObra[(int)$o['id']] ?? [];
+            $o['cuadrillas'] = $o['brigadas'];   // compatibilidad
         }
         unset($o);
         return $obras;
@@ -951,26 +953,264 @@ function quitarCuadrillaDeObra(int $inspeccionId, int $cuadrillaId): void
     recAuditar('cuadrilla_removida', $inspeccionId, null, 'Cuadrilla #' . $cuadrillaId);
 }
 
-/** Carga de trabajo de cada cuadrilla del frente. */
+/** Carga de trabajo de cada brigada del frente. */
 function cargaDeCuadrillas(int $frenteId): array
 {
-    frenteNumAsegurarTablas();
-    frenteRolAsegurar();
+    frenteRespAsegurar();
     try {
         $st = db()->prepare("
-            SELECT c.id, c.numero, c.nombre, c.especialidad,
-                   COUNT(DISTINCT oc.inspeccion_id) AS obras,
-                   (SELECT COUNT(*) FROM cuadrilla_integrante ci
-                     WHERE ci.cuadrilla_id = c.id AND ci.activo = 1) AS personas
-              FROM cuadrilla c
-              LEFT JOIN obra_cuadrilla oc ON oc.cuadrilla_id = c.id
-             WHERE c.frente_id = :f AND c.activa = 1
-             GROUP BY c.id
-             ORDER BY c.numero
+            SELECT b.id, b.numero,
+                   COUNT(DISTINCT ob.inspeccion_id) AS obras
+              FROM brigada b
+              LEFT JOIN obra_brigada ob ON ob.brigada_id = b.id
+             WHERE b.frente_id = :f AND b.activa = 1
+             GROUP BY b.id
+             ORDER BY b.numero
         ");
         $st->execute(['f' => $frenteId]);
         return $st->fetchAll();
     } catch (Throwable $e) { return []; }
+}
+
+// =====================================================================
+// FRENTES POR RESPONSABLE Y BRIGADAS NUMERADAS
+// =====================================================================
+
+/** Asegura las columnas y tablas del modelo por responsable. */
+function frenteRespAsegurar(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    frenteNumAsegurarTablas();
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM frente")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('responsable_id', $cols, true)) {
+            db()->exec("ALTER TABLE frente ADD COLUMN responsable_id INT UNSIGNED DEFAULT NULL");
+        }
+        if (!in_array('parroquia', $cols, true)) {
+            db()->exec("ALTER TABLE frente ADD COLUMN parroquia VARCHAR(120) DEFAULT NULL");
+        }
+        db()->exec("CREATE TABLE IF NOT EXISTS brigada (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            frente_id INT UNSIGNED NOT NULL,
+            numero INT UNSIGNED NOT NULL,
+            activa TINYINT(1) NOT NULL DEFAULT 1,
+            creado_por INT UNSIGNED DEFAULT NULL,
+            creado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_brigada (frente_id, numero)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        db()->exec("CREATE TABLE IF NOT EXISTS obra_brigada (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            inspeccion_id INT UNSIGNED NOT NULL,
+            brigada_id INT UNSIGNED NOT NULL,
+            asignado_por INT UNSIGNED DEFAULT NULL,
+            asignado_en DATETIME NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_obra_brigada (inspeccion_id, brigada_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Siguiente número de frente. La numeración es CORRELATIVA GLOBAL:
+ * el sistema toma el mayor existente y suma uno, sin importar
+ * responsable ni parroquia. Así los frentes nunca se repiten.
+ */
+function frenteSiguienteGlobal(): int
+{
+    frenteRespAsegurar();
+    try {
+        return (int)db()->query('SELECT COALESCE(MAX(numero), 0) + 1 FROM frente')->fetchColumn();
+    } catch (Throwable $e) { return 1; }
+}
+
+/** Siguiente número de brigada dentro de un frente (empieza en 1). */
+function brigadaSiguiente(int $frenteId): int
+{
+    frenteRespAsegurar();
+    try {
+        $st = db()->prepare('SELECT COALESCE(MAX(numero), 0) + 1 FROM brigada WHERE frente_id = :f');
+        $st->execute(['f' => $frenteId]);
+        return (int)$st->fetchColumn();
+    } catch (Throwable $e) { return 1; }
+}
+
+/**
+ * Crea un frente asignándole el siguiente número correlativo.
+ * Devuelve [id, numero].
+ */
+function frenteCrear(int $responsableId, string $parroquia, string $estado = 'Distrito Capital'): array
+{
+    frenteRespAsegurar();
+    $numero = frenteSiguienteGlobal();
+
+    // Reintento defensivo: si dos personas crean a la vez, avanzar.
+    for ($i = 0; $i < 20; $i++) {
+        try {
+            db()->prepare(
+                'INSERT INTO frente (numero, responsable_id, parroquia, estado, creado_por)
+                 VALUES (:n, :r, :p, :e, :u)'
+            )->execute([
+                'n' => $numero, 'r' => $responsableId ?: null,
+                'p' => $parroquia ?: null, 'e' => $estado,
+                'u' => $_SESSION['user_id'] ?? null,
+            ]);
+            $id = (int)db()->lastInsertId();
+            recAuditar('frente_creado', null, null,
+                'Frente de Trabajo ' . $numero . ' · ' . $parroquia);
+            return ['id' => $id, 'numero' => $numero];
+        } catch (Throwable $e) {
+            $numero++;   // número tomado, probar el siguiente
+        }
+    }
+    throw new RuntimeException('No se pudo asignar un número de frente.');
+}
+
+/** Frentes de un responsable, con sus brigadas y obras. */
+function frentesDeResponsable(int $responsableId): array
+{
+    frenteRespAsegurar();
+    try {
+        $st = db()->prepare('SELECT * FROM frente
+                              WHERE responsable_id = :r AND activo = 1
+                              ORDER BY numero');
+        $st->execute(['r' => $responsableId]);
+        $frentes = $st->fetchAll();
+        return frenteAdjuntarBrigadas($frentes);
+    } catch (Throwable $e) { return []; }
+}
+
+/** Frentes que operan en una parroquia. */
+function frentesEnParroquia(string $parroquia): array
+{
+    frenteRespAsegurar();
+    try {
+        $st = db()->prepare('SELECT * FROM frente
+                              WHERE parroquia = :p AND activo = 1
+                              ORDER BY numero');
+        $st->execute(['p' => $parroquia]);
+        return frenteAdjuntarBrigadas($st->fetchAll());
+    } catch (Throwable $e) { return []; }
+}
+
+/** Agrega a cada frente sus brigadas y el conteo de obras. */
+function frenteAdjuntarBrigadas(array $frentes): array
+{
+    if (!$frentes) return [];
+    $ids = implode(',', array_map(fn($f) => (int)$f['id'], $frentes));
+
+    $brigadas = [];
+    try {
+        foreach (db()->query("SELECT b.*,
+                     (SELECT COUNT(*) FROM obra_brigada ob WHERE ob.brigada_id = b.id) AS obras
+                   FROM brigada b
+                  WHERE b.frente_id IN ($ids) AND b.activa = 1
+                  ORDER BY b.numero")->fetchAll() as $b) {
+            $brigadas[(int)$b['frente_id']][] = $b;
+        }
+    } catch (Throwable $e) { /* sin brigadas */ }
+
+    $obras = [];
+    try {
+        foreach (db()->query("SELECT frente_id, COUNT(*) AS n
+                                FROM asignacion_frente_obra
+                               WHERE frente_id IN ($ids) GROUP BY frente_id")->fetchAll() as $r) {
+            $obras[(int)$r['frente_id']] = (int)$r['n'];
+        }
+    } catch (Throwable $e) { /* sin obras */ }
+
+    foreach ($frentes as &$f) {
+        $id = (int)$f['id'];
+        $f['etiqueta'] = 'Frente de Trabajo ' . (int)$f['numero'];
+        $f['brigadas'] = $brigadas[$id] ?? [];
+        $f['obras']    = $obras[$id] ?? 0;
+    }
+    unset($f);
+    return $frentes;
+}
+
+/**
+ * Totales para el panel del responsable: cuántos frentes y cuántas
+ * brigadas tiene en total, sumando todas sus parroquias.
+ */
+function totalesDeResponsable(int $responsableId): array
+{
+    frenteRespAsegurar();
+    try {
+        $st = db()->prepare("
+            SELECT COUNT(DISTINCT f.id) AS frentes,
+                   COUNT(DISTINCT b.id) AS brigadas,
+                   COUNT(DISTINCT a.inspeccion_id) AS obras
+              FROM frente f
+              LEFT JOIN brigada b ON b.frente_id = f.id AND b.activa = 1
+              LEFT JOIN asignacion_frente_obra a ON a.frente_id = f.id
+             WHERE f.responsable_id = :r AND f.activo = 1
+        ");
+        $st->execute(['r' => $responsableId]);
+        $r = $st->fetch() ?: [];
+        return [
+            'frentes'  => (int)($r['frentes'] ?? 0),
+            'brigadas' => (int)($r['brigadas'] ?? 0),
+            'obras'    => (int)($r['obras'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        return ['frentes' => 0, 'brigadas' => 0, 'obras' => 0];
+    }
+}
+
+/** Totales por parroquia, para el desglose del responsable. */
+function totalesPorParroquia(array $parroquias): array
+{
+    frenteRespAsegurar();
+    if (!$parroquias) return [];
+    try {
+        $marcas = [];
+        $params = [];
+        foreach ($parroquias as $i => $p) {
+            $marcas[] = ':p' . $i;
+            $params['p' . $i] = $p;
+        }
+        $in = implode(',', $marcas);
+        $st = db()->prepare("
+            SELECT f.parroquia,
+                   COUNT(DISTINCT f.id) AS frentes,
+                   COUNT(DISTINCT b.id) AS brigadas
+              FROM frente f
+              LEFT JOIN brigada b ON b.frente_id = f.id AND b.activa = 1
+             WHERE f.parroquia IN ($in) AND f.activo = 1
+             GROUP BY f.parroquia
+        ");
+        $st->execute($params);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[$r['parroquia']] = [
+                'frentes'  => (int)$r['frentes'],
+                'brigadas' => (int)$r['brigadas'],
+            ];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Crea una brigada en un frente, con número correlativo interno. */
+function brigadaCrear(int $frenteId): array
+{
+    frenteRespAsegurar();
+    $numero = brigadaSiguiente($frenteId);
+    for ($i = 0; $i < 20; $i++) {
+        try {
+            db()->prepare('INSERT INTO brigada (frente_id, numero, creado_por)
+                           VALUES (:f, :n, :u)')
+                ->execute(['f' => $frenteId, 'n' => $numero, 'u' => $_SESSION['user_id'] ?? null]);
+            $id = (int)db()->lastInsertId();
+            recAuditar('brigada_creada', null, null,
+                'Brigada ' . $numero . ' del frente #' . $frenteId);
+            return ['id' => $id, 'numero' => $numero];
+        } catch (Throwable $e) {
+            $numero++;
+        }
+    }
+    throw new RuntimeException('No se pudo crear la brigada.');
 }
 
 function frenteNumAsegurarTablas(): void
@@ -1924,6 +2164,140 @@ function recGuardarPlan(int $edificioId, array $d): void
              VALUES (:e, :i, :f, :o, :u)'
         )->execute(['e' => $edificioId, 'i' => $ini, 'f' => $fin, 'o' => $obs, 'u' => $_SESSION['user_id'] ?? null]);
     }
+}
+
+/**
+ * Calcula el estado del plazo de una obra: cuántos días quedan,
+ * si va retrasada y cómo mostrarlo.
+ *
+ * Devuelve null si no hay fecha de fin registrada.
+ */
+function recEstadoPlazo(?array $plan, int $avance = 0): ?array
+{
+    if (!$plan || empty($plan['fecha_fin_estimada'])) return null;
+
+    try {
+        $hoy = new DateTime('today');
+        $fin = new DateTime($plan['fecha_fin_estimada']);
+        $dias = (int)$hoy->diff($fin)->format('%r%a');   // negativo si ya pasó
+
+        $ini = !empty($plan['fecha_inicio_estimada'])
+            ? new DateTime($plan['fecha_inicio_estimada']) : null;
+
+        // Días totales y transcurridos, para saber si el avance va a tiempo.
+        $totales = $ini ? max(1, (int)$ini->diff($fin)->format('%a')) : null;
+        $transcurridos = $ini ? max(0, (int)$ini->diff($hoy)->format('%r%a')) : null;
+        $avanceEsperado = ($totales && $transcurridos !== null)
+            ? min(100, (int)round($transcurridos / $totales * 100)) : null;
+
+        // Estado según los días restantes y el avance real.
+        if ($avance >= 100) {
+            $estado = 'culminada';
+            $texto  = 'Culminada';
+            $color  = '#2E7D32';
+            $icono  = 'bi-check-circle-fill';
+        } elseif ($dias < 0) {
+            $estado = 'vencida';
+            $texto  = 'Vencida hace ' . abs($dias) . ' día' . (abs($dias) === 1 ? '' : 's');
+            $color  = '#A61C1C';
+            $icono  = 'bi-exclamation-triangle-fill';
+        } elseif ($dias === 0) {
+            $estado = 'hoy';
+            $texto  = 'Vence hoy';
+            $color  = '#A61C1C';
+            $icono  = 'bi-exclamation-circle-fill';
+        } elseif ($dias <= 7) {
+            $estado = 'urgente';
+            $texto  = 'Quedan ' . $dias . ' día' . ($dias === 1 ? '' : 's');
+            $color  = '#C9A227';
+            $icono  = 'bi-clock-fill';
+        } else {
+            $estado = 'a_tiempo';
+            $texto  = 'Quedan ' . $dias . ' días';
+            $color  = '#2d4488';
+            $icono  = 'bi-calendar-check';
+        }
+
+        // ¿El avance va por detrás de lo esperado?
+        $atrasada = ($avanceEsperado !== null && $avance < $avanceEsperado - 10 && $avance < 100);
+
+        return [
+            'dias'            => $dias,
+            'estado'          => $estado,
+            'texto'           => $texto,
+            'color'           => $color,
+            'icono'           => $icono,
+            'fecha_inicio'    => $plan['fecha_inicio_estimada'] ?? null,
+            'fecha_fin'       => $plan['fecha_fin_estimada'],
+            'dias_totales'    => $totales,
+            'avance_esperado' => $avanceEsperado,
+            'atrasada'        => $atrasada,
+        ];
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Edificaciones EN RECONSTRUCCIÓN, para el buscador rápido.
+ * Son las que tienen el levantamiento cerrado y avance menor a 100%.
+ */
+function segEnReconstruccion(array $filtros = []): array
+{
+    recAsegurarTablasAvance();
+
+    $conds = ['re.completado = 1'];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+
+    if (!empty($filtros['parroquia'])) {
+        $conds[] = 'i.parroquia = :parr';
+        $params['parr'] = $filtros['parroquia'];
+    }
+    if (!empty($filtros['texto'])) {
+        $conds[] = '(i.nombre_edificio LIKE :txt OR i.codigo LIKE :txt)';
+        $params['txt'] = '%' . $filtros['texto'] . '%';
+    }
+    $where = 'WHERE ' . implode(' AND ', $conds);
+
+    try {
+        $st = db()->prepare("
+            SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final,
+                   re.id AS edificio_id,
+                   ent.nombre AS ente_nombre,
+                   pl.fecha_inicio_estimada, pl.fecha_fin_estimada,
+                   COALESCE(ROUND(x.pct), 0) AS avance
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+              LEFT JOIN entes ent ON ent.id = so.ente_id
+              LEFT JOIN rec_plan_edificio pl ON pl.edificio_id = re.id
+              LEFT JOIN (
+                  SELECT re2.inspeccion_id, AVG(COALESCE(aa.porcentaje, 0)) AS pct
+                    FROM rec_edificio re2
+                    JOIN rec_piso pi ON pi.edificio_id = re2.id
+                    JOIN rec_apartamento ap ON ap.piso_id = pi.id
+                    LEFT JOIN rec_avance_apto aa ON aa.apartamento_id = ap.id
+                   GROUP BY re2.inspeccion_id
+              ) x ON x.inspeccion_id = i.id
+              $where
+             HAVING avance < 100
+             ORDER BY pl.fecha_fin_estimada IS NULL, pl.fecha_fin_estimada, i.nombre_edificio
+        ");
+        $st->execute($params);
+        $lista = $st->fetchAll();
+
+        foreach ($lista as &$e) {
+            $e['plazo'] = recEstadoPlazo([
+                'fecha_inicio_estimada' => $e['fecha_inicio_estimada'],
+                'fecha_fin_estimada'    => $e['fecha_fin_estimada'],
+            ], (int)$e['avance']);
+        }
+        unset($e);
+        return $lista;
+
+    } catch (Throwable $e) { return []; }
 }
 
 /** Plan de tiempo del edificio. */

@@ -127,6 +127,60 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Fecha de entrega y días restantes -->
+    <?php
+    $plan  = $edificioId ? recPlan($edificioId) : null;
+    $plazo = recEstadoPlazo($plan, 0);   // el avance real se ajusta desde el JS
+    ?>
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="font-weight:700;color:#22366F;">
+                <i class="bi bi-calendar-range"></i> Plazo de la obra
+            </div>
+            <?php if ($puedeCargar): ?>
+            <button type="button" class="btn btn-outline btn-sm" onclick="abrirPlazo()">
+                <i class="bi bi-pencil"></i> <?= $plazo ? 'Cambiar fechas' : 'Definir fechas' ?>
+            </button>
+            <?php endif; ?>
+        </div>
+
+        <div id="fs-plazo-info" style="margin-top:11px;">
+        <?php if ($plazo): ?>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+                <div style="background:<?= $plazo['color'] ?>12;border:1px solid <?= $plazo['color'] ?>44;
+                            border-radius:10px;padding:11px 16px;min-width:170px;">
+                    <div style="font-size:22px;font-weight:800;color:<?= $plazo['color'] ?>;line-height:1;">
+                        <i class="bi <?= $plazo['icono'] ?>"></i>
+                        <span id="fs-dias-txt"><?= e($plazo['texto']) ?></span>
+                    </div>
+                    <div style="font-size:11.5px;color:#5b6478;margin-top:4px;">
+                        Entrega: <strong><?= date('d/m/Y', strtotime($plazo['fecha_fin'])) ?></strong>
+                    </div>
+                </div>
+
+                <?php if (!empty($plazo['fecha_inicio'])): ?>
+                <div style="font-size:12.5px;color:#5b6478;">
+                    <div><strong>Inicio:</strong> <?= date('d/m/Y', strtotime($plazo['fecha_inicio'])) ?></div>
+                    <?php if (!empty($plazo['dias_totales'])): ?>
+                    <div><strong>Duración:</strong> <?= (int)$plazo['dias_totales'] ?> días</div>
+                    <?php endif; ?>
+                    <?php if ($plazo['avance_esperado'] !== null): ?>
+                    <div><strong>Avance esperado hoy:</strong> <?= (int)$plazo['avance_esperado'] ?>%</div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div style="background:#f7f9fd;border-radius:9px;padding:11px 14px;font-size:13px;color:#5b6478;">
+                <i class="bi bi-calendar-x"></i> Sin fecha de entrega definida.
+                <?php if ($puedeCargar): ?>
+                Toque <strong>Definir fechas</strong> para establecer el plazo.
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+        </div>
+    </div>
+
     <!-- Barra de avance general -->
     <div class="fs-card" style="padding:16px 20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
@@ -208,6 +262,8 @@ const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= $edificioId ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_CARGAR = <?= $puedeCargar ? 'true' : 'false' ?>;
+const PLAZO_INICIO = <?= json_encode($plan['fecha_inicio_estimada'] ?? '') ?>;
+const PLAZO_FIN    = <?= json_encode($plan['fecha_fin_estimada'] ?? '') ?>;
 let _duranteDestino = null;
 
 let _arbol = null;   // árbol de pisos/apartamentos con porcentajes
@@ -254,6 +310,63 @@ async function cargarFicha() {
     _arbol = d;
     pintarBarraGlobal(d.avance_edificio);
     pintarPisos(d.pisos);
+}
+
+/** Ventana para definir o cambiar las fechas de la obra. */
+function abrirPlazo() {
+    const capa = document.createElement('div');
+    capa.id = 'fs-plazo-modal';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.6);z-index:2300;'
+        + 'display:flex;align-items:center;justify-content:center;padding:16px;';
+    capa.innerHTML =
+        '<div style="background:#fff;border-radius:13px;max-width:400px;width:100%;padding:20px 22px;">'
+        + '<div style="font-weight:700;color:#22366F;font-size:17px;margin-bottom:4px;">Plazo de la obra</div>'
+        + '<div style="font-size:12.5px;color:#5b6478;margin-bottom:14px;">'
+        + 'El sistema calculará solo los días restantes.</div>'
+        + '<div class="field"><label class="text-sm">Fecha de inicio</label>'
+        + '<input type="date" id="pl-inicio" class="form-control" value="' + (PLAZO_INICIO || '') + '"></div>'
+        + '<div class="field"><label class="text-sm">Fecha de entrega *</label>'
+        + '<input type="date" id="pl-fin" class="form-control" value="' + (PLAZO_FIN || '') + '"></div>'
+        + '<button onclick="guardarPlazo()" class="btn btn-primary" '
+        + 'style="width:100%;justify-content:center;margin:10px 0 8px;">'
+        + '<i class="bi bi-check-lg"></i> Guardar</button>'
+        + '<button onclick="document.getElementById(\'fs-plazo-modal\').remove()" '
+        + 'style="width:100%;background:transparent;border:1px solid #dbe0ec;border-radius:8px;'
+        + 'padding:10px;color:#55617f;cursor:pointer;font-size:14px;">Cancelar</button>'
+        + '</div>';
+    document.body.appendChild(capa);
+}
+
+async function guardarPlazo() {
+    const ini = document.getElementById('pl-inicio').value;
+    const fin = document.getElementById('pl-fin').value;
+    if (!fin) { alert('Indique la fecha de entrega.'); return; }
+    if (ini && fin < ini) { alert('La fecha de entrega no puede ser anterior al inicio.'); return; }
+
+    const payload = {
+        inspeccion_id: INSPECCION_ID, accion: 'plazo',
+        fecha_inicio_estimada: ini, fecha_fin_estimada: fin,
+    };
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            'Plazo de la obra');
+        alert('Sin señal: las fechas quedaron guardadas en el teléfono.');
+        document.getElementById('fs-plazo-modal').remove();
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials: 'same-origin'
+        });
+        const d = await res.json();
+        if (!d.ok) { alert(d.mensaje || 'No se pudo guardar.'); return; }
+        location.reload();
+    } catch (e) {
+        alert('Sin conexión. Intente de nuevo.');
+    }
 }
 
 // Descarga manual: el sistematizador prepara la edificación antes de salir.

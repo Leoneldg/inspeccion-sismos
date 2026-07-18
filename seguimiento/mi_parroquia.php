@@ -95,6 +95,81 @@ include __DIR__ . '/../includes/header.php';
 }
 </style>
 
+<?php
+// Totales de frentes y brigadas de todas sus parroquias.
+$totFrentes = 0; $totBrigadas = 0; $frentesPorParr = [];
+try {
+    frenteRespAsegurar();
+    $marcas = []; $params = [];
+    foreach ($misParroquias as $i => $pp) { $marcas[] = ':fp'.$i; $params['fp'.$i] = $pp; }
+    if ($marcas) {
+        $stF = db()->prepare('SELECT f.parroquia,
+                                     COUNT(DISTINCT f.id) AS frentes,
+                                     COUNT(DISTINCT b.id) AS brigadas
+                                FROM frente f
+                                LEFT JOIN brigada b ON b.frente_id = f.id AND b.activa = 1
+                               WHERE f.activo = 1 AND f.parroquia IN (' . implode(',', $marcas) . ')
+                               GROUP BY f.parroquia');
+        $stF->execute($params);
+        foreach ($stF->fetchAll() as $r) {
+            $frentesPorParr[$r['parroquia']] = [
+                'frentes'  => (int)$r['frentes'],
+                'brigadas' => (int)$r['brigadas'],
+            ];
+            $totFrentes  += (int)$r['frentes'];
+            $totBrigadas += (int)$r['brigadas'];
+        }
+    }
+} catch (Throwable $e) {}
+?>
+
+<!-- Frentes y brigadas del responsable -->
+<div class="mp-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+        <div class="mp-tit" style="margin:0;">
+            <i class="bi bi-diagram-3-fill"></i> Mis frentes de trabajo
+        </div>
+        <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="btn btn-outline btn-sm">
+            <i class="bi bi-gear"></i> Gestionar
+        </a>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:130px;text-align:center;padding:16px 10px;border-radius:11px;
+                    border:1px solid #22366F33;background:#22366F0a;">
+            <div style="font-size:34px;font-weight:800;color:#22366F;line-height:1;"><?= $totFrentes ?></div>
+            <div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:5px;
+                        letter-spacing:.3px;">Frentes de trabajo</div>
+        </div>
+        <div style="flex:1;min-width:130px;text-align:center;padding:16px 10px;border-radius:11px;
+                    border:1px solid #2d448833;background:#2d44880a;">
+            <div style="font-size:34px;font-weight:800;color:#2d4488;line-height:1;"><?= $totBrigadas ?></div>
+            <div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:5px;
+                        letter-spacing:.3px;">Brigadas en total</div>
+        </div>
+    </div>
+
+    <?php if ($frentesPorParr): ?>
+    <div style="margin-top:13px;padding-top:11px;border-top:1px solid #eef0f5;">
+        <div style="font-size:11.5px;text-transform:uppercase;color:#55617f;font-weight:700;
+                    letter-spacing:.4px;margin-bottom:8px;">Desglose por parroquia</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <?php foreach ($misParroquias as $pp):
+                $d = $frentesPorParr[$pp] ?? ['frentes' => 0, 'brigadas' => 0]; ?>
+            <span style="background:#f7f9fd;border:1px solid #e5e8f0;border-radius:9px;
+                         padding:8px 14px;font-size:12.5px;">
+                <strong style="color:#22366F;"><?= e($pp) ?></strong><br>
+                <span style="color:#5b6478;">
+                    <?= $d['frentes'] ?> frente<?= $d['frentes'] === 1 ? '' : 's' ?> ·
+                    <?= $d['brigadas'] ?> brigada<?= $d['brigadas'] === 1 ? '' : 's' ?>
+                </span>
+            </span>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+</div>
+
 <?php if (count($misParroquias) > 1): ?>
 <div class="mp-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
     <div>
