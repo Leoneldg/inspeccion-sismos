@@ -2113,15 +2113,16 @@ function recAsegurarEstadoVisita(): void
 
 /**
  * Marca un apartamento que no se pudo levantar.
- *   'no_requiere' → la familia dice que no necesita reparación
- *   'no_esta'     → no había nadie en la visita
+ *   'no_requiere'      → la familia dice que no necesita reparación
+ *   'no_esta'          → el ocupante no se encontraba
+ *   'permiso_denegado' → no dieron permiso para entrar
  *
  * No se piden datos del jefe de familia ni ambientes: solo el motivo.
  */
 function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): void
 {
     recAsegurarEstadoVisita();
-    $validos = ['levantado', 'no_requiere', 'no_esta'];
+    $validos = ['levantado', 'no_requiere', 'no_esta', 'permiso_denegado'];
     if (!in_array($estado, $validos, true)) $estado = 'no_esta';
 
     db()->prepare('UPDATE rec_apartamento
@@ -2138,7 +2139,13 @@ function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): 
         $st = db()->prepare('SELECT identificador FROM rec_apartamento WHERE id = :id');
         $st->execute(['id' => $apartamentoId]);
         $ident = $st->fetchColumn() ?: $apartamentoId;
-        $texto = $estado === 'no_requiere' ? 'No requiere ayuda' : 'No estaba en la visita';
+        $textos = [
+            'no_requiere'      => 'No requiere ayuda',
+            'no_esta'          => 'Ocupante no se encuentra',
+            'permiso_denegado' => 'Permiso denegado',
+            'levantado'        => 'Levantamiento realizado',
+        ];
+        $texto = $textos[$estado] ?? $estado;
         recAuditar('apto_' . $estado, null, null, 'Apto ' . $ident . ': ' . $texto);
     } catch (Throwable $e) { /* no interrumpir */ }
 }

@@ -1134,7 +1134,12 @@ function pintarApartamento(a, lista) {
                     <button type="button" class="btn btn-outline btn-sm"
                             style="border-color:#97a0b855;color:#5b6478;"
                             onclick="marcarVisita(${a.id}, 'no_esta', this)">
-                        <i class="bi bi-door-closed"></i> No está
+                        <i class="bi bi-door-closed"></i> Ocupante no se encuentra
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#A61C1C55;color:#A61C1C;"
+                            onclick="marcarVisita(${a.id}, 'permiso_denegado', this)">
+                        <i class="bi bi-x-octagon"></i> Permiso denegado
                     </button>
                 </div>
             </div>
@@ -1181,13 +1186,19 @@ function pintarApartamento(a, lista) {
  * No pide datos del jefe de familia: no tendría sentido.
  */
 async function marcarVisita(aptoId, estado, btn) {
-    const txt = estado === 'no_requiere'
-        ? '¿Confirma que este apartamento NO REQUIERE ayuda?'
-        : '¿Confirma que NO HABÍA NADIE en este apartamento?';
-    if (!confirm(txt)) return;
+    const textos = {
+        no_requiere:       '¿Confirma que este apartamento NO REQUIERE ayuda?',
+        no_esta:           '¿Confirma que EL OCUPANTE NO SE ENCUENTRA?',
+        permiso_denegado:  '¿Confirma que NO DIERON PERMISO para entrar?',
+    };
+    if (!confirm(textos[estado] || '¿Confirma?')) return;
 
-    const obs = prompt('Nota (opcional):\n\n'
-        + (estado === 'no_esta' ? 'Ej: se visitó dos veces, sin respuesta' : ''), '');
+    const ejemplos = {
+        no_esta:          'Ej: se visitó dos veces, sin respuesta',
+        permiso_denegado: 'Ej: el ocupante no permitió el ingreso',
+        no_requiere:      'Ej: la familia indica que no tiene daños',
+    };
+    const obs = prompt('Nota (opcional):\n\n' + (ejemplos[estado] || ''), '');
     if (obs === null) return;   // canceló
 
     const card = btn.closest('.apto-card');
@@ -1230,10 +1241,16 @@ async function marcarVisita(aptoId, estado, btn) {
 
 /** Deja el apartamento marcado visualmente y cierra su detalle. */
 function pintarAptoMarcado(card, cuerpo, estado, obs) {
-    const esNoRequiere = estado === 'no_requiere';
-    const color = esNoRequiere ? '#2E7D32' : '#5b6478';
-    const icono = esNoRequiere ? 'bi-hand-thumbs-up-fill' : 'bi-door-closed-fill';
-    const texto = esNoRequiere ? 'No requiere ayuda' : 'No estaba en la visita';
+    const estilos = {
+        no_requiere:      { color: '#2E7D32', icono: 'bi-hand-thumbs-up-fill',
+                            texto: 'No requiere ayuda' },
+        no_esta:          { color: '#5b6478', icono: 'bi-door-closed-fill',
+                            texto: 'Ocupante no se encuentra' },
+        permiso_denegado: { color: '#A61C1C', icono: 'bi-x-octagon-fill',
+                            texto: 'Permiso denegado' },
+    };
+    const e = estilos[estado] || estilos.no_esta;
+    const color = e.color, icono = e.icono, texto = e.texto;
 
     const cab = card.querySelector('.apto-head');
     if (cab && !cab.querySelector('.apto-marca')) {
