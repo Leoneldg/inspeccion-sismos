@@ -174,6 +174,9 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>admin/sistematizadores.php" class="nav-item <?= $activeModule==='sistematizadores'?'active':'' ?>" title="Sistematizadores">
                     <i class="bi bi-person-check-fill"></i> <span>Sistematizadores</span>
                 </a>
+                <a href="<?= APP_URL_BASE ?>admin/materiales.php" class="nav-item <?= $activeModule==='materiales'?'active':'' ?>" title="Materiales y rendimientos">
+                    <i class="bi bi-box-seam"></i> <span>Materiales</span>
+                </a>
                 <?php if (puede('usuarios','editar')): ?>
                 <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule==='roles'?'active':'' ?>" title="Roles y Permisos">
                     <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>

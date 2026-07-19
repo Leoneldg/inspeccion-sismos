@@ -48,6 +48,19 @@ try {
         resp(true, 'Apartamento guardado.', ['ambientes' => recAmbientes($aptoId)]);
     }
 
+    // --- Guardar el tipo de trabajo de un ambiente ---
+    if ($accion === 'guardar_trabajo') {
+        $ambId = (int)($b['ambiente_id'] ?? 0);
+        if ($ambId <= 0) resp(false, 'Ambiente no válido.');
+        recAsegurarTablasTrabajo();
+        $tipo = trim($b['tipo_trabajo'] ?? '') ?: null;
+        // Se guarda en todas las reparaciones del ambiente.
+        db()->prepare('UPDATE rec_reparacion SET tipo_trabajo = :t
+                        WHERE nivel = :n AND ref_id = :r')
+            ->execute(['t' => $tipo, 'n' => 'ambiente', 'r' => $ambId]);
+        resp(true, 'Trabajo guardado.');
+    }
+
     // --- Guardar un ambiente (necesita reparación) ---
     if ($accion === 'guardar_ambiente') {
         $ambId = (int)($b['ambiente_id'] ?? 0);
@@ -62,7 +75,13 @@ try {
         $refId = (int)($b['ref_id'] ?? 0);
         if ($refId <= 0) resp(false, 'Referencia no válida.');
         if (!in_array($nivel, ['ambiente','elemento_piso'], true)) $nivel = 'ambiente';
-        recGuardarReparaciones($nivel, $refId, $b['reparaciones'] ?? []);
+
+        // El tipo de trabajo puede venir suelto o dentro de reparaciones.
+        $reps = $b['reparaciones'] ?? [];
+        if (!empty($b['tipo_trabajo'])) {
+            $reps['tipo_trabajo'] = trim($b['tipo_trabajo']);
+        }
+        recGuardarReparaciones($nivel, $refId, $reps);
         resp(true, 'Reparaciones guardadas.');
     }
 

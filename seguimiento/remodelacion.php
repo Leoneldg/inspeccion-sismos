@@ -454,7 +454,7 @@ function pintarFotosEdificio(fotos) {
 }
 
 // Muestra el total de metros cuadrados a reparar del edificio.
-function pintarMetrosTotal(m2, comunes, porTipo, materiales) {
+function pintarMetrosTotal(m2, comunes, porTipo, materiales, porTrabajo) {
     const cont = document.getElementById('fs-m2-total');
     if (!cont) return;
 
@@ -488,6 +488,23 @@ function pintarMetrosTotal(m2, comunes, porTipo, materiales) {
         html += '</div>';
     }
     html += '</div>';
+
+    // Trabajos registrados: de ahí salen los materiales.
+    const trab = Object.keys(porTrabajo || {});
+    if (trab.length) {
+        html += '<div style="border-top:1px solid #eef0f5;padding-top:12px;margin-bottom:12px;">'
+            + '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
+            + 'font-weight:700;letter-spacing:.4px;margin-bottom:9px;">'
+            + '<i class="bi bi-tools"></i> Trabajos a realizar</div>'
+            + '<div style="display:flex;gap:7px;flex-wrap:wrap;">';
+        trab.forEach(t => {
+            html += '<div style="background:#eef2fb;border-radius:9px;padding:8px 13px;">'
+                + '<div style="font-size:15px;font-weight:700;color:#22366F;">'
+                + porTrabajo[t].toLocaleString('es-VE') + ' m²</div>'
+                + '<div style="font-size:11.5px;color:#5b6478;">' + t + '</div></div>';
+        });
+        html += '</div></div>';
+    }
 
     // Materiales estimados.
     const mats = Object.keys(materiales || {});
@@ -977,7 +994,8 @@ function recalcularEnPantalla(pisoId) {
     _arbol.avance_edificio = _arbol.pisos.length ? Math.round(sumaP / _arbol.pisos.length) : 0;
     pintarBarraGlobal(_arbol.avance_edificio);
     pintarMetrosTotal(_arbol.m2_total || 0, _arbol.m2_comunes || 0,
-                      _arbol.m2_por_tipo || {}, _arbol.materiales || {});
+                      _arbol.m2_por_tipo || {}, _arbol.materiales || {},
+                      _arbol.por_trabajo || {});
     pintarFotosEdificio(_arbol.fotos_edificio || []);
     pintarFotosEdificio(_arbol.fotos_edificio || []);
 }

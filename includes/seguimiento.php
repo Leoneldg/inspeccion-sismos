@@ -2058,7 +2058,18 @@ function recGuardarApartamento(int $apartamentoId, array $d): void
 /** Lista los ambientes de un apartamento, agrupados por tipo. */
 function recAmbientes(int $apartamentoId): array
 {
-    $st = db()->prepare('SELECT * FROM rec_ambiente WHERE apartamento_id = :a ORDER BY tipo, numero');
+    recAsegurarTablasTrabajo();
+    // Se trae el tipo de trabajo guardado en sus reparaciones, para que
+    // el selector aparezca marcado al reabrir el apartamento.
+    $st = db()->prepare("
+        SELECT am.*,
+               (SELECT rr.tipo_trabajo FROM rec_reparacion rr
+                 WHERE rr.nivel = 'ambiente' AND rr.ref_id = am.id
+                   AND rr.tipo_trabajo IS NOT NULL LIMIT 1) AS tipo_trabajo
+          FROM rec_ambiente am
+         WHERE am.apartamento_id = :a
+         ORDER BY am.tipo, am.numero
+    ");
     $st->execute(['a' => $apartamentoId]);
     return $st->fetchAll();
 }
@@ -2091,6 +2102,7 @@ function recTiposSuperficie(): array
 /** Guarda (reemplaza) las reparaciones de un ambiente o elemento. */
 function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones): void
 {
+    recAsegurarTablasTrabajo();
     $pdo = db();
     // Se reemplazan las existentes por las nuevas.
     $pdo->prepare('DELETE FROM rec_reparacion WHERE nivel = :n AND ref_id = :r')
@@ -2098,16 +2110,30 @@ function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones):
 
     $tipos = array_keys(recTiposSuperficie());
     $ins = $pdo->prepare(
-        'INSERT INTO rec_reparacion (nivel, ref_id, tipo_superficie, metros_cuadrados, observaciones)
-         VALUES (:n, :r, :t, :m, :o)'
+        'INSERT INTO rec_reparacion (nivel, ref_id, tipo_superficie, metros_cuadrados, observaciones, tipo_trabajo)
+         VALUES (:n, :r, :t, :m, :o, :tr)'
     );
-    foreach ($reparaciones as $rep) {
+    // El tipo de trabajo llega junto a las reparaciones y se conserva
+    // aunque se vuelvan a guardar los metros.
+    $trabajo = trim($reparaciones['tipo_trabajo'] ?? '') ?: null;
+    if ($trabajo === null && $refId > 0) {
+        try {
+            $q = db()->prepare('SELECT tipo_trabajo FROM rec_reparacion
+                                 WHERE nivel = :n AND ref_id = :r AND tipo_trabajo IS NOT NULL LIMIT 1');
+            $q->execute(['n' => $nivel, 'r' => $refId]);
+            $trabajo = $q->fetchColumn() ?: null;
+        } catch (Throwable $e) {}
+    }
+
+    foreach ($reparaciones as $k => $rep) {
+        if (!is_array($rep)) continue;   // saltar 'tipo_trabajo'
         $tipo = $rep['tipo_superficie'] ?? '';
         $m2   = (float)($rep['metros_cuadrados'] ?? 0);
         if (!in_array($tipo, $tipos, true) || $m2 <= 0) continue;
         $ins->execute([
             'n' => $nivel, 'r' => $refId, 't' => $tipo, 'm' => $m2,
             'o' => trim($rep['observaciones'] ?? '') ?: null,
+            'tr' => $trabajo,
         ]);
     }
 }
@@ -2121,6 +2147,146 @@ function recReparaciones(string $nivel, int $refId): array
 }
 
 /** Recetas de materiales, indexadas por tipo de superficie. */
+/**
+ * Catálogo de tipos de trabajo, con sus recetas de materiales.
+ * Cada trabajo tiene rendimientos propios: no consume lo mismo frisar
+ * una pared que levantarla de nuevo.
+ */
+function recTiposTrabajo(): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        $tipos = db()->query(
+            'SELECT * FROM rec_tipo_trabajo WHERE activo = 1 ORDER BY orden, nombre'
+        )->fetchAll();
+        foreach ($tipos as &$t) {
+            $t['aplica'] = array_filter(array_map('trim', explode(',', $t['aplica_a'] ?? '')));
+        }
+        unset($t);
+        return $tipos;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Recetas agrupadas por tipo de trabajo. */
+function recRecetasTrabajo(): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        $out = [];
+        foreach (db()->query('SELECT * FROM rec_receta_trabajo WHERE activo = 1')->fetchAll() as $r) {
+            $out[$r['tipo_trabajo']][] = $r;
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Crea las tablas de trabajos y recetas si faltan. */
+function recAsegurarTablasTrabajo(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_tipo_trabajo (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            clave VARCHAR(40) NOT NULL,
+            nombre VARCHAR(120) NOT NULL,
+            descripcion VARCHAR(300) DEFAULT NULL,
+            unidad VARCHAR(10) NOT NULL DEFAULT 'm2',
+            aplica_a VARCHAR(120) DEFAULT NULL,
+            orden INT NOT NULL DEFAULT 0,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (id), UNIQUE KEY uq_tt_clave (clave)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_receta_trabajo (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            tipo_trabajo VARCHAR(40) NOT NULL,
+            material VARCHAR(120) NOT NULL,
+            unidad VARCHAR(20) NOT NULL,
+            cantidad DECIMAL(12,4) NOT NULL,
+            nota VARCHAR(200) DEFAULT NULL,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (id), KEY idx_rt_trabajo (tipo_trabajo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $cols = db()->query("SHOW COLUMNS FROM rec_reparacion")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('tipo_trabajo', $cols, true)) {
+            db()->exec("ALTER TABLE rec_reparacion ADD COLUMN tipo_trabajo VARCHAR(40) DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Calcula materiales a partir de los trabajos registrados.
+ * $trabajos = ['friso_completo' => 45.5, 'mamposteria_bloque_concreto' => 12]
+ *
+ * Devuelve cada material con su cantidad y unidad, redondeado hacia
+ * arriba porque en obra no se compran fracciones de saco.
+ */
+function recMaterialesPorTrabajo(array $trabajos): array
+{
+    $recetas = recRecetasTrabajo();
+    $totales = [];
+
+    foreach ($trabajos as $clave => $cantidad) {
+        $cantidad = (float)$cantidad;
+        if ($cantidad <= 0 || empty($recetas[$clave])) continue;
+
+        foreach ($recetas[$clave] as $ing) {
+            $mat = $ing['material'];
+            if (!isset($totales[$mat])) {
+                $totales[$mat] = ['cantidad' => 0.0, 'unidad' => $ing['unidad']];
+            }
+            $totales[$mat]['cantidad'] += $cantidad * (float)$ing['cantidad'];
+        }
+    }
+
+    // Los materiales que se compran por unidad entera se redondean hacia
+    // arriba: no se puede pedir medio bloque ni 3,4 sacos.
+    $enteros = ['unidad', 'saco', 'pieza', 'pliego'];
+    foreach ($totales as $mat => $d) {
+        $totales[$mat]['cantidad'] = in_array($d['unidad'], $enteros, true)
+            ? (float)ceil($d['cantidad'])
+            : round($d['cantidad'], 2);
+    }
+
+    ksort($totales);
+    return $totales;
+}
+
+/**
+ * Trabajos registrados en un edificio, sumados por tipo.
+ * Se apoya en la columna tipo_trabajo de rec_reparacion.
+ */
+function recTrabajosDeEdificio(int $edificioId): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        $st = db()->prepare("
+            SELECT rr.tipo_trabajo, SUM(rr.metros_cuadrados) AS cantidad
+              FROM rec_reparacion rr
+             WHERE rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+               AND (
+                   (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                       SELECT am.id FROM rec_ambiente am
+                         JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                         JOIN rec_piso pi ON pi.id = ap.piso_id
+                        WHERE pi.edificio_id = :e))
+                OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                       SELECT ep.id FROM rec_elemento_piso ep
+                         JOIN rec_piso pi2 ON pi2.id = ep.piso_id
+                        WHERE pi2.edificio_id = :e2))
+               )
+             GROUP BY rr.tipo_trabajo
+        ");
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
 function recRecetas(): array
 {
     $rows = db()->query('SELECT * FROM rec_material_receta WHERE activo = 1')->fetchAll();
@@ -2833,9 +2999,27 @@ function recArbolAvance(int $edificioId): array
         }
     }
 
-    // Materiales estimados a partir de los m² por tipo de superficie.
+    // Materiales según el TIPO DE TRABAJO registrado (friso, mampostería,
+    // vaciado…). Si no hay trabajos indicados, se cae al cálculo antiguo
+    // por superficie para no dejar la ficha vacía.
+    $trabajos = recTrabajosDeEdificio($edificioId);
     $materiales = [];
-    if (!empty($m2['por_tipo'])) {
+    $porTrabajo = [];
+
+    if ($trabajos) {
+        try {
+            $matDet = recMaterialesPorTrabajo($trabajos);
+            foreach ($matDet as $mat => $d) {
+                $materiales[$mat . ' (' . $d['unidad'] . ')'] = $d['cantidad'];
+            }
+            // Nombres legibles de cada trabajo, para mostrarlos.
+            $nombres = [];
+            foreach (recTiposTrabajo() as $t) $nombres[$t['clave']] = $t['nombre'];
+            foreach ($trabajos as $clave => $cant) {
+                $porTrabajo[$nombres[$clave] ?? $clave] = round($cant, 2);
+            }
+        } catch (Throwable $e) { $materiales = []; }
+    } elseif (!empty($m2['por_tipo'])) {
         try { $materiales = recCalcularMateriales($m2['por_tipo']); }
         catch (Throwable $e) { $materiales = []; }
     }
@@ -2894,6 +3078,7 @@ function recArbolAvance(int $edificioId): array
         'm2_comunes'      => round($m2['areas_comunes'], 2),
         'm2_por_tipo'     => $m2['por_tipo'] ?? [],
         'materiales'      => $materiales,
+        'por_trabajo'     => $porTrabajo,
         'fotos_edificio'  => $fotosEdificio,
         'fotos_piso'      => $fotosPiso,
     ];

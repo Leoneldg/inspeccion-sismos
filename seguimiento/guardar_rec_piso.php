@@ -26,7 +26,24 @@ try {
     foreach (($b['elementos'] ?? []) as $el) {
         $tipo = $el['tipo'] ?? '';
         if (!in_array($tipo, $tiposValidos, true)) continue;
-        $idsElementos[$tipo] = recGuardarElementoPiso($pisoId, $tipo, $el);
+        $elemId = recGuardarElementoPiso($pisoId, $tipo, $el);
+        $idsElementos[$tipo] = $elemId;
+
+        // Trabajo y metros del elemento (escaleras, pasillos, fachada…).
+        $m2 = (float)($el['metros_cuadrados'] ?? 0);
+        $trabajo = trim($el['tipo_trabajo'] ?? '');
+        if ($elemId > 0 && !empty($el['necesita_reparacion']) && $m2 > 0) {
+            recGuardarReparaciones('elemento_piso', (int)$elemId, [
+                ['tipo_superficie' => 'pared', 'metros_cuadrados' => $m2],
+                'tipo_trabajo' => $trabajo,
+            ]);
+        } elseif ($elemId > 0 && empty($el['necesita_reparacion'])) {
+            // Si se desmarcó la reparación, se limpian sus metros.
+            try {
+                db()->prepare('DELETE FROM rec_reparacion WHERE nivel = :n AND ref_id = :r')
+                    ->execute(['n' => 'elemento_piso', 'r' => $elemId]);
+            } catch (Throwable $e) {}
+        }
     }
 
     resp(true, 'Piso guardado.', ['elementos' => $idsElementos]);

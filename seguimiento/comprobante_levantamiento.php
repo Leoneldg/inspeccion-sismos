@@ -242,6 +242,46 @@ ob_start();
     <?php endif; ?>
   <?php endforeach; ?>
 
+  <?php
+  // Materiales estimados según los trabajos registrados.
+  $trabajosEd = recTrabajosDeEdificio($edificioId);
+  $matEd = $trabajosEd ? recMaterialesPorTrabajo($trabajosEd) : [];
+  $nombresT = [];
+  foreach (recTiposTrabajo() as $tt) $nombresT[$tt['clave']] = $tt['nombre'];
+  ?>
+  <?php if ($trabajosEd): ?>
+  <h2>Trabajos y materiales estimados</h2>
+  <table class="lista">
+    <thead><tr><th>Trabajo</th><th style="width:90px;">Cantidad</th></tr></thead>
+    <tbody>
+    <?php foreach ($trabajosEd as $clave => $cant): ?>
+      <tr>
+        <td><?= esc($nombresT[$clave] ?? $clave) ?></td>
+        <td><strong><?= number_format($cant, 2) ?></strong> m²</td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+
+  <?php if ($matEd): ?>
+  <table class="lista" style="margin-top:9px;">
+    <thead><tr><th>Material</th><th style="width:110px;">Cantidad</th><th style="width:70px;">Unidad</th></tr></thead>
+    <tbody>
+    <?php foreach ($matEd as $mat => $d): ?>
+      <tr>
+        <td><?= esc($mat) ?></td>
+        <td style="text-align:right;font-weight:700;"><?= number_format($d['cantidad'], 2) ?></td>
+        <td><?= esc($d['unidad']) ?></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <div style="font-size:10px;color:#767c94;margin-top:5px;">
+    Cálculo aproximado según los metros registrados. Verifique en obra antes de solicitar.
+  </div>
+  <?php endif; ?>
+  <?php endif; ?>
+
   <h2>Cierre del levantamiento</h2>
   <table class="datos">
     <tr><td class="lbl">Azotea</td><td class="val"><?= esc($ed['azotea_estado'] ?? '—') ?></td>

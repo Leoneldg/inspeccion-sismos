@@ -376,6 +376,19 @@ include __DIR__ . '/../includes/header.php';
                     <button type="button" class="btn btn-outline btn-sm btn-foto-elem" onclick="subirFotoElemento(this, <?= (int)$piso['id'] ?>, '<?= $tk ?>')" <?= $estadoValido ? '' : 'disabled' ?>>
                         <i class="bi bi-camera"></i> Foto
                     </button>
+                    <!-- Tipo de trabajo y metros del elemento -->
+                    <div class="el-trabajo-caja" style="width:100%;display:<?= ($el && $el['necesita_reparacion']) ? 'flex' : 'none' ?>;
+                                gap:8px;flex-wrap:wrap;margin-top:8px;background:#fbf8ef;
+                                border-radius:8px;padding:9px 11px;">
+                        <select class="form-control el-trabajo" style="flex:2;min-width:170px;"
+                                onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)">
+                            <option value="">— ¿Qué trabajo? —</option>
+                        </select>
+                        <input type="number" min="0" step="0.01" class="form-control el-m2"
+                               style="width:110px;" placeholder="m²"
+                               value="<?= $el['metros_cuadrados'] ?? '' ?>"
+                               onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)">
+                    </div>
                     <div class="elem-fotos" style="display:flex;gap:6px;flex-wrap:wrap;width:100%;"></div>
                 </div>
                 <?php endforeach; ?>
@@ -509,6 +522,19 @@ const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= (int)$ed['id'] ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
+const RECETAS_TRABAJO = <?= json_encode(array_map(
+    fn($lista) => array_map(fn($r) => [
+        'material' => $r['material'], 'unidad' => $r['unidad'],
+        'cantidad' => (float)$r['cantidad'],
+    ], $lista),
+    recRecetasTrabajo()
+), JSON_UNESCAPED_UNICODE) ?>;
+
+const TIPOS_TRABAJO = <?= json_encode(array_map(fn($t) => [
+    'clave' => $t['clave'], 'nombre' => $t['nombre'],
+    'descripcion' => $t['descripcion'] ?? '',
+], recTiposTrabajo()), JSON_UNESCAPED_UNICODE) ?>;
+
 const APTOS_POR_PISO = <?= (int)($ed['aptos_por_piso'] ?: 1) ?>;
 const EDIFICIO_NOMBRE    = <?= json_encode($insp['nombre_edificio'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
 const EDIFICIO_CODIGO    = <?= json_encode($insp['codigo'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
@@ -802,8 +828,40 @@ function onEstadoElemento(sel, pisoId) {
             chkRep.checked = true;
         }
     }
+    mostrarCajaElemento(row);
     guardarPisoReactivo(pisoId);
 }
+
+/** Muestra u oculta la caja de trabajo según la casilla de reparación. */
+function mostrarCajaElemento(row) {
+    const chk = row.querySelector('.el-reparar');
+    const caja = row.querySelector('.el-trabajo-caja');
+    if (caja) caja.style.display = (chk && chk.checked) ? 'flex' : 'none';
+}
+
+/** Llena los selectores de trabajo de los elementos del piso. */
+function llenarTrabajosElementos() {
+    document.querySelectorAll('.el-trabajo').forEach(sel => {
+        if (sel.dataset.lleno) return;
+        sel.dataset.lleno = '1';
+        const actual = sel.dataset.valor || '';
+        sel.innerHTML = '<option value="">— ¿Qué trabajo? —</option>'
+            + TIPOS_TRABAJO.map(t =>
+                '<option value="' + t.clave + '"' + (t.clave === actual ? ' selected' : '') + '>'
+                + t.nombre + '</option>').join('');
+    });
+    // Mostrar la caja en los que ya vienen marcados.
+    document.querySelectorAll('.elem-row').forEach(mostrarCajaElemento);
+}
+
+document.addEventListener('DOMContentLoaded', llenarTrabajosElementos);
+
+// Al marcar o desmarcar reparación, mostrar u ocultar la caja.
+document.addEventListener('change', function (e) {
+    if (e.target && e.target.classList.contains('el-reparar')) {
+        mostrarCajaElemento(e.target.closest('.elem-row'));
+    }
+});
 
 // Guardado reactivo del piso (reemplaza el botón "Guardar elementos del piso").
 let _guardarPisoTimer = {};
@@ -818,11 +876,15 @@ async function guardarPisoAhora(pisoId) {
     if (!card) return;
     const elementos = [];
     card.querySelectorAll('.elem-row').forEach(row => {
+        const selT = row.querySelector('.el-trabajo');
+        const inpM = row.querySelector('.el-m2');
         elementos.push({
             tipo: row.dataset.tipo,
             presente: row.querySelector('.el-estado').value !== '' ? 1 : 0,
             estado: row.querySelector('.el-estado').value,
             necesita_reparacion: row.querySelector('.el-reparar').checked ? 1 : 0,
+            tipo_trabajo: selT ? selT.value : '',
+            metros_cuadrados: inpM ? (parseFloat(inpM.value) || 0) : 0,
         });
     });
     const payload = {
@@ -983,16 +1045,36 @@ async function guardarApto(btn, aptoId) {
     // Los ambientes marcados como "necesita reparación" deben tener metros
     // cuadrados: sin ese dato no se pueden calcular los materiales.
     const sinMetros = [];
+    const sinTrabajo = [];
     cont.querySelectorAll('.amb-row').forEach(row => {
         const chk = row.querySelector('.amb-reparar');
         if (!chk || !chk.checked) { marcarAmbienteSinMetros(row, false); return; }
+
+        const nom = row.querySelector('.amb-nom');
+        const etiqueta = nom ? nom.textContent.trim() : 'un ambiente';
+
+        // El tipo de trabajo define qué materiales se piden: es obligatorio.
+        const selT = row.querySelector('.amb-trabajo');
+        if (selT && !selT.value) {
+            sinTrabajo.push(etiqueta);
+            selT.style.border = '2px solid #A61C1C';
+        } else if (selT) {
+            selT.style.border = '';
+        }
+
         const falta = !ambienteTieneMetros(row);
         marcarAmbienteSinMetros(row, falta);
-        if (falta) {
-            const et = row.querySelector('.amb-nom');
-            sinMetros.push(et ? et.textContent.trim() : 'un ambiente');
-        }
+        if (falta) sinMetros.push(etiqueta);
     });
+
+    if (sinTrabajo.length) {
+        alert('Falta indicar QUÉ TRABAJO hay que hacer en:\n\n· '
+            + sinTrabajo.join('\n· ')
+            + '\n\nSin ese dato no se pueden calcular los materiales.');
+        const primero = cont.querySelector('.amb-trabajo[style*="2px solid"]');
+        if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
 
     if (sinMetros.length) {
         alert('Faltan los metros cuadrados a reparar en:\n\n· '
@@ -1385,6 +1467,17 @@ function pintarAmbientes(ambientes, contenedor) {
             </div>
             <div class="amb-reparacion" style="${rep?'':'display:none;'}margin-top:10px;padding:10px;background:#fbf8ef;border-radius:8px;">
                 <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
+                    <i class="bi bi-tools"></i> ¿Qué trabajo hay que hacer?
+                    <span style="color:#A61C1C;">*</span>
+                </div>
+                <select class="form-control amb-trabajo" style="margin-bottom:10px;"
+                        onchange="guardarTrabajo(${am.id}, this); recalcularMateriales(this.closest('.amb-row'));">
+                    <option value="">— Seleccione el trabajo —</option>
+                    ${TIPOS_TRABAJO.map(t =>
+                        `<option value="${t.clave}" ${am.tipo_trabajo === t.clave ? 'selected' : ''}
+                                 title="${t.descripcion || ''}">${t.nombre}</option>`).join('')}
+                </select>
+                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
                     <i class="bi bi-rulers"></i> Metros cuadrados a reparar
                     <span style="color:#A61C1C;">*</span>
                     <span style="font-weight:400;font-size:11.5px;color:#8a6d1a;">
@@ -1429,6 +1522,27 @@ async /**
  * metros cuadrados. Sin ese dato no se pueden calcular materiales.
  * Devuelve true si está completo.
  */
+/** Guarda el tipo de trabajo elegido para un ambiente. */
+async function guardarTrabajo(ambId, sel) {
+    const payload = { accion:'guardar_trabajo', ambiente_id: ambId, tipo_trabajo: sel.value };
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Tipo de trabajo · ambiente ' + ambId);
+        return;
+    }
+    try {
+        await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Tipo de trabajo · ambiente ' + ambId);
+        }
+    }
+}
+
 function ambienteTieneMetros(row) {
     if (!row) return true;
     const chk = row.querySelector('.amb-reparar');
@@ -1483,28 +1597,78 @@ async function guardarReparacion(ambId, input) {
         const m2 = parseFloat(inp.value) || 0;
         if (m2 > 0) reparaciones.push({ tipo_superficie: inp.dataset.sup, metros_cuadrados: m2 });
     });
-    await fetch(URL_BASE + 'guardar_rec_apto.php', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ accion:'guardar_reparaciones', nivel:'ambiente', ref_id: ambId, reparaciones })
-    });
+
+    // El tipo de trabajo viaja junto a los metros: así no se pierde si el
+    // técnico llena los m² antes de elegir el trabajo.
+    const selT = row.querySelector('.amb-trabajo');
+    reparaciones.tipo_trabajo = selT ? selT.value : '';
+
+    const payload = {
+        accion: 'guardar_reparaciones', nivel: 'ambiente', ref_id: ambId,
+        reparaciones: reparaciones,
+        tipo_trabajo: selT ? selT.value : '',
+    };
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Metros del ambiente ' + ambId);
+        recalcularMateriales(row);
+        return;
+    }
+
+    try {
+        await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Metros del ambiente ' + ambId);
+        }
+    }
     recalcularMateriales(row);
 }
 
-async function recalcularMateriales(row) {
-    const m2 = {};
-    row.querySelectorAll('[data-sup]').forEach(inp => { const v = parseFloat(inp.value)||0; if (v>0) m2[inp.dataset.sup]=v; });
+/**
+ * Vista previa de materiales según el trabajo elegido y los metros.
+ * Se calcula en el navegador con las mismas recetas del servidor, para
+ * que funcione también sin señal.
+ */
+function recalcularMateriales(row) {
     const cont = row.querySelector('.amb-materiales');
     if (!cont) return;
-    if (Object.keys(m2).length === 0) { cont.innerHTML = ''; return; }
-    const res = await fetch(URL_BASE + 'calcular_materiales.php', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ m2 })
-    });
-    const data = await res.json();
-    if (data.ok) {
-        const items = Object.entries(data.materiales).map(([m,c]) =>
-            `<span style="display:inline-block;background:#eef2fb;border-radius:14px;padding:2px 9px;margin:2px;">${m}: <b>${c}</b></span>`).join('');
-        cont.innerHTML = '<div style="margin-top:4px;"><i class="bi bi-box-seam"></i> Materiales estimados: ' + items + '</div>';
+
+    const selT = row.querySelector('.amb-trabajo');
+    const trabajo = selT ? selT.value : '';
+
+    let total = 0;
+    row.querySelectorAll('[data-sup]').forEach(inp => { total += parseFloat(inp.value) || 0; });
+
+    if (!total) { cont.innerHTML = ''; return; }
+
+    if (!trabajo) {
+        cont.innerHTML = '<div style="margin-top:5px;font-size:12px;color:#a8871f;">'
+            + '<i class="bi bi-exclamation-circle"></i> '
+            + 'Elija el trabajo para ver los materiales.</div>';
+        return;
     }
+
+    const receta = RECETAS_TRABAJO[trabajo] || [];
+    if (!receta.length) { cont.innerHTML = ''; return; }
+
+    const enteros = ['unidad', 'saco', 'pieza', 'pliego'];
+    const items = receta.map(r => {
+        let c = total * parseFloat(r.cantidad);
+        c = enteros.includes(r.unidad) ? Math.ceil(c) : Math.round(c * 100) / 100;
+        return '<span style="display:inline-block;background:#eef2fb;border-radius:14px;'
+             + 'padding:2px 9px;margin:2px;font-size:11.5px;">'
+             + r.material + ': <b>' + c.toLocaleString('es-VE') + '</b> ' + r.unidad + '</span>';
+    }).join('');
+
+    cont.innerHTML = '<div style="margin-top:5px;"><i class="bi bi-box-seam"></i> '
+        + '<span style="font-size:11.5px;color:#5b6478;">Materiales estimados para '
+        + total.toLocaleString('es-VE') + ' m²:</span><br>' + items + '</div>';
 }
 
 // ================= FOTOS (compartido) =================
@@ -1837,9 +2001,79 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
 }
 
 function agregarMiniFoto(cont, f) {
-    const parte = f.parte ? '<div style="font-size:10px;color:#55617f;text-align:center;">'+f.parte+'</div>' : '';
+    const parte = f.parte
+        ? '<div style="font-size:10px;color:#55617f;text-align:center;">' + f.parte + '</div>' : '';
+    const alt = (f.parte || 'Foto').replace(/"/g, '&quot;').replace(/'/g, '');
     cont.insertAdjacentHTML('beforeend',
-        '<div style="text-align:center;"><img src="'+f.ruta+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #d8dce6;">'+parte+'</div>');
+        '<div style="text-align:center;">'
+        + '<img src="' + f.ruta + '" title="Toque para ampliar" '
+        + 'style="width:86px;height:86px;object-fit:cover;border-radius:7px;'
+        + 'border:1px solid #d8dce6;cursor:zoom-in;transition:transform .12s;" '
+        + 'onmouseover="this.style.transform=\'scale(1.06)\'" '
+        + 'onmouseout="this.style.transform=\'\'" '
+        + 'onclick="ampliarFoto(\'' + f.ruta + '\', \'' + alt + '\')">'
+        + parte + '</div>');
+}
+
+/**
+ * Visor a pantalla completa para revisar las fotos del levantamiento.
+ * Permite acercar hasta 4 aumentos y descargar la imagen.
+ */
+function ampliarFoto(ruta, titulo) {
+    const capa = document.createElement('div');
+    capa.id = 'lev-visor';
+    capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'
+        + 'display:flex;flex-direction:column;';
+
+    capa.innerHTML = `
+        <div style="display:flex;align-items:center;gap:11px;padding:12px 16px;
+                    background:rgba(0,0,0,.35);color:#fff;flex-shrink:0;">
+            <div style="flex:1;min-width:0;font-weight:700;font-size:15px;">${titulo || 'Foto'}</div>
+            <button onclick="zoomLev(-1)" title="Alejar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:19px;cursor:pointer;">−</button>
+            <button onclick="zoomLev(1)" title="Acercar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:19px;cursor:pointer;">+</button>
+            <a href="${ruta}" download title="Descargar"
+               style="background:rgba(255,255,255,.15);color:#fff;width:38px;height:38px;
+                      border-radius:9px;display:flex;align-items:center;justify-content:center;
+                      text-decoration:none;"><i class="bi bi-download"></i></a>
+            <button onclick="cerrarVisorLev()" title="Cerrar"
+                    style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div id="lev-visor-cont" style="flex:1;overflow:auto;display:flex;align-items:center;
+                                        justify-content:center;padding:14px;">
+            <img id="lev-visor-img" src="${ruta}" style="max-width:100%;max-height:100%;
+                 transition:transform .18s;transform-origin:center;">
+        </div>
+        <div style="padding:9px 16px;background:rgba(0,0,0,.35);color:#ffffffaa;
+                    font-size:12px;text-align:center;flex-shrink:0;">
+            Toque + o − para acercar · Toque fuera de la imagen para cerrar
+        </div>`;
+
+    capa.addEventListener('click', e => {
+        if (e.target === capa || e.target.id === 'lev-visor-cont') cerrarVisorLev();
+    });
+    document.body.appendChild(capa);
+    window._zoomLev = 1;
+    document.addEventListener('keydown', _escLev);
+}
+
+function _escLev(e) { if (e.key === 'Escape') cerrarVisorLev(); }
+
+function cerrarVisorLev() {
+    const v = document.getElementById('lev-visor');
+    if (v) v.remove();
+    document.removeEventListener('keydown', _escLev);
+}
+
+function zoomLev(dir) {
+    const img = document.getElementById('lev-visor-img');
+    if (!img) return;
+    window._zoomLev = Math.min(4, Math.max(0.5, (window._zoomLev || 1) + dir * 0.35));
+    img.style.transform = 'scale(' + window._zoomLev + ')';
 }
 
 // ================= PASO 3: CIERRE Y RESUMEN =================
