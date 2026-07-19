@@ -40,11 +40,36 @@ include __DIR__ . '/../includes/header.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <style>
-/* ---- KPIs más grandes y destacados ---- */
-.seg-kpi-num { font-size: 42px !important; font-weight: 800 !important; letter-spacing: -1px; }
-.seg-kpi-lbl { font-size: 13px !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: .5px; color: #55617f; }
-.seg-kpi-ico { width: 52px !important; height: 52px !important; font-size: 24px !important; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
-.seg-kpi { padding: 18px 20px !important; gap: 14px; align-items: center; }
+/* ---- KPIs: grandes pero sin desbordarse ----
+   El tamaño se adapta al ancho disponible, así un número de 5 cifras
+   no se sale de la tarjeta. */
+.seg-kpi-num {
+    font-size: clamp(24px, 4.4vw, 42px) !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.5px;
+    line-height: 1.05;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.seg-kpi-lbl {
+    font-size: 13px !important; font-weight: 700 !important;
+    text-transform: uppercase; letter-spacing: .4px; color: #55617f;
+    line-height: 1.2; overflow-wrap: anywhere;
+}
+.seg-kpi-ico {
+    width: 52px !important; height: 52px !important; font-size: 24px !important;
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.seg-kpi {
+    padding: 18px 20px !important; gap: 14px; align-items: center;
+    min-width: 0;   /* permite que el contenido se encoja dentro del grid */
+    overflow: hidden;
+}
+/* El bloque de texto del KPI también debe poder encogerse. */
+.seg-kpi > div:not(.seg-kpi-ico) { min-width: 0; flex: 1; }
 .seg-progress-txt { font-size: 20px !important; font-weight: 800 !important; }
 
 /* ---- Barra de filtros: se apila en pantallas chicas ---- */
@@ -56,7 +81,7 @@ include __DIR__ . '/../includes/header.php';
 /* Tablets */
 @media (max-width: 900px) {
     #seg-map { height: 460px !important; }
-    .seg-kpi-num { font-size: 34px !important; }
+    .seg-kpi-num { font-size: clamp(22px, 5vw, 34px) !important; }
     .seg-kpi-ico { width: 44px !important; height: 44px !important; font-size: 20px !important; }
     .seg-kpi { padding: 14px 16px !important; }
 }
@@ -64,7 +89,7 @@ include __DIR__ . '/../includes/header.php';
 /* Teléfonos */
 @media (max-width: 640px) {
     #seg-map { height: 380px !important; }
-    .seg-kpi-num { font-size: 30px !important; }
+    .seg-kpi-num { font-size: clamp(20px, 6.5vw, 30px) !important; }
     .seg-kpi-lbl { font-size: 11px !important; }
     .seg-kpi-ico { width: 40px !important; height: 40px !important; font-size: 18px !important; }
     .seg-kpi { padding: 12px 14px !important; gap: 10px; }
@@ -146,25 +171,25 @@ include __DIR__ . '/../includes/header.php';
 <div class="seg-kpi-grid">
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#eaf0ff;color:#2d4488;"><i class="bi bi-buildings-fill"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['total_edificios'] ?></div><div class="seg-kpi-lbl">INSPECCIONES</div></div>
+        <div><div class="seg-kpi-num"><?= number_format((int)$kpis['total_edificios'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">INSPECCIONES</div></div>
     </div>
     <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="seg-kpi" style="text-decoration:none;"
        title="Ver las edificaciones en obra y sus plazos">
         <div class="seg-kpi-ico" style="background:#fff4e0;color:#C9A227;"><i class="bi bi-hourglass-split"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['en_ejecucion'] ?></div><div class="seg-kpi-lbl">RECONSTRUCCIÓN</div></div>
+        <div><div class="seg-kpi-num"><?= number_format((int)$kpis['en_ejecucion'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">RECONSTRUCCIÓN</div></div>
     </a>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#e5f7ee;color:#2E7D32;"><i class="bi bi-check-circle-fill"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['culminadas'] ?></div><div class="seg-kpi-lbl">CULMINADAS</div></div>
+        <div><div class="seg-kpi-num"><?= number_format((int)$kpis['culminadas'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">CULMINADAS</div></div>
     </div>
     <div class="seg-kpi">
         <div class="seg-kpi-ico" style="background:#f1f2f6;color:#767c94;"><i class="bi bi-clipboard-x"></i></div>
-        <div><div class="seg-kpi-num"><?= (int)$kpis['sin_seguimiento'] ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
+        <div><div class="seg-kpi-num"><?= number_format((int)$kpis['sin_seguimiento'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
     </div>
     <?php if ((int)($kpis['agregadas'] ?? 0) > 0): ?>
     <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="seg-kpi" style="text-decoration:none;">
         <div class="seg-kpi-ico" style="background:#eaf7ee;color:#2E7D32;"><i class="bi bi-plus-circle-fill"></i></div>
-        <div><div class="seg-kpi-num" style="color:#2E7D32;"><?= (int)$kpis['agregadas'] ?></div>
+        <div><div class="seg-kpi-num" style="color:#2E7D32;"><?= number_format((int)$kpis['agregadas'], 0, ',', '.') ?></div>
              <div class="seg-kpi-lbl">AGREGADAS EN CAMPO</div></div>
     </a>
     <?php endif; ?>
