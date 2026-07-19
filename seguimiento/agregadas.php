@@ -59,12 +59,48 @@ include __DIR__ . '/../includes/header.php';
 </style>
 
 <?php if (!$lista): ?>
-<div class="ag-card" style="text-align:center;padding:40px 20px;">
+<?php
+// Diagnóstico: si hay registros en la bitácora pero la lista sale vacía,
+// es porque el alcance del usuario los filtra o la inspección se borró.
+$enBitacora = 0; $sinInspeccion = 0;
+try {
+    $enBitacora = (int)db()->query(
+        "SELECT COUNT(*) FROM rec_auditoria WHERE accion = 'edificacion_agregada'"
+    )->fetchColumn();
+    $sinInspeccion = (int)db()->query(
+        "SELECT COUNT(*) FROM rec_auditoria a
+           LEFT JOIN inspecciones i ON i.id = a.inspeccion_id
+          WHERE a.accion = 'edificacion_agregada' AND i.id IS NULL"
+    )->fetchColumn();
+} catch (Throwable $e) {}
+?>
+<div class="ag-card" style="text-align:center;padding:38px 20px;">
     <div style="font-size:44px;color:#c4c9d6;"><i class="bi bi-inbox"></i></div>
-    <h3 style="color:#22366F;margin:10px 0 5px;">Todavía no hay edificaciones agregadas</h3>
+    <h3 style="color:#22366F;margin:10px 0 5px;">No hay edificaciones agregadas que mostrar</h3>
+
+    <?php if ($enBitacora === 0): ?>
     <p class="text-muted" style="margin:0 0 16px;">
         Aquí aparecerán las que se registren en campo y no estaban en el listado original.
     </p>
+    <?php else: ?>
+    <div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;
+                padding:12px 15px;margin:12px auto 16px;max-width:520px;text-align:left;
+                font-size:13px;color:#8a6d1a;">
+        <strong><i class="bi bi-info-circle-fill"></i> Hay <?= $enBitacora ?> registro(s) en la bitácora,
+        pero no se muestran aquí.</strong>
+        <div style="margin-top:6px;">
+            <?php if ($sinInspeccion > 0): ?>
+                <?= $sinInspeccion ?> corresponden a edificaciones que fueron eliminadas.
+            <?php endif; ?>
+            <?php if (usuarioLimitadoAParroquia()): ?>
+                Su usuario solo ve las parroquias que tiene asignadas
+                (<?= e(implode(', ', parroquiasDelUsuario())) ?>).
+                Puede que las agregadas estén en otra parroquia.
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="btn btn-primary">
         <i class="bi bi-plus-circle-fill"></i> Agregar edificación
     </a>

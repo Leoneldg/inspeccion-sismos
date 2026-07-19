@@ -979,6 +979,30 @@ async function guardarApto(btn, aptoId) {
         alert('Complete los datos del jefe de familia (nombre, cédula y teléfono) antes de continuar.');
         return;
     }
+
+    // Los ambientes marcados como "necesita reparación" deben tener metros
+    // cuadrados: sin ese dato no se pueden calcular los materiales.
+    const sinMetros = [];
+    cont.querySelectorAll('.amb-row').forEach(row => {
+        const chk = row.querySelector('.amb-reparar');
+        if (!chk || !chk.checked) { marcarAmbienteSinMetros(row, false); return; }
+        const falta = !ambienteTieneMetros(row);
+        marcarAmbienteSinMetros(row, falta);
+        if (falta) {
+            const et = row.querySelector('.amb-nom');
+            sinMetros.push(et ? et.textContent.trim() : 'un ambiente');
+        }
+    });
+
+    if (sinMetros.length) {
+        alert('Faltan los metros cuadrados a reparar en:\n\n· '
+            + sinMetros.join('\n· ')
+            + '\n\nIndique cuántos metros hay que reparar en pared, techo, piso o closet.');
+        // Llevar al primero que falta.
+        const primero = cont.querySelector('.amb-reparacion[style*="2px solid"]');
+        if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
     const payload = {
         accion:'guardar_apto', apartamento_id: aptoId,
         jefe_nombre: nombre, jefe_cedula: cedula, jefe_telefono: telefono,
@@ -1354,13 +1378,19 @@ function pintarAmbientes(ambientes, contenedor) {
         html += `
         <div class="amb-row" data-amb="${am.id}" style="border:1px solid #e8ebf3;border-radius:9px;padding:10px 12px;margin-bottom:8px;">
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                <span style="font-weight:600;color:#2a3140;"><i class="bi ${iconos[am.tipo]||'bi-square'}"></i> ${am.tipo} ${am.numero}</span>
+                <span class="amb-nom" style="font-weight:600;color:#2a3140;"><i class="bi ${iconos[am.tipo]||'bi-square'}"></i> ${am.tipo} ${am.numero}</span>
                 <label class="seg-radio"><input type="checkbox" class="amb-reparar" ${rep?'checked':''} onchange="toggleReparar(this, ${am.id})"> Necesita reparación</label>
                 <button type="button" class="btn btn-outline btn-sm" onclick="fotoAmbiente(this, ${am.id})"><i class="bi bi-camera"></i> Foto${rep?'s':''}</button>
                 <span class="amb-hint text-sm" style="color:#767c94;">${rep?'Suba fotos indicando la parte':'Suba 1 foto del estado'}</span>
             </div>
             <div class="amb-reparacion" style="${rep?'':'display:none;'}margin-top:10px;padding:10px;background:#fbf8ef;border-radius:8px;">
-                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;"><i class="bi bi-rulers"></i> Metros cuadrados a reparar</div>
+                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
+                    <i class="bi bi-rulers"></i> Metros cuadrados a reparar
+                    <span style="color:#A61C1C;">*</span>
+                    <span style="font-weight:400;font-size:11.5px;color:#8a6d1a;">
+                        — indique al menos uno
+                    </span>
+                </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     ${['pared','techo','piso','closet'].map(sup => `
                         <div style="width:110px;">
@@ -1392,6 +1422,47 @@ function pintarAmbientes(ambientes, contenedor) {
             }
         });
     });
+}
+
+async /**
+ * Comprueba que un ambiente marcado como "necesita reparación" tenga
+ * metros cuadrados. Sin ese dato no se pueden calcular materiales.
+ * Devuelve true si está completo.
+ */
+function ambienteTieneMetros(row) {
+    if (!row) return true;
+    const chk = row.querySelector('.amb-reparar');
+    if (!chk || !chk.checked) return true;   // sin reparación, no aplica
+    let suma = 0;
+    row.querySelectorAll('.amb-reparacion input[type=number]').forEach(i => {
+        suma += parseFloat(i.value) || 0;
+    });
+    return suma > 0;
+}
+
+/** Resalta en rojo los ambientes que están sin metros. */
+function marcarAmbienteSinMetros(row, falta) {
+    if (!row) return;
+    const caja = row.querySelector('.amb-reparacion');
+    if (!caja) return;
+    if (falta) {
+        caja.style.border = '2px solid #A61C1C';
+        caja.style.background = '#fff6f6';
+        let aviso = caja.querySelector('.amb-falta-m2');
+        if (!aviso) {
+            aviso = document.createElement('div');
+            aviso.className = 'amb-falta-m2';
+            aviso.style.cssText = 'font-size:12px;color:#A61C1C;font-weight:600;margin-top:6px;';
+            aviso.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> '
+                + 'Falta indicar los metros cuadrados a reparar.';
+            caja.appendChild(aviso);
+        }
+    } else {
+        caja.style.border = '';
+        caja.style.background = '#fbf8ef';
+        const aviso = caja.querySelector('.amb-falta-m2');
+        if (aviso) aviso.remove();
+    }
 }
 
 async function toggleReparar(chk, ambId) {

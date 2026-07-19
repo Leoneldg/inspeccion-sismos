@@ -130,7 +130,7 @@ include __DIR__ . '/../includes/header.php';
     <!-- Metros cuadrados a reparar -->
     <div class="fs-card" style="padding:15px 20px;">
         <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
-            <i class="bi bi-rulers"></i> Metros cuadrados a reparar
+            <i class="bi bi-rulers"></i> Metros cuadrados y materiales
         </div>
         <div id="fs-m2-total">
             <span class="text-muted text-sm">Calculando…</span>
@@ -416,20 +416,66 @@ function mostrarAvisoCopiaLocal(fecha) {
 }
 
 // Muestra el total de metros cuadrados a reparar del edificio.
-function pintarMetrosTotal(m2, comunes) {
-    let cont = document.getElementById('fs-m2-total');
+function pintarMetrosTotal(m2, comunes, porTipo, materiales) {
+    const cont = document.getElementById('fs-m2-total');
     if (!cont) return;
-    if (!m2) { cont.innerHTML = ''; return; }
-    cont.innerHTML =
-        '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">'
-        + '<div style="background:#eef2fb;border-radius:10px;padding:11px 16px;">'
-        + '<div style="font-size:24px;font-weight:800;color:#22366F;line-height:1;">'
+
+    if (!m2) {
+        cont.innerHTML = '<div style="background:#fffbf0;border:1px solid #C9A22755;'
+            + 'border-radius:9px;padding:11px 14px;font-size:13px;color:#8a6d1a;">'
+            + '<i class="bi bi-info-circle-fill"></i> '
+            + 'No hay metros cuadrados registrados. Se anotan en el levantamiento técnico, '
+            + 'al marcar un ambiente como <strong>"necesita reparación"</strong>.</div>';
+        return;
+    }
+
+    // Total y desglose por tipo de superficie.
+    let html = '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">'
+        + '<div style="background:#eef2fb;border-radius:10px;padding:12px 18px;">'
+        + '<div style="font-size:26px;font-weight:800;color:#22366F;line-height:1;">'
         + m2.toLocaleString('es-VE') + ' m²</div>'
         + '<div style="font-size:11px;color:#5b6478;text-transform:uppercase;margin-top:3px;">'
-        + 'Total a reparar</div></div>'
-        + (comunes ? '<div style="font-size:12.5px;color:#5b6478;">'
-            + '<strong>' + comunes.toLocaleString('es-VE') + ' m²</strong> en áreas comunes</div>' : '')
-        + '</div>';
+        + 'Total a reparar</div></div>';
+
+    const tipos = Object.keys(porTipo || {});
+    if (tipos.length) {
+        html += '<div style="display:flex;gap:7px;flex-wrap:wrap;">';
+        tipos.forEach(t => {
+            html += '<div style="background:#f7f9fd;border:1px solid #e5e8f0;border-radius:9px;'
+                + 'padding:8px 13px;">'
+                + '<div style="font-size:16px;font-weight:700;color:#2d4488;">'
+                + porTipo[t].toLocaleString('es-VE') + ' m²</div>'
+                + '<div style="font-size:11px;color:#5b6478;">' + t + '</div></div>';
+        });
+        html += '</div>';
+    }
+    html += '</div>';
+
+    // Materiales estimados.
+    const mats = Object.keys(materiales || {});
+    if (mats.length) {
+        html += '<div style="border-top:1px solid #eef0f5;padding-top:12px;">'
+            + '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
+            + 'font-weight:700;letter-spacing:.4px;margin-bottom:9px;">'
+            + '<i class="bi bi-box-seam"></i> Materiales estimados</div>'
+            + '<div style="display:flex;gap:7px;flex-wrap:wrap;">';
+        mats.forEach(m => {
+            html += '<div style="background:#fff;border:1px solid #e5e8f0;border-radius:9px;'
+                + 'padding:8px 13px;min-width:120px;">'
+                + '<div style="font-size:15px;font-weight:700;color:#22366F;">'
+                + materiales[m].toLocaleString('es-VE') + '</div>'
+                + '<div style="font-size:11px;color:#5b6478;">' + m + '</div></div>';
+        });
+        html += '</div>'
+            + '<div style="font-size:11.5px;color:#767c94;margin-top:8px;">'
+            + 'Cálculo aproximado según los metros registrados. '
+            + 'Verifique en obra antes de solicitar.</div></div>';
+    } else if (tipos.length) {
+        html += '<div style="border-top:1px solid #eef0f5;padding-top:11px;font-size:12.5px;color:#5b6478;">'
+            + 'No hay recetas de materiales definidas para estos tipos de superficie.</div>';
+    }
+
+    cont.innerHTML = html;
 }
 
 function pintarBarraGlobal(pct) {
@@ -832,7 +878,8 @@ function recalcularEnPantalla(pisoId) {
     const sumaP = _arbol.pisos.reduce((s, p) => s + p.avance, 0);
     _arbol.avance_edificio = _arbol.pisos.length ? Math.round(sumaP / _arbol.pisos.length) : 0;
     pintarBarraGlobal(_arbol.avance_edificio);
-    pintarMetrosTotal(_arbol.m2_total || 0, _arbol.m2_comunes || 0);
+    pintarMetrosTotal(_arbol.m2_total || 0, _arbol.m2_comunes || 0,
+                      _arbol.m2_por_tipo || {}, _arbol.materiales || {});
 }
 
 // Ver fotos de un apartamento (bajo demanda, para no cargar todo de golpe).

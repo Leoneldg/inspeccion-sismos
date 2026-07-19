@@ -57,6 +57,37 @@ try {
     }
 
     if (($b['accion'] ?? '') === 'cierre') {
+        // Comprobar que los ambientes marcados como "necesita reparación"
+        // tengan metros cuadrados. Sin ese dato no hay cálculo de materiales.
+        try {
+            $stM = db()->prepare("
+                SELECT ap.identificador, am.tipo, am.numero
+                  FROM rec_ambiente am
+                  JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                  JOIN rec_piso pi ON pi.id = ap.piso_id
+                 WHERE pi.edificio_id = :e
+                   AND am.necesita_reparacion = 1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM rec_reparacion rr
+                        WHERE rr.nivel = 'ambiente' AND rr.ref_id = am.id
+                          AND rr.metros_cuadrados > 0
+                   )
+                 ORDER BY pi.numero_piso, ap.identificador
+                 LIMIT 15
+            ");
+            $stM->execute(['e' => $edificioId]);
+            $faltan = $stM->fetchAll();
+            if ($faltan) {
+                $lista = [];
+                foreach ($faltan as $f) {
+                    $lista[] = 'Apto ' . $f['identificador'] . ' · ' . $f['tipo'] . ' ' . $f['numero'];
+                }
+                resp(false, "Faltan los metros cuadrados a reparar en:\n\n· "
+                    . implode("\n· ", $lista)
+                    . "\n\nComplételos antes de cerrar el levantamiento.");
+            }
+        } catch (Throwable $e) { /* si la consulta falla, no bloquear el cierre */ }
+
         $estados = ['Buena','Regular','Requiere reparación','No aplica'];
         $norm = fn($v) => in_array($v, $estados, true) ? $v : null;
         db()->prepare(

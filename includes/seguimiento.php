@@ -325,33 +325,38 @@ function segEdificacionesAgregadas(bool $soloConteo = false)
             $st = db()->prepare("
                 SELECT COUNT(DISTINCT i.id)
                   FROM inspecciones i
-                  JOIN rec_auditoria a ON a.inspeccion_id = i.id
-                                      AND a.accion = 'edificacion_agregada'
-                 WHERE 1=1 $where
+                  LEFT JOIN rec_auditoria a ON a.inspeccion_id = i.id
+                                           AND a.accion = 'edificacion_agregada'
+                 WHERE a.id IS NOT NULL $where
             ");
             $st->execute($params);
             return (int)$st->fetchColumn();
         }
 
+        // Se identifican por la bitácora O por el prefijo del código:
+        // las registradas en campo usan INS-, las importadas usan IMP-.
+        // Así siguen apareciendo aunque falte el registro de auditoría.
         $st = db()->prepare("
             SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.municipio,
-                   TRIM(CONCAT_WS(', ', NULLIF(i.avenida_calle,''), NULLIF(i.sector,''), NULLIF(i.urbanizacion,''))) AS direccion, i.latitud, i.longitud, i.decision_final,
-                   i.uso_edificacion, i.num_pisos, i.numero_familias, i.numero_personas,
-                   i.observaciones, i.fecha_inspeccion,
+                   TRIM(CONCAT_WS(', ', NULLIF(i.avenida_calle,''), NULLIF(i.sector,''), NULLIF(i.urbanizacion,''))) AS direccion,
+                   i.latitud, i.longitud, i.decision_final,
+                   i.uso_edificacion, i.num_pisos, i.familias AS numero_familias, i.numero_personas,
+                   i.observaciones, i.fecha_inspeccion, i.creado_en,
                    re.id AS edificio_id, re.completado,
                    re.sin_etiqueta, re.etiqueta_motivo, re.etiqueta_obs,
-                   MIN(a.creado_en)    AS registrada_en,
-                   MIN(a.usuario_nombre) AS registrada_por,
+                   COALESCE(MIN(a.creado_en), i.creado_en) AS registrada_en,
+                   COALESCE(MIN(a.usuario_nombre), u.nombre_completo) AS registrada_por,
                    (SELECT COUNT(*) FROM rec_foto f
                      WHERE f.nivel = 'edificio' AND f.ref_id = re.id
                        AND f.parte = 'etiqueta') AS fotos_etiqueta
               FROM inspecciones i
-              JOIN rec_auditoria a ON a.inspeccion_id = i.id
-                                  AND a.accion = 'edificacion_agregada'
+              LEFT JOIN rec_auditoria a ON a.inspeccion_id = i.id
+                                       AND a.accion = 'edificacion_agregada'
               LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
-             WHERE 1=1 $where
+              LEFT JOIN usuarios u ON u.id = i.creado_por
+             WHERE a.id IS NOT NULL $where
              GROUP BY i.id
-             ORDER BY MIN(a.creado_en) DESC
+             ORDER BY COALESCE(MIN(a.creado_en), i.creado_en) DESC
         ");
         $st->execute($params);
         return $st->fetchAll();
@@ -2628,27 +2633,50 @@ function recMetrosPorNivel(int $edificioId): array
             $total += $m2;
         }
 
-        // m² de áreas comunes del edificio.
+        // Las áreas comunes no registran metros cuadrados en el
+        // levantamiento (solo estado y si necesitan reparación), así que
+        // no suman al total. Se deja en cero de forma explícita.
         $comunes = 0.0;
+
+        // Desglose por tipo de superficie (Pared, Techo, Piso…), que es
+        // lo que hace falta para calcular materiales.
+        $porTipo = [];
         try {
-            $st3 = db()->prepare('SELECT COALESCE(SUM(metros_cuadrados), 0)
-                                    FROM rec_area_comun WHERE edificio_id = :e');
-            $st3->execute(['e' => $edificioId]);
-            $comunes = (float)$st3->fetchColumn();
-            $total += $comunes;
-        } catch (Throwable $e) { /* sin áreas comunes */ }
+            $st4 = db()->prepare("
+                SELECT rr.tipo_superficie, COALESCE(SUM(rr.metros_cuadrados), 0) AS m2
+                  FROM rec_reparacion rr
+                 WHERE (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                          SELECT am.id FROM rec_ambiente am
+                            JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                            JOIN rec_piso pi ON pi.id = ap.piso_id
+                           WHERE pi.edificio_id = :e))
+                    OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                          SELECT ep.id FROM rec_elemento_piso ep
+                            JOIN rec_piso pi2 ON pi2.id = ep.piso_id
+                           WHERE pi2.edificio_id = :e2))
+                 GROUP BY rr.tipo_superficie
+                 ORDER BY m2 DESC
+            ");
+            $st4->execute(['e' => $edificioId, 'e2' => $edificioId]);
+            foreach ($st4->fetchAll() as $r) {
+                if (!empty($r['tipo_superficie'])) {
+                    $porTipo[$r['tipo_superficie']] = round((float)$r['m2'], 2);
+                }
+            }
+        } catch (Throwable $e) { /* sin desglose */ }
 
         return [
             'por_apartamento' => $porApto,
             'por_piso'        => $porPiso,
             'elementos_piso'  => $porPisoElem,
+            'por_tipo'        => $porTipo,
             'areas_comunes'   => $comunes,
             'total'           => $total,
         ];
 
     } catch (Throwable $e) {
-        return ['por_apartamento' => [], 'por_piso' => [],
-                'elementos_piso' => [], 'areas_comunes' => 0, 'total' => 0];
+        return ['por_apartamento' => [], 'por_piso' => [], 'elementos_piso' => [],
+                'por_tipo' => [], 'areas_comunes' => 0, 'total' => 0];
     }
 }
 
@@ -2757,6 +2785,13 @@ function recArbolAvance(int $edificioId): array
         }
     }
 
+    // Materiales estimados a partir de los m² por tipo de superficie.
+    $materiales = [];
+    if (!empty($m2['por_tipo'])) {
+        try { $materiales = recCalcularMateriales($m2['por_tipo']); }
+        catch (Throwable $e) { $materiales = []; }
+    }
+
     return [
         'pisos'           => array_values($pisos),
         'avance_edificio' => $avanceEdificio,
@@ -2764,6 +2799,8 @@ function recArbolAvance(int $edificioId): array
         'total_aptos'     => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
         'm2_total'        => round($m2['total'], 2),
         'm2_comunes'      => round($m2['areas_comunes'], 2),
+        'm2_por_tipo'     => $m2['por_tipo'] ?? [],
+        'materiales'      => $materiales,
     ];
 }
 

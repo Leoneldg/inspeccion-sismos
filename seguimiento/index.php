@@ -794,31 +794,15 @@ let parroquiaActiva = null;
                     layer.on('mouseout', () => layer.setStyle({ fillOpacity:0.08, weight:1.5 }));
                     layer.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
 
-                    // Etiqueta de la parroquia. Si no tiene edificaciones, igual
-                    // se muestra el nombre para que no parezca que falta del mapa.
                     const c = CONTEO_IDX[normTxt(nombre)];
                     // El mapa muestra las que están en reconstrucción, no
                     // todas las inspecciones: así se ve el avance real.
                     const total = c ? (parseInt(c.en_obra) || 0) : 0;
                     const totalInsp = c ? (parseInt(c.total) || 0) : 0;
 
-                    if (total === 0) {
-                        const centro0 = layer.getBounds().getCenter();
-                        const etiqueta = L.marker(centro0, {
-                            icon: L.divIcon({
-                                className: 'parr-etiqueta',
-                                html: `<div style="width:26px;height:26px;background:#5b6478cc;border:2px solid #fff;`
-                                    + `border-radius:50%;display:flex;align-items:center;justify-content:center;`
-                                    + `color:#fff;font-weight:700;font-size:11px;box-shadow:0 2px 5px rgba(0,0,0,.3);`
-                                    + `cursor:pointer;">0</div>`
-                                    + `<div style="text-align:center;font-size:10px;color:#fff;`
-                                    + `text-shadow:0 1px 2px #000;font-weight:600;margin-top:1px;">${nombre}</div>`,
-                                iconSize: [26, 26], iconAnchor: [13, 13],
-                            })
-                        });
-                        etiqueta.on('click', () => seleccionarParroquia(estado, nombre, layer.getBounds()));
-                        capaBurbujas.addLayer(etiqueta);
-                    }
+                    // Las parroquias sin edificaciones en reconstrucción no
+                    // muestran burbuja: el mapa queda limpio y solo se ve
+                    // dónde hay obra. El polígono sigue siendo clicable.
 
                     if (total > 0) {
                         const centro = layer.getBounds().getCenter();
