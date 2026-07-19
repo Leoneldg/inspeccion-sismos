@@ -1055,31 +1055,43 @@ function brigadaSiguiente(int $frenteId): int
  * Crea un frente asignándole el siguiente número correlativo.
  * Devuelve [id, numero].
  */
-function frenteCrear(int $responsableId, string $parroquia, string $estado = 'Distrito Capital'): array
+function frenteCrear(int $responsableId, string $parroquia,
+                    string $estado = 'Distrito Capital', string $nombre = ''): array
 {
     frenteRespAsegurar();
     $numero = frenteSiguienteGlobal();
+    $nombre = trim($nombre) ?: null;   // nombre del equipo, opcional
 
     // Reintento defensivo: si dos personas crean a la vez, avanzar.
     for ($i = 0; $i < 20; $i++) {
         try {
             db()->prepare(
-                'INSERT INTO frente (numero, responsable_id, parroquia, estado, creado_por)
-                 VALUES (:n, :r, :p, :e, :u)'
+                'INSERT INTO frente (numero, nombre, responsable_id, parroquia, estado, creado_por)
+                 VALUES (:n, :nom, :r, :p, :e, :u)'
             )->execute([
-                'n' => $numero, 'r' => $responsableId ?: null,
+                'n' => $numero, 'nom' => $nombre,
+                'r' => $responsableId ?: null,
                 'p' => $parroquia ?: null, 'e' => $estado,
                 'u' => $_SESSION['user_id'] ?? null,
             ]);
             $id = (int)db()->lastInsertId();
             recAuditar('frente_creado', null, null,
-                'Frente de Trabajo ' . $numero . ' · ' . $parroquia);
-            return ['id' => $id, 'numero' => $numero];
+                'Frente de Trabajo ' . $numero . ($nombre ? ' · ' . $nombre : '')
+                . ' · ' . $parroquia);
+            return ['id' => $id, 'numero' => $numero, 'nombre' => $nombre];
         } catch (Throwable $e) {
             $numero++;   // número tomado, probar el siguiente
         }
     }
     throw new RuntimeException('No se pudo asignar un número de frente.');
+}
+
+/** Cambia el nombre del equipo de un frente. */
+function frenteRenombrar(int $frenteId, string $nombre): void
+{
+    frenteRespAsegurar();
+    db()->prepare('UPDATE frente SET nombre = :n WHERE id = :id')
+        ->execute(['n' => trim($nombre) ?: null, 'id' => $frenteId]);
 }
 
 /** Frentes de un responsable, con sus brigadas y obras. */
@@ -2261,10 +2273,20 @@ function recTrabajosDeEdificio(int $edificioId): array
 {
     recAsegurarTablasTrabajo();
     try {
+        // Cada trabajo se aplica solo a las superficies que le corresponden.
+        // Levantar una pared de bloques consume metros de PARED, no de
+        // techo ni de piso: sumarlos todos triplicaba los materiales.
         $st = db()->prepare("
             SELECT rr.tipo_trabajo, SUM(rr.metros_cuadrados) AS cantidad
               FROM rec_reparacion rr
+              JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
              WHERE rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+               AND rr.metros_cuadrados > 0
+               AND (
+                   tt.aplica_a IS NULL OR tt.aplica_a = ''
+                   OR FIND_IN_SET(rr.tipo_superficie, REPLACE(tt.aplica_a, ' ', '')) > 0
+                   OR tt.unidad = 'm3'
+               )
                AND (
                    (rr.nivel = 'ambiente' AND rr.ref_id IN (
                        SELECT am.id FROM rec_ambiente am

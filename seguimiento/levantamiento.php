@@ -533,7 +533,31 @@ const RECETAS_TRABAJO = <?= json_encode(array_map(
 const TIPOS_TRABAJO = <?= json_encode(array_map(fn($t) => [
     'clave' => $t['clave'], 'nombre' => $t['nombre'],
     'descripcion' => $t['descripcion'] ?? '',
+    'aplica' => $t['aplica_a'] ?? '',
 ], recTiposTrabajo()), JSON_UNESCAPED_UNICODE) ?>;
+
+/**
+ * Avisa qué superficies cuentan para el trabajo elegido.
+ * Levantar una pared consume metros de PARED: si el técnico llena
+ * también techo y piso, esos metros no entran en el cálculo.
+ */
+function avisoSuperficies(sel) {
+    const row = sel.closest('.amb-row');
+    if (!row) return;
+    const t = (TIPOS_TRABAJO || []).find(x => x.clave === sel.value);
+    let aviso = row.querySelector('.amb-aplica');
+    if (!aviso) {
+        aviso = document.createElement('div');
+        aviso.className = 'amb-aplica';
+        aviso.style.cssText = 'font-size:11.5px;margin:-4px 0 8px;';
+        sel.parentNode.insertBefore(aviso, sel.nextSibling);
+    }
+    if (!t || !t.aplica) { aviso.textContent = ''; return; }
+    const sups = t.aplica.split(',').map(x => x.trim()).filter(Boolean);
+    aviso.style.color = '#8a6d1a';
+    aviso.innerHTML = '<i class="bi bi-info-circle"></i> Este trabajo cuenta los metros de: '
+        + '<strong>' + sups.join(', ') + '</strong>';
+}
 
 const APTOS_POR_PISO = <?= (int)($ed['aptos_por_piso'] ?: 1) ?>;
 const EDIFICIO_NOMBRE    = <?= json_encode($insp['nombre_edificio'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
@@ -1489,7 +1513,7 @@ function pintarAmbientes(ambientes, contenedor) {
                     <span style="color:#A61C1C;">*</span>
                 </div>
                 <select class="form-control amb-trabajo" style="margin-bottom:10px;"
-                        onchange="guardarTrabajo(${am.id}, this); recalcularMateriales(this.closest('.amb-row'));">
+                        onchange="guardarTrabajo(${am.id}, this); avisoSuperficies(this); recalcularMateriales(this.closest('.amb-row'));">
                     <option value="">— Seleccione el trabajo —</option>
                     ${(Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : []).map(t =>
                         `<option value="${t.clave}" ${am.tipo_trabajo === t.clave ? 'selected' : ''}
@@ -1925,13 +1949,22 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
     // por sí solas, así que si falla la subida se perderían.
     // Las de galería ya están en el teléfono, pero se respaldan igual
     // para poder reintentar sin volver a buscarlas.
+    // El respaldo NO debe bloquear la subida: si IndexedDB está lento o
+    // bloqueado, la foto tiene que enviarse igual.
     let idLocal = null;
     if (window.ObrasFotos) {
-        idLocal = await ObrasFotos.respaldar(archivo, {
-            inspeccion_id: INSPECCION_ID, nivel: destino.nivel, ref_id: destino.refId,
-            parte: parte || '', origen: desdeCamara ? 'camara' : 'galeria',
-            descripcion: (parte ? parte + ' · ' : '') + destino.nivel + ' #' + destino.refId,
-        });
+        try {
+            idLocal = await Promise.race([
+                ObrasFotos.respaldar(archivo, {
+                    inspeccion_id: INSPECCION_ID, nivel: destino.nivel, ref_id: destino.refId,
+                    parte: parte || '', origen: desdeCamara ? 'camara' : 'galeria',
+                    descripcion: (parte ? parte + ' · ' : '') + destino.nivel + ' #' + destino.refId,
+                }),
+                new Promise(r => setTimeout(() => r(null), 3000)),
+            ]);
+        } catch (e) {
+            console.warn('No se pudo respaldar la foto localmente:', e);
+        }
     }
 
     const fd = new FormData();
@@ -1964,18 +1997,22 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
             { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
               foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
             'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
-        cont.insertAdjacentHTML('beforeend',
+        if (cont) cont.insertAdjacentHTML('beforeend',
             '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
             + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
         return;
     }
 
-    cont.insertAdjacentHTML('beforeend', '<span class="subiendo">Subiendo…</span>');
+    if (cont) cont.insertAdjacentHTML('beforeend', '<span class="subiendo">Subiendo…</span>');
+    console.log('Subiendo foto:', {
+        nivel: destino.nivel, ref_id: destino.refId, parte: parte,
+        peso_kb: Math.round((archivo.size || 0) / 1024),
+    });
     try {
         const res = await fetch(URL_BASE + 'subir_foto_rec.php',
             { method:'POST', body: fd, credentials:'same-origin' });
         const texto = await res.text();
-        cont.querySelector('.subiendo')?.remove();
+        if (cont) cont.querySelector('.subiendo')?.remove();
         let data;
         try { data = JSON.parse(texto); }
         catch (e) {
@@ -1992,19 +2029,22 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
             return;
         }
         if (data.ok) {
-            agregarMiniFoto(cont, data.foto);
+            if (cont) agregarMiniFoto(cont, data.foto);
             if (idLocal && window.ObrasFotos) ObrasFotos.marcarSubida(idLocal);
         } else {
-            alert(data.mensaje || 'No se pudo subir la foto.');
+            // Mostrar el motivo real: antes fallaba sin decir por qué.
+            console.error('Subida rechazada:', data);
+            alert('No se pudo guardar la foto.\n\n'
+                + (data.mensaje || 'El servidor la rechazó sin indicar el motivo.'));
         }
     } catch(e) {
-        cont.querySelector('.subiendo')?.remove();
+        if (cont) cont.querySelector('.subiendo')?.remove();
         if (window.ObrasOffline) {
             await ObrasOffline.encolar('foto', URL_BASE + 'subir_foto_rec.php',
                 { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
                   foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
                 'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
-            cont.insertAdjacentHTML('beforeend',
+            if (cont) cont.insertAdjacentHTML('beforeend',
                 '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
                 + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
         } else {
