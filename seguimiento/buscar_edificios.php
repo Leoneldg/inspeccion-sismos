@@ -22,8 +22,12 @@ try {
     $color     = trim($_GET['color'] ?? '');
     $uso       = trim($_GET['uso'] ?? '');
     $soloId    = (int)($_GET['id'] ?? 0);   // para abrir una edificación concreta
-    // Fase: 'obra' = solo con levantamiento cerrado, 'todas' = todas.
-    $fase      = trim($_GET['fase'] ?? 'obra');
+    // Fase del buscador. Por defecto busca en TODAS: el buscador se usa
+    // para encontrar edificaciones que aún no tienen levantamiento, así
+    // que filtrar por "en obra" las dejaba fuera.
+    //   'todas' → todas las inspecciones (por defecto)
+    //   'obra'  → solo las que ya están en reconstrucción
+    $fase      = trim($_GET['fase'] ?? 'todas');
 
     if ($soloId <= 0 && $q === '' && $parroquia === '' && $enteId === '' && $color === '' && $uso === '') {
         echo json_encode(['ok' => true, 'puntos' => []]);
@@ -36,8 +40,8 @@ try {
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
 
-    // Por defecto se buscan solo las que están en reconstrucción.
-    if ($soloId <= 0 && $fase !== 'todas') {
+    // Solo si el usuario pide expresamente ver las que están en obra.
+    if ($soloId <= 0 && $fase === 'obra') {
         $conds[] = 're.completado = 1';
     }
 

@@ -249,8 +249,8 @@ include __DIR__ . '/../includes/header.php';
             <div class="field" style="margin:0;">
                 <label class="text-sm">Fase</label>
                 <select id="f-fase" class="form-control" style="width:190px;" onchange="ejecutarBusqueda()">
-                    <option value="obra">EN RECONSTRUCCIÓN</option>
                     <option value="todas">TODAS LAS INSPECCIONES</option>
+                    <option value="obra">SOLO EN RECONSTRUCCIÓN</option>
                 </select>
             </div>
             <button class="btn btn-primary" onclick="ejecutarBusqueda()"><i class="bi bi-search"></i> Buscar</button>
@@ -970,7 +970,7 @@ function dibujarPuntosEnMapa(puntos) {
 function limpiarBusqueda() {
     document.getElementById('f-buscar').value = '';
     document.getElementById('f-parroquia').value = '';
-    const ff = document.getElementById('f-fase'); if (ff) ff.value = 'obra';
+    const ff = document.getElementById('f-fase'); if (ff) ff.value = 'todas';
     document.getElementById('f-resultados').style.display = 'none';
     document.getElementById('f-resultados').innerHTML = '';
     capaPuntos.clearLayers();
