@@ -841,6 +841,9 @@ function mostrarCajaElemento(row) {
 
 /** Llena los selectores de trabajo de los elementos del piso. */
 function llenarTrabajosElementos() {
+    // Si el catálogo no cargó (falta el SQL), no hacer nada: el resto
+    // de la pantalla debe seguir funcionando.
+    if (typeof TIPOS_TRABAJO === 'undefined' || !Array.isArray(TIPOS_TRABAJO)) return;
     document.querySelectorAll('.el-trabajo').forEach(sel => {
         if (sel.dataset.lleno) return;
         sel.dataset.lleno = '1';
@@ -854,12 +857,15 @@ function llenarTrabajosElementos() {
     document.querySelectorAll('.elem-row').forEach(mostrarCajaElemento);
 }
 
-document.addEventListener('DOMContentLoaded', llenarTrabajosElementos);
+// El script está al final de la página, así que el DOM ya está listo.
+// Usar DOMContentLoaded aquí no dispararía nunca.
+try { llenarTrabajosElementos(); } catch (e) { /* no interrumpir el resto */ }
 
 // Al marcar o desmarcar reparación, mostrar u ocultar la caja.
 document.addEventListener('change', function (e) {
     if (e.target && e.target.classList.contains('el-reparar')) {
-        mostrarCajaElemento(e.target.closest('.elem-row'));
+        const row = e.target.closest('.elem-row');
+        if (row) mostrarCajaElemento(row);
     }
 });
 
@@ -1473,7 +1479,7 @@ function pintarAmbientes(ambientes, contenedor) {
                 <select class="form-control amb-trabajo" style="margin-bottom:10px;"
                         onchange="guardarTrabajo(${am.id}, this); recalcularMateriales(this.closest('.amb-row'));">
                     <option value="">— Seleccione el trabajo —</option>
-                    ${TIPOS_TRABAJO.map(t =>
+                    ${(Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : []).map(t =>
                         `<option value="${t.clave}" ${am.tipo_trabajo === t.clave ? 'selected' : ''}
                                  title="${t.descripcion || ''}">${t.nombre}</option>`).join('')}
                 </select>
