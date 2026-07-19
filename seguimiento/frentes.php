@@ -63,6 +63,17 @@ foreach ($frentes as $ff) {
 ksort($porParroquia);
 $siguiente = frenteSiguienteGlobal();
 
+// Usuarios vinculados a cada frente: sin usuario, nadie ve sus obras.
+$usuariosFrente = [];
+try {
+    foreach (db()->query("SELECT frente_id, nombre_completo
+                            FROM usuarios
+                           WHERE frente_id IS NOT NULL AND frente_id > 0 AND activo = 1
+                           ORDER BY nombre_completo")->fetchAll() as $u) {
+        $usuariosFrente[(int)$u['frente_id']][] = $u['nombre_completo'];
+    }
+} catch (Throwable $e) {}
+
 // Responsable de cada parroquia, para autocompletar al elegirla.
 $respPorParroquia = [];
 try {
@@ -217,7 +228,12 @@ include __DIR__ . '/../includes/header.php';
           </select>
           <div id="nf-resp-aviso" class="text-sm" style="margin-top:4px;font-size:12px;"></div>
         </div>
-        <div class="field" style="width:120px;margin:0;">
+        <div class="field" style="flex:1;min-width:170px;margin:0;">
+          <label class="text-sm">Nombre del equipo <span class="text-muted">(opcional)</span></label>
+          <input type="text" id="nf-nombre" class="form-control"
+                 placeholder="Ej: EIDDY-VICTICO" maxlength="120">
+        </div>
+        <div class="field" style="width:110px;margin:0;">
           <label class="text-sm">Cuántos</label>
           <input type="number" id="nf-cantidad" class="form-control" value="1" min="1" max="20">
         </div>
@@ -271,10 +287,26 @@ include __DIR__ . '/../includes/header.php';
           <div style="font-weight:700;color:#22366F;font-size:15.5px;">
             Frente de Trabajo <?= (int)$f['numero'] ?>
           </div>
+          <?php if (!empty($f['nombre'])): ?>
+          <div style="font-size:13px;color:#2d4488;font-weight:600;margin-top:1px;">
+            <?= e($f['nombre']) ?>
+          </div>
+          <?php endif; ?>
           <div style="font-size:12px;color:#5b6478;">
             <i class="bi bi-geo-alt"></i> <?= e($f['parroquia'] ?: 'Sin parroquia') ?>
             <?php if ($resp): ?> · <i class="bi bi-person"></i> <?= e($resp) ?><?php endif; ?>
           </div>
+          <?php $usrs = $usuariosFrente[$fid] ?? []; ?>
+          <?php if ($usrs): ?>
+          <div style="font-size:11.5px;color:#2E7D32;margin-top:2px;">
+            <i class="bi bi-person-check-fill"></i> <?= e(implode(', ', $usrs)) ?>
+          </div>
+          <?php else: ?>
+          <div style="font-size:11.5px;color:#a8871f;margin-top:2px;">
+            <i class="bi bi-person-exclamation"></i> Sin usuario vinculado ·
+            <a href="<?= APP_URL_BASE ?>admin/usuarios.php" style="color:#a8871f;">asignar</a>
+          </div>
+          <?php endif; ?>
         </div>
         <div style="text-align:center;min-width:62px;">
           <div style="font-size:17px;font-weight:800;color:#2d4488;"><?= count($f['brigadas'] ?? []) ?></div>
@@ -285,6 +317,11 @@ include __DIR__ . '/../includes/header.php';
           <div style="font-size:10px;color:#767c94;text-transform:uppercase;">obras</div>
         </div>
         <?php if ($puedeEditar): ?>
+        <button onclick="renombrarFrente(<?= $fid ?>, '<?= e(addslashes($f['nombre'] ?? '')) ?>')"
+                title="Poner o cambiar el nombre del equipo"
+                style="background:transparent;border:0;color:#c4c9d6;font-size:15px;cursor:pointer;">
+          <i class="bi bi-pencil"></i>
+        </button>
         <button onclick="quitarFrente(<?= $fid ?>, <?= (int)$f['numero'] ?>)" title="Desactivar"
                 style="background:transparent;border:0;color:#c4c9d6;font-size:17px;cursor:pointer;">
           <i class="bi bi-x-circle"></i>
@@ -376,9 +413,12 @@ async function crearFrentes() {
     const cant = parseInt(document.getElementById('nf-cantidad').value) || 1;
     const resp = document.getElementById('nf-responsable').value;
 
+    const nombre = (document.getElementById('nf-nombre').value || '').trim();
+
     const creados = [];
     for (let i = 0; i < cant; i++) {
-        const d = await api({ accion: 'crear_frente_resp', parroquia: parr, responsable_id: resp });
+        const d = await api({ accion: 'crear_frente_resp', parroquia: parr,
+                              responsable_id: resp, nombre: nombre });
         if (!d) break;
         creados.push(d.numero);
     }
@@ -386,6 +426,15 @@ async function crearFrentes() {
         alert('Creado(s): Frente de Trabajo ' + creados.join(', ') + '.');
         location.reload();
     }
+}
+
+/** Pone o cambia el nombre del equipo de un frente. */
+async function renombrarFrente(id, actual) {
+    const nombre = prompt('Nombre del equipo de este frente:\n\n'
+        + '(Deje vacío para quitarlo)', actual || '');
+    if (nombre === null) return;   // canceló
+    const d = await api({ accion: 'renombrar_frente', frente_id: id, nombre: nombre.trim() });
+    if (d) location.reload();
 }
 
 async function quitarFrente(id, numero) {

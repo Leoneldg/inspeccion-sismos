@@ -279,6 +279,22 @@ try {
         $insp = (int)($b['inspeccion_id'] ?? 0);
         $fre  = (int)($b['frente_id'] ?? 0);
         if ($insp <= 0) jr(false, 'Edificación no válida.');
+
+        // El frente debe tener a alguien que pueda verla al entrar.
+        if ($fre > 0) {
+            $stU = $pdo->prepare('SELECT COUNT(*) FROM usuarios
+                                   WHERE frente_id = :f AND activo = 1');
+            $stU->execute(['f' => $fre]);
+            if ((int)$stU->fetchColumn() === 0) {
+                $stN = $pdo->prepare('SELECT numero FROM frente WHERE id = :f');
+                $stN->execute(['f' => $fre]);
+                $num = $stN->fetchColumn() ?: $fre;
+                jr(false, 'El Frente de Trabajo ' . $num . ' no tiene ningún usuario '
+                        . 'vinculado. Nadie podría ver esta edificación al entrar al '
+                        . 'sistema.' . "\n\n" . 'Asigne el frente a un usuario desde '
+                        . 'Administración > Usuarios.');
+            }
+        }
         asignarObraAFrente($insp, $fre, (int)($b['cuadrilla_id'] ?? 0) ?: null);
         jr(true, 'Frente asignado.');
     }
@@ -329,10 +345,20 @@ try {
     // ---------- CONSULTAR ----------
     if ($accion === 'listar') {
         $parr = trim($b['parroquia'] ?? '');
-        // Los frentes guardan su parroquia directamente (modelo por
-        // responsable). Se usa frentesEnParroquia, que ya trae brigadas.
-        $lista = $parr !== '' ? frentesEnParroquia($parr) : frentesNumerados($estado);
-        jr(true, '', ['frentes' => $lista]);
+        // Solo los frentes que tienen usuario vinculado: asignar una obra
+        // a un frente sin usuario significaría que nadie la vería.
+        $soloConUsuario = !empty($b['solo_con_usuario']);
+        $lista = $parr !== ''
+               ? frentesEnParroquia($parr, $soloConUsuario)
+               : frentesNumerados($estado);
+
+        // Cuántos quedaron fuera por no tener usuario, para avisarlo.
+        $sinUsuario = 0;
+        if ($soloConUsuario && $parr !== '') {
+            $sinUsuario = count(frentesEnParroquia($parr, false)) - count($lista);
+        }
+
+        jr(true, '', ['frentes' => $lista, 'sin_usuario' => $sinUsuario]);
     }
 
     jr(false, 'Acción no reconocida.');

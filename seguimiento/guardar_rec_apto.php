@@ -48,6 +48,14 @@ try {
         resp(true, 'Apartamento guardado.', ['ambientes' => recAmbientes($aptoId)]);
     }
 
+    // --- Apartamento que no se pudo levantar ---
+    if ($accion === 'marcar_visita') {
+        $aptoId = (int)($b['apartamento_id'] ?? 0);
+        if ($aptoId <= 0) resp(false, 'Apartamento no válido.');
+        recMarcarVisita($aptoId, $b['estado'] ?? 'no_esta', $b['observacion'] ?? '');
+        resp(true, 'Registrado.');
+    }
+
     // --- Guardar el tipo de trabajo de un ambiente ---
     if ($accion === 'guardar_trabajo') {
         $ambId = (int)($b['ambiente_id'] ?? 0);

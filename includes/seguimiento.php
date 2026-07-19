@@ -1114,16 +1114,49 @@ function frentesDeResponsable(int $responsableId): array
     } catch (Throwable $e) { return []; }
 }
 
-/** Frentes que operan en una parroquia. */
-function frentesEnParroquia(string $parroquia): array
+/**
+ * Frentes que operan en una parroquia.
+ *
+ * $soloConUsuario = true devuelve únicamente los que tienen a alguien
+ * vinculado en su cuenta. Sirve para no asignar obras a un frente que
+ * nadie podría ver al entrar al sistema.
+ */
+function frentesEnParroquia(string $parroquia, bool $soloConUsuario = false): array
 {
     frenteRespAsegurar();
     try {
-        $st = db()->prepare('SELECT * FROM frente
-                              WHERE parroquia = :p AND activo = 1
-                              ORDER BY numero');
+        $sql = 'SELECT f.* FROM frente f
+                 WHERE f.parroquia = :p AND f.activo = 1';
+        if ($soloConUsuario) {
+            $sql .= ' AND EXISTS (SELECT 1 FROM usuarios u
+                                   WHERE u.frente_id = f.id AND u.activo = 1)';
+        }
+        $sql .= ' ORDER BY f.numero';
+
+        $st = db()->prepare($sql);
         $st->execute(['p' => $parroquia]);
-        return frenteAdjuntarBrigadas($st->fetchAll());
+        $frentes = frenteAdjuntarBrigadas($st->fetchAll());
+
+        // Adjuntar quién atiende cada frente, para mostrarlo.
+        if ($frentes) {
+            $ids = implode(',', array_map(fn($f) => (int)$f['id'], $frentes));
+            $porFrente = [];
+            try {
+                foreach (db()->query("SELECT frente_id, nombre_completo
+                                        FROM usuarios
+                                       WHERE frente_id IN ($ids) AND activo = 1
+                                       ORDER BY nombre_completo")->fetchAll() as $u) {
+                    $porFrente[(int)$u['frente_id']][] = $u['nombre_completo'];
+                }
+            } catch (Throwable $e) { /* sin usuarios */ }
+
+            foreach ($frentes as &$f) {
+                $f['usuarios'] = $porFrente[(int)$f['id']] ?? [];
+                $f['tiene_usuario'] = !empty($f['usuarios']);
+            }
+            unset($f);
+        }
+        return $frentes;
     } catch (Throwable $e) { return []; }
 }
 
@@ -1940,6 +1973,7 @@ function recFotos(string $nivel, int $refId): array
 function recApartamentos(int $pisoId): array
 {
     recAsegurarColumnasApartamento();
+    recAsegurarEstadoVisita();
     $st = db()->prepare('SELECT * FROM rec_apartamento WHERE piso_id = :p ORDER BY id');
     $st->execute(['p' => $pisoId]);
     return $st->fetchAll();
@@ -2052,6 +2086,61 @@ function recAsegurarColumnasApartamento(): void
         // Asegurar que el enum de tipo de ambiente acepte 'Baño'.
         db()->exec("ALTER TABLE rec_ambiente MODIFY COLUMN tipo ENUM('Habitación','Sala','Baño','Balcón','Cocina','Otro') NOT NULL DEFAULT 'Habitación'");
     } catch (Throwable $e) { /* si no se puede, seguir */ }
+}
+
+/** Asegura las columnas del estado de visita del apartamento. */
+function recAsegurarEstadoVisita(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_apartamento")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('estado_visita', $cols, true)) {
+            db()->exec("ALTER TABLE rec_apartamento
+                        ADD COLUMN estado_visita VARCHAR(20) DEFAULT NULL");
+        }
+        if (!in_array('visita_obs', $cols, true)) {
+            db()->exec("ALTER TABLE rec_apartamento
+                        ADD COLUMN visita_obs VARCHAR(300) DEFAULT NULL");
+        }
+        if (!in_array('visita_en', $cols, true)) {
+            db()->exec("ALTER TABLE rec_apartamento
+                        ADD COLUMN visita_en DATETIME DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Marca un apartamento que no se pudo levantar.
+ *   'no_requiere' → la familia dice que no necesita reparación
+ *   'no_esta'     → no había nadie en la visita
+ *
+ * No se piden datos del jefe de familia ni ambientes: solo el motivo.
+ */
+function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): void
+{
+    recAsegurarEstadoVisita();
+    $validos = ['levantado', 'no_requiere', 'no_esta'];
+    if (!in_array($estado, $validos, true)) $estado = 'no_esta';
+
+    db()->prepare('UPDATE rec_apartamento
+                      SET estado_visita = :e, visita_obs = :o,
+                          visita_en = NOW(), completado = 1
+                    WHERE id = :id')
+        ->execute([
+            'e'  => $estado,
+            'o'  => trim($obs) ?: null,
+            'id' => $apartamentoId,
+        ]);
+
+    try {
+        $st = db()->prepare('SELECT identificador FROM rec_apartamento WHERE id = :id');
+        $st->execute(['id' => $apartamentoId]);
+        $ident = $st->fetchColumn() ?: $apartamentoId;
+        $texto = $estado === 'no_requiere' ? 'No requiere ayuda' : 'No estaba en la visita';
+        recAuditar('apto_' . $estado, null, null, 'Apto ' . $ident . ': ' . $texto);
+    } catch (Throwable $e) { /* no interrumpir */ }
 }
 
 function recGuardarApartamento(int $apartamentoId, array $d): void
@@ -3014,6 +3103,7 @@ function recAptosConReparacion(int $edificioId): array
             SELECT
                 COUNT(DISTINCT ap.id) AS total,
                 COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                     AND COALESCE(ap.estado_visita, 'levantado') = 'levantado'
                                     THEN ap.id END) AS con_reparacion,
                 COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
                                     THEN am.id END) AS ambientes_a_reparar

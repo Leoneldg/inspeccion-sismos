@@ -1114,6 +1114,26 @@ function pintarApartamento(a, lista) {
                     <i class="bi bi-check-lg"></i> Generar ambientes
                 </button>
             </div>
+
+            <!-- Casos en que no se puede levantar el apartamento -->
+            <div style="margin-top:12px;padding-top:11px;border-top:1px solid #f0f2f7;">
+                <div class="text-sm" style="color:#5b6478;margin-bottom:7px;">
+                    Si no se puede hacer el levantamiento:
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#2E7D3255;color:#2E7D32;"
+                            onclick="marcarVisita(${a.id}, 'no_requiere', this)">
+                        <i class="bi bi-hand-thumbs-up"></i> No requiere ayuda
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#97a0b855;color:#5b6478;"
+                            onclick="marcarVisita(${a.id}, 'no_esta', this)">
+                        <i class="bi bi-door-closed"></i> No está
+                    </button>
+                </div>
+            </div>
+
             <div class="amb-lista" style="margin-top:14px;"></div>
         </div>`;
     lista.appendChild(card);
@@ -1147,6 +1167,114 @@ function pintarApartamento(a, lista) {
     }
 
     try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
+}
+
+/**
+ * Marca un apartamento que no se pudo levantar y pasa al siguiente.
+ *   'no_requiere' → la familia dice que no necesita reparación
+ *   'no_esta'     → no había nadie
+ * No pide datos del jefe de familia: no tendría sentido.
+ */
+async function marcarVisita(aptoId, estado, btn) {
+    const txt = estado === 'no_requiere'
+        ? '¿Confirma que este apartamento NO REQUIERE ayuda?'
+        : '¿Confirma que NO HABÍA NADIE en este apartamento?';
+    if (!confirm(txt)) return;
+
+    const obs = prompt('Nota (opcional):\n\n'
+        + (estado === 'no_esta' ? 'Ej: se visitó dos veces, sin respuesta' : ''), '');
+    if (obs === null) return;   // canceló
+
+    const card = btn.closest('.apto-card');
+    const cuerpo = btn.closest('.apto-body');
+    btn.disabled = true;
+
+    const payload = { accion:'marcar_visita', apartamento_id: aptoId,
+                      estado: estado, observacion: obs };
+
+    // Sin señal: queda en cola.
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Apartamento ' + aptoId + ' · ' + estado);
+        pintarAptoMarcado(card, cuerpo, estado, obs);
+        saltarAlSiguiente(card);
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+        const d = await res.json();
+        if (!d.ok) { alert(d.mensaje || 'No se pudo guardar.'); btn.disabled = false; return; }
+        pintarAptoMarcado(card, cuerpo, estado, obs);
+        saltarAlSiguiente(card);
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Apartamento ' + aptoId + ' · ' + estado);
+            pintarAptoMarcado(card, cuerpo, estado, obs);
+            saltarAlSiguiente(card);
+        } else {
+            alert('Sin conexión. Intente de nuevo.');
+            btn.disabled = false;
+        }
+    }
+}
+
+/** Deja el apartamento marcado visualmente y cierra su detalle. */
+function pintarAptoMarcado(card, cuerpo, estado, obs) {
+    const esNoRequiere = estado === 'no_requiere';
+    const color = esNoRequiere ? '#2E7D32' : '#5b6478';
+    const icono = esNoRequiere ? 'bi-hand-thumbs-up-fill' : 'bi-door-closed-fill';
+    const texto = esNoRequiere ? 'No requiere ayuda' : 'No estaba en la visita';
+
+    const cab = card.querySelector('.apto-head');
+    if (cab && !cab.querySelector('.apto-marca')) {
+        cab.insertAdjacentHTML('beforeend',
+            '<span class="apto-marca" style="float:right;font-size:11.5px;font-weight:600;'
+            + 'color:' + color + ';background:' + color + '18;border-radius:20px;'
+            + 'padding:2px 10px;"><i class="bi ' + icono + '"></i> ' + texto + '</span>');
+    }
+
+    if (cuerpo) {
+        cuerpo.innerHTML = '<div style="background:' + color + '10;border:1px solid '
+            + color + '44;border-radius:9px;padding:13px 15px;">'
+            + '<div style="font-weight:700;color:' + color + ';font-size:14px;">'
+            + '<i class="bi ' + icono + '"></i> ' + texto + '</div>'
+            + (obs ? '<div style="font-size:12.5px;color:#5b6478;margin-top:5px;">' + obs + '</div>' : '')
+            + '<button type="button" class="btn btn-outline btn-sm" style="margin-top:9px;"'
+            + ' onclick="location.reload()">'
+            + '<i class="bi bi-arrow-counterclockwise"></i> Corregir</button></div>';
+        cuerpo.classList.add('hidden');
+    }
+}
+
+/** Abre el siguiente apartamento del piso, para no perder el hilo. */
+function saltarAlSiguiente(card) {
+    const siguiente = card.nextElementSibling;
+    if (!siguiente || !siguiente.classList.contains('apto-card')) {
+        // Era el último: avisar y quedarse donde está.
+        const msg = document.createElement('div');
+        msg.style.cssText = 'background:#eef7f0;border-radius:8px;padding:10px 13px;'
+            + 'margin-top:9px;font-size:13px;color:#2E7D32;font-weight:600;';
+        msg.innerHTML = '<i class="bi bi-check-circle-fill"></i> '
+            + 'Terminó los apartamentos de este piso.';
+        card.parentNode.appendChild(msg);
+        setTimeout(() => msg.remove(), 5000);
+        return;
+    }
+
+    const cuerpo = siguiente.querySelector('.apto-body');
+    if (cuerpo) cuerpo.classList.remove('hidden');
+    siguiente.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Poner el cursor en el primer campo, listo para escribir.
+    setTimeout(() => {
+        const primero = siguiente.querySelector('.jefe-nombre');
+        if (primero) primero.focus();
+    }, 400);
 }
 
 async function guardarApto(btn, aptoId) {

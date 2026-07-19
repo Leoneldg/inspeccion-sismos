@@ -598,7 +598,8 @@ async function cargarIntegrantes(parroquia, estado) {
         if (!d) {
             const res = await fetch(APP_URL_BASE + 'seguimiento/guardar_frente.php', {
                 method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ accion: 'listar', parroquia: parroquia }),
+                body: JSON.stringify({ accion: 'listar', parroquia: parroquia,
+                                       solo_con_usuario: 1 }),
                 credentials: 'same-origin'
             });
             d = await res.json();
@@ -606,11 +607,19 @@ async function cargarIntegrantes(parroquia, estado) {
         }
 
         const frentes = (d && d.frentes) ? d.frentes : [];
+        const sinUsuario = (d && d.sin_usuario) ? d.sin_usuario : 0;
+
         if (!frentes.length) {
             cont.innerHTML = '<div style="background:#fffbf0;border:1px solid #C9A22755;'
                 + 'border-radius:8px;padding:10px 12px;font-size:12.5px;color:#8a6d1a;">'
-                + 'Esta parroquia no tiene frentes de trabajo. '
-                + '<a href="' + APP_URL_BASE + 'seguimiento/frentes.php">Crear uno</a>.</div>';
+                + (sinUsuario > 0
+                    ? '<strong>Hay ' + sinUsuario + ' frente(s) en esta parroquia, '
+                      + 'pero ninguno tiene usuario vinculado.</strong><br>'
+                      + 'Vincúlelos desde <a href="' + APP_URL_BASE + 'admin/usuarios.php">'
+                      + 'Usuarios</a> para poder asignarles obras.'
+                    : 'Esta parroquia no tiene frentes de trabajo. '
+                      + '<a href="' + APP_URL_BASE + 'seguimiento/frentes.php">Crear uno</a>.')
+                + '</div>';
             return;
         }
 
@@ -629,11 +638,20 @@ async function cargarIntegrantes(parroquia, estado) {
                         Frente de Trabajo ${f.numero}</span>
                     ${f.nombre ? `<span style="display:block;font-size:11.5px;color:#2d4488;
                         font-weight:600;">${f.nombre}</span>` : ''}
+                    ${(f.usuarios && f.usuarios.length) ? `<span style="display:block;
+                        font-size:10.5px;color:#5b6478;">
+                        <i class="bi bi-person-check"></i> ${f.usuarios.join(', ')}</span>` : ''}
                     ${nBrig ? `<span style="display:block;font-size:10.5px;color:#767c94;">
                         ${nBrig} brigada${nBrig === 1 ? '' : 's'}</span>` : ''}
                 </span>
             </label>`;
         }).join('');
+
+        if (sinUsuario > 0) {
+            cont.innerHTML += '<div style="font-size:11.5px;color:#8a6d1a;padding:7px 4px;">'
+                + '<i class="bi bi-info-circle"></i> ' + sinUsuario + ' frente(s) no aparecen '
+                + 'porque no tienen usuario vinculado.</div>';
+        }
 
     } catch (e) {
         cont.innerHTML = '<div class="text-sm text-muted">No se pudieron cargar los frentes.</div>';
