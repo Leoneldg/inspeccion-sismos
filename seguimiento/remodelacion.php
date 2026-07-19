@@ -583,8 +583,15 @@ function pintarMetrosTotal(m2, comunes, porTipo, materiales, porTrabajo) {
             + 'Cálculo aproximado según los metros registrados. '
             + 'Verifique en obra antes de solicitar.</div></div>';
     } else if (tipos.length) {
-        html += '<div style="border-top:1px solid #eef0f5;padding-top:11px;font-size:12.5px;color:#5b6478;">'
-            + 'No hay recetas de materiales definidas para estos tipos de superficie.</div>';
+        // Hay metros pero no salieron materiales: falta indicar el trabajo.
+        html += '<div style="border-top:1px solid #eef0f5;padding-top:12px;">'
+            + '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;'
+            + 'padding:11px 14px;font-size:12.5px;color:#8a6d1a;">'
+            + '<i class="bi bi-exclamation-triangle-fill"></i> '
+            + '<strong>Hay metros registrados pero no se calcularon materiales.</strong><br>'
+            + 'Falta indicar <em>qué trabajo</em> hay que hacer en cada ambiente. '
+            + 'Ábralo en el levantamiento técnico y elija el trabajo '
+            + '(friso, mampostería, vaciado…).</div></div>';
     }
 
     cont.innerHTML = html;
