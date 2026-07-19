@@ -571,10 +571,22 @@ document.querySelectorAll('.area-row .area-reparar').forEach(chk => {
 
 // Subir foto de un área común a reparar.
 let _areaFotoDestino = null;
+// Destino de la próxima foto. Se declara aquí porque varias funciones
+// de más arriba la usan antes de que el script llegue a su definición.
+var _fotoDestino = null;
+
+/** Foto de un área común del edificio. */
 function subirFotoArea(areaKey, btn) {
-    _areaFotoDestino = btn.closest('.area-row').querySelector('.area-fotos');
-    _areaFotoDestino.dataset.area = areaKey;
-    elegirOrigenFoto(_fotoDestino);
+    const cont = btn.closest('.area-row').querySelector('.area-fotos');
+    cont.dataset.area = areaKey;
+    _areaFotoDestino = cont;
+    elegirOrigenFoto({
+        nivel: 'edificio',
+        refId: EDIFICIO_ID,
+        pideParte: false,
+        parteFija: areaKey,
+        cont: cont,
+    });
 }
 
 // Calcular materiales de un área según m² y tipo de trabajo.
@@ -1523,11 +1535,6 @@ function pintarAmbientes(ambientes, contenedor) {
     });
 }
 
-async /**
- * Comprueba que un ambiente marcado como "necesita reparación" tenga
- * metros cuadrados. Sin ese dato no se pueden calcular materiales.
- * Devuelve true si está completo.
- */
 /** Guarda el tipo de trabajo elegido para un ambiente. */
 async function guardarTrabajo(ambId, sel) {
     const payload = { accion:'guardar_trabajo', ambiente_id: ambId, tipo_trabajo: sel.value };
@@ -1682,7 +1689,7 @@ function recalcularMateriales(row) {
 // (cámara o galería, el móvil pregunta). La "parte" (pared, techo…) se pide
 // DESPUÉS de elegir la imagen, con botones — nunca con prompt, porque eso
 // bloqueaba la apertura de la cámara en el móvil.
-let _fotoDestino = null;
+// (la variable _fotoDestino se declara al inicio del script)
 
 /**
  * Marca que la edificación no tiene etiqueta.
