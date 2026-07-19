@@ -617,8 +617,13 @@ function avisoSuperficies(sel) {
     if (!t || !t.aplica) { aviso.textContent = ''; return; }
     const sups = t.aplica.split(',').map(x => x.trim()).filter(Boolean);
     aviso.style.color = '#8a6d1a';
-    aviso.innerHTML = '<i class="bi bi-info-circle"></i> Este trabajo cuenta los metros de: '
-        + '<strong>' + sups.join(', ') + '</strong>';
+    const nombres = { pared: 'PARED', techo: 'TECHO', piso: 'PISO' };
+    const legibles = sups.map(x => nombres[x] || x.toUpperCase());
+    aviso.innerHTML = '<i class="bi bi-info-circle"></i> Anote los metros en: '
+        + '<strong>' + legibles.join(' o ') + '</strong>'
+        + (legibles.length === 1
+            ? ' — los demás campos no cuentan para este trabajo.'
+            : '');
 }
 
 const APTOS_POR_PISO = <?= (int)($ed['aptos_por_piso'] ?: 1) ?>;

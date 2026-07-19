@@ -2293,11 +2293,22 @@ function recGuardarAmbiente(int $ambienteId, array $d): void
 // =====================================================================
 
 /** Tipos de superficie que se pueden reparar. */
+/**
+ * Superficies donde se miden los metros cuadrados.
+ *
+ * Solo son tres: pared, techo y piso. Antes había siete, pero
+ * "mampostería", "derrumbar" y "reconstrucción" no son superficies
+ * sino TIPOS DE TRABAJO, y eso confundía el cálculo: los metros de
+ * mampostería se contaban aparte de los de pared, cuando son lo mismo.
+ *
+ * El clóset se quitó: sus metros van dentro de la pared del ambiente.
+ */
 function recTiposSuperficie(): array
 {
     return [
-        'pared' => 'Pared', 'techo' => 'Techo', 'piso' => 'Piso', 'closet' => 'Clóset',
-        'mamposteria' => 'Mampostería', 'derrumbar' => 'Derrumbar / demoler', 'reconstruccion' => 'Reconstrucción',
+        'pared' => 'Pared',
+        'techo' => 'Techo',
+        'piso'  => 'Piso',
     ];
 }
 
@@ -2472,16 +2483,14 @@ function recTrabajosDeEdificio(int $edificioId): array
               JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
              WHERE rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
                AND rr.metros_cuadrados > 0
-               -- Se cuentan solo las superficies que aplican al trabajo.
-               -- Si el trabajo no declara superficies, o el técnico usó
-               -- una que no está en la lista (mampostería, derrumbar…),
-               -- se cuenta igual: es mejor calcular de más que no calcular.
+               -- Cada trabajo cuenta solo las superficies que le tocan.
+               -- Levantar una pared consume metros de PARED; frisar el
+               -- techo consume metros de TECHO. Si el trabajo se mide en
+               -- m³ (vaciados), no depende de la superficie.
                AND (
                    tt.aplica_a IS NULL OR tt.aplica_a = ''
                    OR tt.unidad = 'm3'
-                   OR rr.tipo_superficie IS NULL OR rr.tipo_superficie = ''
                    OR FIND_IN_SET(rr.tipo_superficie, REPLACE(tt.aplica_a, ' ', '')) > 0
-                   OR rr.tipo_superficie NOT IN ('pared','techo','piso','closet')
                )
                AND (
                    (rr.nivel = 'ambiente' AND rr.ref_id IN (
