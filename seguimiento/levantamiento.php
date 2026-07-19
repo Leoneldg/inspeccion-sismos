@@ -416,9 +416,10 @@ include __DIR__ . '/../includes/header.php';
                                 onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)">
                             <option value="">— ¿Qué trabajo? —</option>
                         </select>
-                        <input type="number" min="0" step="0.01" class="form-control el-m2"
+                        <input type="text" inputmode="decimal" class="form-control el-m2"
                                style="width:110px;" placeholder="m²"
-                               value="<?= $el['metros_cuadrados'] ?? '' ?>"
+                               value="<?= str_replace('.', ',', (string)($el['metros_cuadrados'] ?? '')) ?>"
+                               oninput="normalizarDecimal(this)"
                                onchange="guardarPisoReactivo(<?= (int)$piso['id'] ?>)">
                     </div>
                     <div class="elem-fotos" style="display:flex;gap:6px;flex-wrap:wrap;width:100%;"></div>
@@ -677,7 +678,7 @@ function subirFotoArea(areaKey, btn) {
 // Calcular materiales de un área según m² y tipo de trabajo.
 async function calcularMatArea(inp) {
     const row = inp.closest('.area-row');
-    const m2 = parseFloat(inp.value) || 0;
+    const m2 = aNumero(inp.value);
     const trabajo = row.querySelector('.area-trabajo').value;
     const cont = row.querySelector('.area-materiales');
     if (m2 <= 0 || !trabajo) { cont.style.display = 'none'; return; }
@@ -723,7 +724,7 @@ async function guardarEdificio(ev) {
                 tipo: row.dataset.area,
                 necesita_reparacion: 1,
                 tipo_trabajo: row.querySelector('.area-trabajo').value,
-                metros_cuadrados: parseFloat(row.querySelector('.area-m2').value) || 0,
+                metros_cuadrados: aNumero(row.querySelector('.area-m2').value),
             });
         }
     });
@@ -994,7 +995,7 @@ async function guardarPisoAhora(pisoId) {
             estado: row.querySelector('.el-estado').value,
             necesita_reparacion: row.querySelector('.el-reparar').checked ? 1 : 0,
             tipo_trabajo: selT ? selT.value : '',
-            metros_cuadrados: inpM ? (parseFloat(inpM.value) || 0) : 0,
+            metros_cuadrados: inpM ? aNumero(inpM.value) : 0,
         });
     });
     const payload = {
@@ -1621,7 +1622,10 @@ function pintarAmbientes(ambientes, contenedor) {
                     ${['pared','techo','piso','closet'].map(sup => `
                         <div style="width:110px;">
                             <label class="text-sm" style="text-transform:capitalize;">${sup} (m²)</label>
-                            <input type="number" min="0" step="0.01" class="form-control sup-${sup}" data-sup="${sup}" value="0" onchange="guardarReparacion(${am.id}, this)">
+                            <input type="text" inputmode="decimal" class="form-control sup-${sup}"
+                                   data-sup="${sup}" value="0"
+                                   oninput="normalizarDecimal(this)"
+                                   onchange="guardarReparacion(${am.id}, this)">
                         </div>`).join('')}
                 </div>
                 <div class="amb-materiales text-sm" style="margin-top:8px;color:#55617f;"></div>
@@ -1644,7 +1648,8 @@ function pintarAmbientes(ambientes, contenedor) {
                 let trabajoGuardado = '';
                 d.reparaciones.forEach(rep => {
                     const inp = row.querySelector('.sup-'+rep.tipo_superficie);
-                    if (inp) inp.value = rep.metros_cuadrados;
+                    // Se muestra con coma, como se escribe en Venezuela.
+                    if (inp) inp.value = String(rep.metros_cuadrados).replace('.', ',');
                     if (rep.tipo_trabajo) trabajoGuardado = rep.tipo_trabajo;
                 });
                 // Restaurar el tipo de trabajo elegido antes.
@@ -1656,6 +1661,39 @@ function pintarAmbientes(ambientes, contenedor) {
             }
         });
     });
+}
+
+/**
+ * Convierte el punto en coma mientras se escribe.
+ * En Venezuela el separador decimal es la coma, pero los teclados de
+ * celular suelen ofrecer punto. Así el técnico escribe como quiera.
+ */
+function normalizarDecimal(inp) {
+    const pos = inp.selectionStart;
+    let v = inp.value;
+
+    // Solo dígitos y un separador.
+    v = v.replace(/[^0-9.,]/g, '');
+    v = v.replace(/\./g, ',');          // el punto pasa a coma
+    const partes = v.split(',');
+    if (partes.length > 2) {            // más de una coma: se queda la primera
+        v = partes[0] + ',' + partes.slice(1).join('');
+    }
+    // Máximo dos decimales.
+    const p = v.split(',');
+    if (p[1] && p[1].length > 2) v = p[0] + ',' + p[1].slice(0, 2);
+
+    if (v !== inp.value) {
+        inp.value = v;
+        try { inp.setSelectionRange(pos, pos); } catch (e) {}
+    }
+}
+
+/** Convierte "12,5" a 12.5 para enviarlo al servidor. */
+function aNumero(txt) {
+    if (txt === null || txt === undefined) return 0;
+    const n = parseFloat(String(txt).replace(',', '.'));
+    return isNaN(n) ? 0 : n;
 }
 
 /** Guarda el tipo de trabajo elegido para un ambiente. */
@@ -1685,7 +1723,7 @@ function ambienteTieneMetros(row) {
     if (!chk || !chk.checked) return true;   // sin reparación, no aplica
     let suma = 0;
     row.querySelectorAll('.amb-reparacion input[type=number]').forEach(i => {
-        suma += parseFloat(i.value) || 0;
+        suma += aNumero(i.value);
     });
     return suma > 0;
 }
@@ -1757,7 +1795,7 @@ async function guardarReparacion(ambId, input) {
     const row = input.closest('.amb-row');
     const reparaciones = [];
     row.querySelectorAll('[data-sup]').forEach(inp => {
-        const m2 = parseFloat(inp.value) || 0;
+        const m2 = aNumero(inp.value);
         if (m2 > 0) reparaciones.push({ tipo_superficie: inp.dataset.sup, metros_cuadrados: m2 });
     });
 

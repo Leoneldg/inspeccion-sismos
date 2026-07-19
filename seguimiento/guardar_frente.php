@@ -36,8 +36,12 @@ try {
         if ($parr === '') jr(false, 'Indique la parroquia.');
         if (!puedeAccederParroquia($parr)) jr(false, 'No tiene asignada esa parroquia.');
 
-        $r = frenteCrear((int)($b['responsable_id'] ?? 0), $parr, $estado);
-        jr(true, 'Frente creado.', ['frente_id' => $r['id'], 'numero' => $r['numero']]);
+        $r = frenteCrear((int)($b['responsable_id'] ?? 0), $parr, $estado,
+                         trim($b['nombre'] ?? ''));
+        jr(true, 'Frente creado.', [
+            'frente_id' => $r['id'], 'numero' => $r['numero'],
+            'nombre' => $r['nombre'] ?? null,
+        ]);
     }
 
     // ---------- BRIGADAS ----------
@@ -129,6 +133,13 @@ try {
         $id = (int)$pdo->lastInsertId();
         recAuditar('frente_creado', null, null, 'Frente de Trabajo ' . $numero);
         jr(true, 'Frente creado.', ['frente_id' => $id]);
+    }
+
+    if ($accion === 'renombrar_frente') {
+        $id = (int)($b['frente_id'] ?? 0);
+        if ($id <= 0) jr(false, 'Frente no válido.');
+        frenteRenombrar($id, trim($b['nombre'] ?? ''));
+        jr(true, 'Nombre actualizado.');
     }
 
     if ($accion === 'desactivar_frente') {
@@ -318,17 +329,9 @@ try {
     // ---------- CONSULTAR ----------
     if ($accion === 'listar') {
         $parr = trim($b['parroquia'] ?? '');
-        $lista = $parr !== '' ? frentesDePar($estado, $parr) : frentesNumerados($estado);
-        // Cuadrillas de cada frente, para el selector.
-        foreach ($lista as &$f) {
-            if (!isset($f['cuadrillas'])) {
-                $st = $pdo->prepare('SELECT id, numero, nombre, especialidad FROM cuadrilla
-                                      WHERE frente_id = :f AND activa = 1 ORDER BY numero');
-                $st->execute(['f' => (int)$f['id']]);
-                $f['cuadrillas'] = $st->fetchAll();
-            }
-        }
-        unset($f);
+        // Los frentes guardan su parroquia directamente (modelo por
+        // responsable). Se usa frentesEnParroquia, que ya trae brigadas.
+        $lista = $parr !== '' ? frentesEnParroquia($parr) : frentesNumerados($estado);
         jr(true, '', ['frentes' => $lista]);
     }
 

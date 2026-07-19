@@ -91,11 +91,14 @@ try {
                    i.uso_edificacion, i.num_pisos, i.numero_personas,
                    i.decision_final, i.fecha_inspeccion,
                    so.estado_obra, so.avance_pct, so.ente_id, e.nombre AS ente_nombre,
-                   re.id AS rec_edificio_id, re.completado
+                   re.id AS rec_edificio_id, re.completado,
+                   fr.numero AS frente_numero, fr.nombre AS frente_nombre
               FROM inspecciones i
               LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
               LEFT JOIN entes e ON e.id = so.ente_id
               LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN asignacion_frente_obra afo ON afo.inspeccion_id = i.id
+              LEFT JOIN frente fr ON fr.id = afo.frente_id
               $where
              ORDER BY i.nombre_edificio
              LIMIT 500";
@@ -140,6 +143,10 @@ try {
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,
             'fase'          => $fase,
+            'frente'        => !empty($ed['frente_numero'])
+                               ? ('Frente de Trabajo ' . $ed['frente_numero']
+                                  . (!empty($ed['frente_nombre']) ? ' · ' . $ed['frente_nombre'] : ''))
+                               : null,
             'levantamiento_completo' => !empty($ed['rec_edificio_id']) && (int)($ed['completado'] ?? 0) === 1,
             'ficha_url'         => APP_URL_BASE . 'seguimiento/ficha.php?inspeccion=' . (int)$ed['inspeccion_id'],
             'levantamiento_url' => APP_URL_BASE . 'seguimiento/levantamiento.php?inspeccion=' . (int)$ed['inspeccion_id'],

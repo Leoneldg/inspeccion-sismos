@@ -226,7 +226,11 @@ include __DIR__ . '/../includes/header.php';
         <div class="seg-filtros">
             <div class="field" style="margin:0;">
                 <label class="text-sm">Buscar edificación</label>
-                <input type="text" id="f-buscar" class="form-control" style="width:250px;" placeholder="Nombre o código…" onkeydown="if(event.key==='Enter')ejecutarBusqueda()">
+                <input type="text" id="f-buscar" class="form-control" style="width:250px;"
+                       placeholder="Escriba el nombre o el código…"
+                       autocomplete="off"
+                       oninput="buscarEnVivo()"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();ejecutarBusqueda();}">
             </div>
             <div class="field" style="margin:0;">
                 <label class="text-sm">Parroquia</label>
@@ -374,24 +378,26 @@ include __DIR__ . '/../includes/header.php';
                         <a href="#" onclick="cambiarEnte();return false;" style="font-size:11px;margin-left:6px;">cambiar</a>
                     </div>
 
-                    <!-- PASO 2: Responsable directo del equipo de trabajo -->
+                    <!-- PASO 2: Frente de trabajo que ejecuta la obra -->
                     <div id="sp-subasignar" style="display:none;margin-bottom:10px;">
                         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px;">
-                            <i class="bi bi-person-badge"></i> Responsable del equipo de trabajo
+                            <i class="bi bi-diagram-3-fill"></i> Frente de trabajo
                         </label>
-                        <select id="sp-miembro" class="form-control" style="width:100%;">
-                            <option value="">— Elija a la persona —</option>
-                        </select>
-                        <button type="button" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;margin-top:6px;"
-                                onclick="asignarMiembroAlPunto()">
-                            <i class="bi bi-check-lg"></i> Asignar responsable
+                        <div id="sp-frentes" style="display:flex;flex-direction:column;gap:6px;
+                             max-height:230px;overflow-y:auto;margin-bottom:7px;">
+                            <div class="text-sm text-muted">Cargando frentes…</div>
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm"
+                                style="width:100%;justify-content:center;"
+                                onclick="asignarFrenteAlPunto()">
+                            <i class="bi bi-check-lg"></i> Asignar frente
                         </button>
                     </div>
 
-                    <!-- Responsable ya asignado -->
+                    <!-- Frente ya asignado -->
                     <div id="sp-miembro-asignado" style="display:none;background:#eef7f0;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px;">
-                        <i class="bi bi-person-check-fill" style="color:#2E7D32;"></i>
-                        Responsable: <b id="sp-miembro-nombre">—</b>
+                        <i class="bi bi-diagram-3-fill" style="color:#2E7D32;"></i>
+                        <b id="sp-miembro-nombre">—</b>
                         <a href="#" onclick="cambiarMiembro();return false;" style="font-size:11px;margin-left:6px;">cambiar</a>
                     </div>
 
@@ -487,11 +493,11 @@ function abrirPanel(p) {
         divAsignado.style.display = '';
         document.getElementById('sp-ente-nombre').textContent = p.ente;
 
-        // Responsable directo (una de las personas del equipo de trabajo).
-        if (p.miembro) {
+        // Frente de trabajo que ejecuta la obra.
+        if (p.frente) {
             document.getElementById('sp-subasignar').style.display = 'none';
             document.getElementById('sp-miembro-asignado').style.display = '';
-            document.getElementById('sp-miembro-nombre').textContent = p.miembro;
+            document.getElementById('sp-miembro-nombre').textContent = p.frente;
         } else {
             document.getElementById('sp-miembro-asignado').style.display = 'none';
             document.getElementById('sp-subasignar').style.display = '';
@@ -572,57 +578,93 @@ try { filtrarParroquias(); } catch (e) { /* no interrumpir */ }
 
 // ---------- Responsable directo (integrante del equipo de trabajo) ----------
 let _integrantesCache = {};
+let _frenteElegido = null;
 
 // Carga las personas de los frentes de la parroquia en el selector.
+/**
+ * Carga los frentes de trabajo de la parroquia.
+ * Cada uno se muestra con su número grande y el nombre del equipo
+ * debajo, en letra pequeña.
+ */
 async function cargarIntegrantes(parroquia, estado) {
-    const sel = document.getElementById('sp-miembro');
-    sel.innerHTML = '<option value="">Cargando…</option>';
-    const clave = (estado || '') + '|' + (parroquia || '');
+    const cont = document.getElementById('sp-frentes');
+    if (!cont) return;
+    cont.innerHTML = '<div class="text-sm text-muted">Cargando frentes…</div>';
+    _frenteElegido = null;
 
+    const clave = (estado || '') + '|' + (parroquia || '');
     try {
         let d = _integrantesCache[clave];
         if (!d) {
-            const res = await fetch(APP_URL_BASE + 'seguimiento/asignar_frente.php', {
+            const res = await fetch(APP_URL_BASE + 'seguimiento/guardar_frente.php', {
                 method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ accion:'integrantes', parroquia: parroquia, estado: estado || 'Distrito Capital' })
+                body: JSON.stringify({ accion: 'listar', parroquia: parroquia }),
+                credentials: 'same-origin'
             });
             d = await res.json();
             if (d.ok) _integrantesCache[clave] = d;
         }
-        if (!d.ok) { sel.innerHTML = '<option value="">' + (d.mensaje || 'Sin equipos') + '</option>'; return; }
 
-        // Solo viene el equipo de trabajo (GDC): lista simple, sin grupos.
-        let html = '<option value="">— Elija a la persona —</option>';
-        let hay = false;
-        (d.frentes || []).forEach(f => {
-            (f.integrantes || []).forEach(nom => {
-                hay = true;
-                const val = JSON.stringify({ f: f.frente_id, t: f.tipo, m: nom }).replace(/"/g, '&quot;');
-                const sector = f.sector ? ' (' + f.sector + ')' : '';
-                html += '<option value="' + val + '">' + nom + sector + '</option>';
-            });
-        });
-        sel.innerHTML = hay ? html : '<option value="">Sin equipo de trabajo registrado</option>';
+        const frentes = (d && d.frentes) ? d.frentes : [];
+        if (!frentes.length) {
+            cont.innerHTML = '<div style="background:#fffbf0;border:1px solid #C9A22755;'
+                + 'border-radius:8px;padding:10px 12px;font-size:12.5px;color:#8a6d1a;">'
+                + 'Esta parroquia no tiene frentes de trabajo. '
+                + '<a href="' + APP_URL_BASE + 'seguimiento/frentes.php">Crear uno</a>.</div>';
+            return;
+        }
+
+        cont.innerHTML = frentes.map(f => {
+            const nBrig = (f.brigadas || []).length;
+            return `<label class="sp-frente-op" data-id="${f.id}"
+                 style="display:flex;align-items:center;gap:10px;padding:9px 11px;
+                        border:2px solid #e5e8f0;border-radius:9px;cursor:pointer;">
+                <input type="radio" name="sp-frente" value="${f.id}"
+                       onchange="elegirFrente(${f.id})" style="width:17px;height:17px;">
+                <span style="background:#22366F;color:#fff;width:30px;height:30px;border-radius:8px;
+                             display:flex;align-items:center;justify-content:center;
+                             font-weight:800;font-size:14px;flex-shrink:0;">${f.numero}</span>
+                <span style="flex:1;min-width:0;">
+                    <span style="display:block;font-weight:700;color:#2a3140;font-size:13.5px;">
+                        Frente de Trabajo ${f.numero}</span>
+                    ${f.nombre ? `<span style="display:block;font-size:11.5px;color:#2d4488;
+                        font-weight:600;">${f.nombre}</span>` : ''}
+                    ${nBrig ? `<span style="display:block;font-size:10.5px;color:#767c94;">
+                        ${nBrig} brigada${nBrig === 1 ? '' : 's'}</span>` : ''}
+                </span>
+            </label>`;
+        }).join('');
+
     } catch (e) {
-        sel.innerHTML = '<option value="">Error al cargar</option>';
+        cont.innerHTML = '<div class="text-sm text-muted">No se pudieron cargar los frentes.</div>';
     }
 }
 
-async function asignarMiembroAlPunto() {
+/** Resalta el frente elegido. */
+function elegirFrente(id) {
+    _frenteElegido = id;
+    document.querySelectorAll('.sp-frente-op').forEach(el => {
+        const suyo = parseInt(el.dataset.id) === id;
+        el.style.borderColor = suyo ? '#22366F' : '#e5e8f0';
+        el.style.background  = suyo ? '#f4f7fd' : '';
+    });
+}
+
+/** Asigna la edificación al frente de trabajo elegido. */
+async function asignarFrenteAlPunto() {
     if (!seleccionado) return;
-    const sel = document.getElementById('sp-miembro');
-    if (!sel.value) { alert('Elija a la persona responsable.'); return; }
-    let datos;
-    try { datos = JSON.parse(sel.value.replace(/&quot;/g, '"')); } catch (e) { return; }
+    if (!_frenteElegido) { alert('Elija el frente de trabajo.'); return; }
 
     const msg = document.getElementById('sp-msg');
     try {
-        const res = await fetch(APP_URL_BASE + 'seguimiento/asignar_frente.php', {
+        const res = await fetch(APP_URL_BASE + 'seguimiento/guardar_frente.php', {
             method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({
+                accion: 'asignar_obra',
                 inspeccion_id: seleccionado.id,
-                frente_id: datos.f, tipo: datos.t, miembro: datos.m
-            })
+                frente_id: _frenteElegido
+            }),
+            credentials: 'same-origin'
         });
         const d = await res.json();
         if (d.sesion_expirada) { alert(d.mensaje); return; }
@@ -631,14 +673,26 @@ async function asignarMiembroAlPunto() {
             msg.style.color = '#A61C1C'; msg.style.display = '';
             return;
         }
-        seleccionado.miembro = datos.m;
+
+        // Mostrar el frente asignado con su nombre.
+        const op = document.querySelector('.sp-frente-op[data-id="' + _frenteElegido + '"]');
+        let etiqueta = 'Frente asignado';
+        if (op) {
+            const num = op.querySelector('span span');
+            etiqueta = num ? num.textContent.trim() : etiqueta;
+            const nom = op.querySelectorAll('span span')[1];
+            if (nom && nom.textContent.trim()) etiqueta += ' · ' + nom.textContent.trim();
+        }
+        seleccionado.frente = etiqueta;
+
         document.getElementById('sp-subasignar').style.display = 'none';
         document.getElementById('sp-miembro-asignado').style.display = '';
-        document.getElementById('sp-miembro-nombre').textContent = datos.m;
-        msg.textContent = 'Responsable asignado.';
+        document.getElementById('sp-miembro-nombre').textContent = etiqueta;
+        msg.textContent = 'Frente asignado.';
         msg.style.color = '#2E7D32'; msg.style.display = '';
     } catch (e) {
-        msg.textContent = 'Error de red.'; msg.style.color = '#A61C1C'; msg.style.display = '';
+        msg.textContent = 'Sin conexión. Intente de nuevo.';
+        msg.style.color = '#A61C1C'; msg.style.display = '';
     }
 }
 
@@ -966,6 +1020,19 @@ function filtrarParroquias() {
             ? 'Todas las parroquias'
             : 'Sin parroquias en este estado';
     }
+}
+
+// Busca mientras se escribe, esperando a que la persona termine de
+// teclear para no lanzar una consulta por cada letra.
+let _tempBusqueda = null;
+function buscarEnVivo() {
+    clearTimeout(_tempBusqueda);
+    const q = (document.getElementById('f-buscar').value || '').trim();
+
+    // Con menos de 2 letras no vale la pena buscar.
+    if (q.length > 0 && q.length < 2) return;
+
+    _tempBusqueda = setTimeout(() => { ejecutarBusqueda(); }, 350);
 }
 
 async function ejecutarBusqueda() {
