@@ -2001,11 +2001,30 @@ function recGuardarApartamento(int $apartamentoId, array $d): void
     // Asegurar columnas del jefe de familia y baños (por si falta el SQL).
     recAsegurarColumnasApartamento();
 
-    $nh = max(0, (int)($d['num_habitaciones'] ?? 0));
-    $ns = max(0, (int)($d['num_salas'] ?? 0));
-    $nb = max(0, (int)($d['num_balcones'] ?? 0));
-    $nc = max(0, (int)($d['num_cocinas'] ?? 0));
-    $nban = max(0, (int)($d['num_banos'] ?? 0));
+    // Si un campo llega vacío (no enviado), se conserva lo que ya había:
+    // un formulario incompleto no debe borrar ambientes con fotos.
+    $actual = [];
+    try {
+        $stA = db()->prepare('SELECT num_habitaciones, num_salas, num_balcones,
+                                     num_cocinas, num_banos
+                                FROM rec_apartamento WHERE id = :a');
+        $stA->execute(['a' => $apartamentoId]);
+        $actual = $stA->fetch() ?: [];
+    } catch (Throwable $e) {}
+
+    $leerCant = function (string $clave, string $col) use ($d, $actual): int {
+        // Vacío o ausente → mantener lo guardado.
+        if (!isset($d[$clave]) || $d[$clave] === '' || $d[$clave] === null) {
+            return max(0, (int)($actual[$col] ?? 0));
+        }
+        return max(0, (int)$d[$clave]);
+    };
+
+    $nh   = $leerCant('num_habitaciones', 'num_habitaciones');
+    $ns   = $leerCant('num_salas',        'num_salas');
+    $nb   = $leerCant('num_balcones',     'num_balcones');
+    $nc   = $leerCant('num_cocinas',      'num_cocinas');
+    $nban = $leerCant('num_banos',        'num_banos');
 
     db()->prepare(
         'UPDATE rec_apartamento SET num_habitaciones=:h, num_salas=:s, num_balcones=:b, num_cocinas=:c,
@@ -2054,15 +2073,39 @@ function recGuardarApartamento(int $apartamentoId, array $d): void
                 'INSERT INTO rec_ambiente (apartamento_id, tipo, numero) VALUES (:a, :t, :n)'
             )->execute(['a'=>$apartamentoId, 't'=>$tipo, 'n'=>$n]);
         }
-        // Si redujeron la cantidad, borrar los sobrantes (y sus fotos por cascada lógica).
+        // Si redujeron la cantidad, borrar los sobrantes. PERO nunca se
+        // borra un ambiente que ya tenga fotos o metros registrados: eso
+        // sería perder trabajo de campo. El técnico debe quitarlos a mano.
         if ($cant < $ya) {
-            $del = db()->prepare('SELECT id FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t AND numero > :c');
+            $del = db()->prepare('SELECT id FROM rec_ambiente
+                                   WHERE apartamento_id=:a AND tipo=:t AND numero > :c
+                                   ORDER BY numero DESC');
             $del->execute(['a'=>$apartamentoId, 't'=>$tipo, 'c'=>$cant]);
+
             foreach ($del->fetchAll(PDO::FETCH_COLUMN) as $ambId) {
-                db()->prepare("DELETE FROM rec_foto WHERE nivel='ambiente' AND ref_id=:r")->execute(['r'=>$ambId]);
+                $ambId = (int)$ambId;
+
+                // ¿Tiene fotos?
+                $nf = db()->prepare("SELECT COUNT(*) FROM rec_foto
+                                      WHERE nivel='ambiente' AND ref_id=:r");
+                $nf->execute(['r' => $ambId]);
+                if ((int)$nf->fetchColumn() > 0) continue;   // se conserva
+
+                // ¿Tiene metros o avance registrado?
+                $nm = db()->prepare("SELECT COUNT(*) FROM rec_reparacion
+                                      WHERE nivel='ambiente' AND ref_id=:r
+                                        AND metros_cuadrados > 0");
+                $nm->execute(['r' => $ambId]);
+                if ((int)$nm->fetchColumn() > 0) continue;   // se conserva
+
+                // Vacío: se puede borrar sin perder nada.
+                try { db()->prepare('DELETE FROM rec_avance_ambiente WHERE ambiente_id=:r')
+                          ->execute(['r' => $ambId]); } catch (Throwable $e) {}
+                try { db()->prepare("DELETE FROM rec_reparacion
+                                      WHERE nivel='ambiente' AND ref_id=:r")
+                          ->execute(['r' => $ambId]); } catch (Throwable $e) {}
+                db()->prepare('DELETE FROM rec_ambiente WHERE id=:r')->execute(['r' => $ambId]);
             }
-            db()->prepare('DELETE FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t AND numero > :c')
-                ->execute(['a'=>$apartamentoId, 't'=>$tipo, 'c'=>$cant]);
         }
     }
 }
