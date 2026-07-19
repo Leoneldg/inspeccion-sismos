@@ -20,6 +20,7 @@ try {
 
     // Ambientes de un apartamento
     if (isset($_GET['ambientes_de'])) {
+
         resp(true, ['ambientes' => recAmbientes((int)$_GET['ambientes_de'])]);
     }
 
@@ -40,6 +41,23 @@ try {
     // Reparaciones (m² por superficie) de un ambiente
     if (isset($_GET['reparaciones_de'])) {
         resp(true, ['reparaciones' => recReparaciones('ambiente', (int)$_GET['reparaciones_de'])]);
+    }
+
+    // Fotos del edificio (etiqueta, etc.)
+    if (isset($_GET['fotos_edificio'])) {
+        $fotos = recFotos('edificio', (int)$_GET['fotos_edificio']);
+        foreach ($fotos as &$f) $f['ruta'] = APP_URL_BASE . $f['ruta'];
+        resp(true, ['fotos' => $fotos]);
+    }
+
+    // Fotos de un nivel genérico (edificio, etc.)
+    if (isset($_GET['fotos_nivel']) && isset($_GET['ref_id'])) {
+        $nivel = $_GET['fotos_nivel'];
+        if (in_array($nivel, ['edificio','piso','elemento_piso','apartamento','ambiente'], true)) {
+            $fotos = recFotos($nivel, (int)$_GET['ref_id']);
+            foreach ($fotos as &$f) $f['ruta'] = APP_URL_BASE . $f['ruta'];
+            resp(true, ['fotos' => $fotos]);
+        }
     }
 
     resp(false, ['mensaje' => 'Parámetro no reconocido.']);

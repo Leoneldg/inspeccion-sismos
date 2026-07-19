@@ -31,6 +31,16 @@ if (!$insp) {
     exit;
 }
 $ed = recEdificio($inspeccionId);
+$edificioIdActual = (int)($ed['id'] ?? 0);
+
+// Solo edita quien hizo el levantamiento (o un administrador). Los demás
+// lo ven en modo consulta: así nadie modifica el trabajo de otro.
+$esAutor = $edificioIdActual > 0 ? recPuedeEditarLevantamiento($edificioIdActual) : true;
+$soloLectura = !$esAutor;
+if ($soloLectura) $puedeEditar = false;
+
+$autor = $edificioIdActual > 0 ? recAutorLevantamiento($edificioIdActual) : [];
+
 $pisos = recPisos((int)$ed['id']);
 $tiposElem = recTiposElementoPiso();
 
@@ -134,6 +144,28 @@ include __DIR__ . '/../includes/header.php';
         input[type=range] { height: 34px; }
     }
 </style>
+
+<?php if ($soloLectura): ?>
+<div style="background:#eef2fb;border:2px solid #22366F33;border-radius:11px;
+            padding:14px 18px;margin-bottom:16px;display:flex;gap:13px;
+            align-items:center;flex-wrap:wrap;">
+    <div style="font-size:26px;color:#22366F;"><i class="bi bi-eye-fill"></i></div>
+    <div style="flex:1;min-width:220px;">
+        <div style="font-weight:700;color:#22366F;font-size:15px;">Modo consulta</div>
+        <div style="font-size:12.5px;color:#5b6478;margin-top:2px;">
+            Este levantamiento lo hizo
+            <strong><?= e($autor['creado_nombre'] ?? 'otra persona') ?></strong><?php
+            if (!empty($autor['creado_en'])): ?>
+            el <?= date('d/m/Y', strtotime($autor['creado_en'])) ?><?php endif; ?>.
+            Puede verlo completo, pero solo su autor o un administrador pueden modificarlo.
+        </div>
+    </div>
+    <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= $inspeccionId ?>"
+       class="btn btn-outline btn-sm">
+        <i class="bi bi-arrow-left"></i> Volver a la ficha
+    </a>
+</div>
+<?php endif; ?>
 
 <div class="wz-wrap">
 
@@ -522,6 +554,35 @@ const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= (int)$ed['id'] ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
+const SOLO_LECTURA = <?= $soloLectura ? 'true' : 'false' ?>;
+
+/**
+ * En modo consulta se desactivan los campos y botones de edición,
+ * pero las fotos siguen siendo ampliables y todo queda visible.
+ */
+function aplicarSoloLectura() {
+    if (!SOLO_LECTURA) return;
+    const cont = document.querySelector('.wz-wrap');
+    if (!cont) return;
+
+    cont.querySelectorAll('input, select, textarea').forEach(el => {
+        el.disabled = true;
+        el.style.background = '#f7f9fd';
+        el.style.cursor = 'not-allowed';
+    });
+
+    cont.querySelectorAll('button').forEach(b => {
+        const txt = (b.textContent || '').toLowerCase();
+        // Los botones de navegación y de ver siguen activos.
+        if (txt.includes('siguiente') || txt.includes('anterior')
+            || txt.includes('volver') || txt.includes('comprobante')) return;
+        b.disabled = true;
+        b.style.opacity = '.45';
+        b.style.cursor = 'not-allowed';
+    });
+}
+// El script va al final: el DOM ya está listo, no hace falta esperar.
+try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
 const RECETAS_TRABAJO = <?= json_encode(array_map(
     fn($lista) => array_map(fn($r) => [
         'material' => $r['material'], 'unidad' => $r['unidad'],
@@ -1013,6 +1074,8 @@ async function regenerarAptos(btn, pisoId, numeroPiso) {
 }
 
 function pintarApartamento(a, lista) {
+    // Al final de esta función se reaplica el modo consulta, porque los
+    // campos nuevos nacen habilitados.
     const card = document.createElement('div');
     card.className = 'apto-card';
     card.innerHTML = `
@@ -1075,9 +1138,14 @@ function pintarApartamento(a, lista) {
             num_balcones: a.num_balcones,
         }, a.id);
         marcarAptoPendiente(cuerpoAp, 'Guardado en el teléfono');
-    } else if (((a.num_habitaciones||0) + (a.num_salas||0) + (a.num_balcones||0) + (a.num_cocinas||0) + (a.num_banos||0)) > 0) {
-        if (navigator.onLine) cargarAmbientes(a.id, card.querySelector('.amb-lista'));
+    } else {
+        // Siempre se intenta cargar lo ya guardado: puede haber ambientes
+        // con fotos aunque las cantidades del formulario estén en cero.
+        // Sin esto, quien vuelve a cargar fotos tenía que crear todo de nuevo.
+        cargarAmbientes(a.id, card.querySelector('.amb-lista'));
     }
+
+    try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
 }
 
 async function guardarApto(btn, aptoId) {
@@ -1095,9 +1163,14 @@ async function guardarApto(btn, aptoId) {
     // cuadrados: sin ese dato no se pueden calcular los materiales.
     const sinMetros = [];
     const sinTrabajo = [];
+    const sinFoto = [];
     cont.querySelectorAll('.amb-row').forEach(row => {
         const chk = row.querySelector('.amb-reparar');
-        if (!chk || !chk.checked) { marcarAmbienteSinMetros(row, false); return; }
+        if (!chk || !chk.checked) {
+            marcarAmbienteSinMetros(row, false);
+            marcarAmbienteSinFoto(row, false);
+            return;
+        }
 
         const nom = row.querySelector('.amb-nom');
         const etiqueta = nom ? nom.textContent.trim() : 'un ambiente';
@@ -1114,26 +1187,31 @@ async function guardarApto(btn, aptoId) {
         const falta = !ambienteTieneMetros(row);
         marcarAmbienteSinMetros(row, falta);
         if (falta) sinMetros.push(etiqueta);
+
+        // Un ambiente a reparar necesita foto: es la evidencia del daño.
+        const nFotos = row.querySelectorAll('.amb-fotos img').length;
+        const faltaFoto = nFotos === 0;
+        marcarAmbienteSinFoto(row, faltaFoto);
+        if (faltaFoto) sinFoto.push(etiqueta);
     });
 
-    if (sinTrabajo.length) {
-        alert('Falta indicar QUÉ TRABAJO hay que hacer en:\n\n· '
-            + sinTrabajo.join('\n· ')
-            + '\n\nSin ese dato no se pueden calcular los materiales.');
-        const primero = cont.querySelector('.amb-trabajo[style*="2px solid"]');
+    // Un solo aviso con todo lo que falta: tres alertas seguidas
+    // interrumpen demasiado el trabajo en campo.
+    if (sinTrabajo.length || sinMetros.length || sinFoto.length) {
+        let msg = 'Falta completar estos ambientes:\n';
+        if (sinTrabajo.length) msg += '\nQué trabajo hacer:\n· ' + sinTrabajo.join('\n· ');
+        if (sinMetros.length)  msg += '\nMetros cuadrados:\n· ' + sinMetros.join('\n· ');
+        if (sinFoto.length)    msg += '\nFoto del daño:\n· ' + sinFoto.join('\n· ');
+        alert(msg);
+
+        // Llevar al primer campo que falta.
+        const primero = cont.querySelector('.amb-trabajo[style*="2px solid"]')
+                     || cont.querySelector('.amb-reparacion[style*="2px solid"]')
+                     || cont.querySelector('.amb-fotos[style*="2px dashed"]');
         if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
     }
 
-    if (sinMetros.length) {
-        alert('Faltan los metros cuadrados a reparar en:\n\n· '
-            + sinMetros.join('\n· ')
-            + '\n\nIndique cuántos metros hay que reparar en pared, techo, piso o closet.');
-        // Llevar al primero que falta.
-        const primero = cont.querySelector('.amb-reparacion[style*="2px solid"]');
-        if (primero) primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-    }
     const payload = {
         accion:'guardar_apto', apartamento_id: aptoId,
         jefe_nombre: nombre, jefe_cedula: cedula, jefe_telefono: telefono,
@@ -1515,6 +1593,12 @@ function pintarAmbientes(ambientes, contenedor) {
                 <span class="amb-hint text-sm" style="color:#767c94;">${rep?'Suba fotos indicando la parte':'Suba 1 foto del estado'}</span>
             </div>
             <div class="amb-reparacion" style="${rep?'':'display:none;'}margin-top:10px;padding:10px;background:#fbf8ef;border-radius:8px;">
+                <div style="background:#fff;border:1px solid #C9A22755;border-radius:7px;
+                            padding:8px 11px;margin-bottom:10px;font-size:12px;color:#8a6d1a;">
+                    <strong><i class="bi bi-exclamation-circle-fill"></i> Este ambiente necesita
+                    tres datos obligatorios:</strong><br>
+                    1. Qué trabajo hacer &nbsp;·&nbsp; 2. Cuántos metros &nbsp;·&nbsp; 3. Foto del daño
+                </div>
                 <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
                     <i class="bi bi-tools"></i> ¿Qué trabajo hay que hacer?
                     <span style="color:#A61C1C;">*</span>
@@ -1546,6 +1630,7 @@ function pintarAmbientes(ambientes, contenedor) {
         </div>`;
     });
     contenedor.innerHTML = html;
+    try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
     ambientes.forEach(am => {
         fetch(URL_BASE + 'listar_rec_aptos.php?fotos_de=' + am.id).then(r=>r.json()).then(d=>{
             if (d.ok && d.fotos.length) {
@@ -1556,10 +1641,17 @@ function pintarAmbientes(ambientes, contenedor) {
         fetch(URL_BASE + 'listar_rec_aptos.php?reparaciones_de=' + am.id).then(r=>r.json()).then(d=>{
             if (d.ok && d.reparaciones && d.reparaciones.length) {
                 const row = contenedor.querySelector('.amb-row[data-amb="'+am.id+'"]');
+                let trabajoGuardado = '';
                 d.reparaciones.forEach(rep => {
                     const inp = row.querySelector('.sup-'+rep.tipo_superficie);
                     if (inp) inp.value = rep.metros_cuadrados;
+                    if (rep.tipo_trabajo) trabajoGuardado = rep.tipo_trabajo;
                 });
+                // Restaurar el tipo de trabajo elegido antes.
+                if (trabajoGuardado) {
+                    const sel = row.querySelector('.amb-trabajo');
+                    if (sel) { sel.value = trabajoGuardado; avisoSuperficies(sel); }
+                }
                 recalcularMateriales(row);
             }
         });
@@ -1596,6 +1688,33 @@ function ambienteTieneMetros(row) {
         suma += parseFloat(i.value) || 0;
     });
     return suma > 0;
+}
+
+/** Resalta el recuadro de fotos cuando falta la evidencia del daño. */
+function marcarAmbienteSinFoto(row, falta) {
+    if (!row) return;
+    const cont = row.querySelector('.amb-fotos');
+    if (!cont) return;
+    if (falta) {
+        cont.style.border = '2px dashed #A61C1C';
+        cont.style.borderRadius = '8px';
+        cont.style.padding = '9px';
+        cont.style.background = '#fff6f6';
+        if (!cont.querySelector('.amb-falta-foto')) {
+            const aviso = document.createElement('div');
+            aviso.className = 'amb-falta-foto';
+            aviso.style.cssText = 'font-size:12px;color:#A61C1C;font-weight:600;width:100%;';
+            aviso.innerHTML = '<i class="bi bi-camera-fill"></i> '
+                + 'Falta la foto que muestre el daño.';
+            cont.appendChild(aviso);
+        }
+    } else {
+        cont.style.border = '';
+        cont.style.padding = '';
+        cont.style.background = '';
+        const aviso = cont.querySelector('.amb-falta-foto');
+        if (aviso) aviso.remove();
+    }
 }
 
 /** Resalta en rojo los ambientes que están sin metros. */
@@ -2196,6 +2315,23 @@ async function guardarCierre(ev) {
             borrarBorrador('cierre_' + INSPECCION_ID);
             cargarResumen();
             ofrecerComprobante();
+        } else if (data.puede_confirmar) {
+            // Faltan datos, pero el técnico puede cerrar igual si lo decide.
+            if (confirm(data.mensaje)) {
+                payload.confirmar_incompleto = 1;
+                const res2 = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify(payload), credentials:'same-origin'
+                });
+                const d2 = await res2.json();
+                if (d2.ok) {
+                    borrarBorrador('cierre_' + INSPECCION_ID);
+                    cargarResumen();
+                    ofrecerComprobante();
+                } else {
+                    alert(d2.mensaje || 'No se pudo cerrar.');
+                }
+            }
         } else {
             alert(data.mensaje || 'Error al guardar.');
         }

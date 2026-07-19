@@ -129,6 +129,44 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Acceso al levantamiento técnico -->
+    <?php
+    $puedeEditarLev = $edificioId > 0 ? recPuedeEditarLevantamiento($edificioId) : false;
+    $autorLev = $edificioId > 0 ? recAutorLevantamiento($edificioId) : [];
+    ?>
+    <?php if ($edificioId > 0): ?>
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;">
+                <div style="font-weight:700;color:#22366F;">
+                    <i class="bi bi-clipboard-data"></i> Levantamiento técnico
+                </div>
+                <div class="text-sm text-muted" style="margin-top:3px;">
+                    <?php if (!empty($autorLev['creado_nombre'])): ?>
+                        Lo hizo <strong><?= e($autorLev['creado_nombre']) ?></strong>
+                        <?php if (!empty($autorLev['creado_en'])): ?>
+                            el <?= date('d/m/Y', strtotime($autorLev['creado_en'])) ?>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        Detalle de pisos, apartamentos, ambientes y fotos.
+                    <?php endif; ?>
+                    <?php if (!$puedeEditarLev): ?>
+                        <br><span style="color:#8a6d1a;">
+                            <i class="bi bi-eye"></i> Puede verlo, pero solo su autor
+                            o un administrador puede modificarlo.
+                        </span>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <a href="<?= APP_URL_BASE ?>seguimiento/levantamiento.php?inspeccion=<?= (int)$inspeccionId ?>"
+               class="btn <?= $puedeEditarLev ? 'btn-primary' : 'btn-outline' ?>">
+                <i class="bi bi-<?= $puedeEditarLev ? 'pencil-square' : 'eye' ?>"></i>
+                <?= $puedeEditarLev ? 'Abrir levantamiento' : 'Ver levantamiento' ?>
+            </a>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Fotos generales del edificio -->
     <div class="fs-card" id="fs-fotos-edificio" style="padding:15px 20px;display:none;">
         <div style="font-weight:700;color:#22366F;margin-bottom:10px;">

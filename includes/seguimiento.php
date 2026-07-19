@@ -1718,6 +1718,58 @@ function repDesactivar(int $representanteId): void
 // =====================================================================
 
 /** Devuelve el registro rec_edificio de una inspección, creándolo vacío si no existe. */
+/**
+ * ¿Puede este usuario EDITAR el levantamiento?
+ *
+ * Solo lo edita quien lo hizo, o un administrador. Los demás lo ven
+ * en modo consulta: así nadie modifica el trabajo de otro por error.
+ */
+function recPuedeEditarLevantamiento(int $edificioId): bool
+{
+    if (usuarioEsMaster()) return true;
+
+    // Los roles administrativos pueden editar cualquiera.
+    $rol = $_SESSION['rol_nombre'] ?? '';
+    if (in_array($rol, ['Administrador', 'Superadministrador'], true)) return true;
+
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    if ($uid <= 0) return false;
+
+    try {
+        $st = db()->prepare('SELECT creado_por, completado_por, completado
+                               FROM rec_edificio WHERE id = :e');
+        $st->execute(['e' => $edificioId]);
+        $ed = $st->fetch();
+        if (!$ed) return false;
+
+        // Todavía sin creador registrado: el primero que entra lo toma.
+        if (empty($ed['creado_por'])) return true;
+
+        return (int)$ed['creado_por'] === $uid
+            || (int)($ed['completado_por'] ?? 0) === $uid;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/** Nombre de quien hizo el levantamiento, para mostrarlo en pantalla. */
+function recAutorLevantamiento(int $edificioId): array
+{
+    try {
+        $st = db()->prepare("
+            SELECT re.creado_en, re.completado_en,
+                   uc.nombre_completo AS creado_nombre,
+                   uf.nombre_completo AS completado_nombre
+              FROM rec_edificio re
+              LEFT JOIN usuarios uc ON uc.id = re.creado_por
+              LEFT JOIN usuarios uf ON uf.id = re.completado_por
+             WHERE re.id = :id
+        ");
+        $st->execute(['id' => $edificioId]);
+        return $st->fetch() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
 function recEdificio(int $inspeccionId): array
 {
     recAsegurarColumnasEtiqueta();
