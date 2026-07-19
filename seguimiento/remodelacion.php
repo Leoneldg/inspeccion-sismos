@@ -930,10 +930,9 @@ function pintarResumenPisos(d) {
 
     // Una barra por cada estado, en orden de importancia.
     const filas = [
-        { n: inspeccionados, t: 'Inspeccionados',     c: '#2E7D32' },
-        { n: noRequiere,     t: 'No requieren ayuda', c: '#5a9e3f' },
-        { n: denegado,       t: 'Permiso denegado',   c: '#A61C1C' },
-        { n: pendientes,     t: 'Sin visitar',        c: '#C9A227' },
+        { n: inspeccionados, t: 'Inspeccionados',   c: '#2E7D32' },
+        { n: denegado,       t: 'Permiso denegado', c: '#A61C1C' },
+        { n: pendientes,     t: 'Sin visitar',      c: '#C9A227' },
     ];
 
     html += '<div style="display:flex;flex-direction:column;gap:9px;">';
@@ -958,6 +957,14 @@ function pintarResumenPisos(d) {
             + '</div>';
     });
     html += '</div>';
+
+    // Los que no requieren ayuda no van en el gráfico, pero sí cuentan
+    // como resueltos: se mencionan aquí para que el total cuadre.
+    if (noRequiere > 0) {
+        html += '<div style="font-size:12px;color:#5b6478;margin-top:10px;">'
+            + '<i class="bi bi-hand-thumbs-up"></i> '
+            + '<strong>' + noRequiere + '</strong> apartamento(s) no requieren ayuda.</div>';
+    }
 
     // Qué falta por cubrir.
     if (pendientes > 0) {
