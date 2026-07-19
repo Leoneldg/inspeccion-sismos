@@ -910,42 +910,44 @@ function pintarResumenPisos(d) {
     const denegado       = v.permiso_denegado || 0;
     const sinVisitar     = v.sin_visitar || 0;
 
-    // "Cubiertos" = se llegó a ellos, con cualquier resultado.
-    const cubiertos = inspeccionados + noRequiere + noEsta + denegado;
-    const pct = aptos > 0 ? Math.round(cubiertos / aptos * 100) : 0;
+    // "Resueltos" = ya no hay que volver: se levantaron, no requieren
+    // ayuda, o negaron el permiso. Los ausentes siguen pendientes.
+    const resueltos = inspeccionados + noRequiere + denegado;
+    const pct = aptos > 0 ? Math.round(resueltos / aptos * 100) : 0;
+
+    // "Pendientes" son los que hay que volver a visitar: el ocupante no
+    // estaba, o simplemente nadie llegó todavía.
+    const pendientes = noEsta + sinVisitar;
 
     let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">'
         + tarjetaResumen(pisos, 'Pisos', '#2d4488')
         + tarjetaResumen(aptos, 'Apartamentos', '#22366F')
         + tarjetaResumen(inspeccionados, 'Inspeccionados', '#2E7D32')
-        + tarjetaResumen(sinVisitar, 'Sin visitar', sinVisitar > 0 ? '#a8871f' : '#97a0b8')
+        + tarjetaResumen(noRequiere, 'No requieren ayuda', '#5a9e3f')
+        + tarjetaResumen(denegado, 'Permiso denegado', denegado > 0 ? '#A61C1C' : '#97a0b8')
+        + tarjetaResumen(pendientes, 'Sin visitar', pendientes > 0 ? '#a8871f' : '#97a0b8')
         + '</div>';
 
     // Barra de cobertura.
     html += '<div style="display:flex;justify-content:space-between;font-size:12.5px;'
         + 'color:#55617f;margin-bottom:4px;">'
-        + '<span>Apartamentos visitados</span>'
+        + '<span>Apartamentos resueltos</span>'
         + '<strong style="color:' + (pct >= 100 ? '#2E7D32' : '#a8871f') + ';">'
-        + cubiertos + ' de ' + aptos + ' (' + pct + '%)</strong></div>'
+        + resueltos + ' de ' + aptos + ' (' + pct + '%)</strong></div>'
         + '<div style="background:#eef0f6;border-radius:20px;height:16px;overflow:hidden;">'
         + '<div style="width:' + pct + '%;height:100%;background:'
         + (pct >= 100 ? '#2E7D32' : '#C9A227') + ';"></div></div>';
 
-    // Detalle de los que no se pudieron levantar.
-    const otros = [];
-    if (noRequiere) otros.push(noRequiere + ' no requieren ayuda');
-    if (noEsta)     otros.push(noEsta + ' sin ocupante');
-    if (denegado)   otros.push(denegado + ' con permiso denegado');
-    if (otros.length) {
-        html += '<div style="font-size:12px;color:#5b6478;margin-top:7px;">'
-            + 'De los visitados: ' + otros.join(' · ') + '.</div>';
-    }
-
-    if (sinVisitar > 0) {
+    // Detalle de lo que falta por cubrir.
+    if (pendientes > 0) {
+        const partes = [];
+        if (noEsta)     partes.push(noEsta + ' con el ocupante ausente');
+        if (sinVisitar) partes.push(sinVisitar + ' donde no se ha llegado');
         html += '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:8px;'
             + 'padding:9px 12px;margin-top:9px;font-size:12.5px;color:#8a6d1a;">'
             + '<i class="bi bi-exclamation-triangle-fill"></i> Faltan <strong>'
-            + sinVisitar + '</strong> apartamento(s) por visitar.</div>';
+            + pendientes + '</strong> apartamento(s) por cubrir'
+            + (partes.length ? ': ' + partes.join(' y ') : '') + '.</div>';
     }
 
     cont.innerHTML = html;
@@ -953,12 +955,15 @@ function pintarResumenPisos(d) {
 
 /** Tarjeta de un número del resumen. */
 function tarjetaResumen(valor, etiqueta, color) {
-    return '<div style="flex:1;min-width:110px;text-align:center;padding:13px 10px;'
-        + 'border-radius:10px;border:1px solid ' + color + '33;background:' + color + '0a;">'
+    // Alto fijo y ancho mínimo iguales: así las seis quedan parejas
+    // aunque el texto de la etiqueta ocupe dos líneas.
+    return '<div style="flex:1;min-width:118px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:1px solid ' + color + '33;background:' + color + '0a;'
+        + 'display:flex;flex-direction:column;justify-content:center;min-height:82px;">'
         + '<div style="font-size:28px;font-weight:800;color:' + color + ';line-height:1;">'
         + valor + '</div>'
-        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
-        + etiqueta + '</div></div>';
+        + '<div style="font-size:10.5px;text-transform:uppercase;color:#55617f;'
+        + 'margin-top:5px;line-height:1.25;">' + etiqueta + '</div></div>';
 }
 
 /** Resumen de cómo resultó la visita a cada apartamento. */
