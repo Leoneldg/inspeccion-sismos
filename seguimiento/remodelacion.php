@@ -563,25 +563,30 @@ function pintarMetrosTotal(m2, comunes, porTipo, materiales, porTrabajo) {
         html += '</div></div>';
     }
 
-    // Materiales estimados.
+    // Materiales del EDIFICIO COMPLETO. Se destaca en dorado para que no
+    // se confunda con el avance de un apartamento concreto.
     const mats = Object.keys(materiales || {});
     if (mats.length) {
-        html += '<div style="border-top:1px solid #eef0f5;padding-top:12px;">'
-            + '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
-            + 'font-weight:700;letter-spacing:.4px;margin-bottom:9px;">'
-            + '<i class="bi bi-box-seam"></i> Materiales estimados</div>'
-            + '<div style="display:flex;gap:7px;flex-wrap:wrap;">';
+        html += '<div style="border:3px solid #C9A227;border-radius:11px;overflow:hidden;margin-top:14px;">'
+            + '<div style="background:#C9A227;color:#22366F;padding:11px 15px;">'
+            + '<div style="font-size:15px;font-weight:800;">'
+            + '<i class="bi bi-building-fill-check"></i> MATERIALES DEL EDIFICIO COMPLETO</div>'
+            + '<div style="font-size:12px;font-weight:600;opacity:.85;margin-top:1px;">'
+            + 'Suma de todos los pisos, apartamentos y áreas comunes</div></div>'
+            + '<div style="padding:14px 15px;background:#fffdf5;">'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
         mats.forEach(m => {
-            html += '<div style="background:#fff;border:1px solid #e5e8f0;border-radius:9px;'
-                + 'padding:8px 13px;min-width:120px;">'
-                + '<div style="font-size:15px;font-weight:700;color:#22366F;">'
+            html += '<div style="background:#fff;border:1px solid #C9A22744;border-radius:9px;'
+                + 'padding:9px 14px;min-width:128px;">'
+                + '<div style="font-size:17px;font-weight:800;color:#22366F;">'
                 + materiales[m].toLocaleString('es-VE') + '</div>'
-                + '<div style="font-size:11px;color:#5b6478;">' + m + '</div></div>';
+                + '<div style="font-size:11.5px;color:#5b6478;">' + m + '</div></div>';
         });
         html += '</div>'
-            + '<div style="font-size:11.5px;color:#767c94;margin-top:8px;">'
-            + 'Cálculo aproximado según los metros registrados. '
-            + 'Verifique en obra antes de solicitar.</div></div>';
+            + '<div style="font-size:11.5px;color:#8a6d1a;margin-top:10px;">'
+            + '<i class="bi bi-info-circle"></i> Cálculo aproximado según los metros registrados. '
+            + 'Verifique en obra antes de solicitar.</div>'
+            + '</div></div>';
     } else if (tipos.length) {
         // Hay metros pero no salieron materiales: falta indicar el trabajo.
         html += '<div style="border-top:1px solid #eef0f5;padding-top:12px;">'

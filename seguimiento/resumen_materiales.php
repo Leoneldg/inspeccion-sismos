@@ -20,6 +20,7 @@ try {
         'ok' => true,
         'materiales' => $resumen['materiales'],
         'm2_por_superficie' => $resumen['m2_por_superficie'],
+        'por_trabajo' => $resumen['por_trabajo'] ?? [],
         'total_m2' => $resumen['total_m2'],
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {

@@ -2421,9 +2421,36 @@ function recM2PorSuperficieEdificio(int $edificioId): array
 function recResumenMaterialesEdificio(int $edificioId): array
 {
     $m2 = recM2PorSuperficieEdificio($edificioId);
+
+    // Cálculo por TIPO DE TRABAJO (friso, mampostería, vaciado…), que es
+    // el que refleja lo que realmente hay que hacer. Si no hay trabajos
+    // indicados, se usa el cálculo antiguo por superficie.
+    $materiales = [];
+    $porTrabajo = [];
+    try {
+        $trabajos = recTrabajosDeEdificio($edificioId);
+        if ($trabajos) {
+            $det = recMaterialesPorTrabajo($trabajos);
+            foreach ($det as $mat => $d) {
+                $materiales[$mat . ' (' . $d['unidad'] . ')'] = $d['cantidad'];
+            }
+            $nombres = [];
+            foreach (recTiposTrabajo() as $t) $nombres[$t['clave']] = $t['nombre'];
+            foreach ($trabajos as $clave => $cant) {
+                $porTrabajo[$nombres[$clave] ?? $clave] = round($cant, 2);
+            }
+        }
+    } catch (Throwable $e) { /* se cae al cálculo por superficie */ }
+
+    if (!$materiales) {
+        try { $materiales = recCalcularMateriales($m2); }
+        catch (Throwable $e) { $materiales = []; }
+    }
+
     return [
         'm2_por_superficie' => $m2,
-        'materiales'        => recCalcularMateriales($m2),
+        'materiales'        => $materiales,
+        'por_trabajo'       => $porTrabajo,
         'total_m2'          => array_sum($m2),
     ];
 }

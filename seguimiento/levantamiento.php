@@ -897,6 +897,13 @@ function llenarTrabajosElementos() {
 // Usar DOMContentLoaded aquí no dispararía nunca.
 try { llenarTrabajosElementos(); } catch (e) { /* no interrumpir el resto */ }
 
+// Si la página abre directamente en el paso 3, cargar el resumen:
+// antes solo se cargaba al cambiar de paso.
+try {
+    const tab3 = document.getElementById('tab-3');
+    if (tab3 && tab3.classList.contains('activo')) cargarResumen();
+} catch (e) { /* nada */ }
+
 // Al marcar o desmarcar reparación, mostrar u ocultar la caja.
 document.addEventListener('change', function (e) {
     if (e.target && e.target.classList.contains('el-reparar')) {
@@ -2355,23 +2362,82 @@ async function cargarResumen() {
     const cont = document.getElementById('resumen-materiales');
     if (!cont) return;
     cont.innerHTML = '<p class="text-muted">Calculando materiales del edificio…</p>';
-    const res = await fetch(URL_BASE + 'resumen_materiales.php?edificio_id=' + EDIFICIO_ID);
-    const data = await res.json();
-    if (!data.ok) { cont.innerHTML = '<p class="text-muted">No se pudo cargar el resumen.</p>'; return; }
-    let html = '<div class="wz-panel" style="border:2px solid #22366F;"><h3><i class="bi bi-clipboard-check"></i> Resumen de materiales del edificio</h3>';
-    html += '<p class="sub">Total aproximado según los m² registrados en todo el edificio.</p>';
-    if (data.total_m2 > 0) {
-        html += '<p><b>Total a reparar:</b> ' + data.total_m2.toFixed(2) + ' m²</p>';
-        html += '<table style="width:100%;border-collapse:collapse;margin-top:8px;">';
-        html += '<tr style="background:#22366F;color:#fff;"><th style="text-align:left;padding:7px;">Material</th><th style="text-align:right;padding:7px;">Cantidad</th></tr>';
-        Object.entries(data.materiales).forEach(([m,c],i) => {
-            html += `<tr style="background:${i%2?'#f7f9fd':'#fff'};"><td style="padding:6px 7px;">${m}</td><td style="padding:6px 7px;text-align:right;font-weight:600;">${c}</td></tr>`;
-        });
-        html += '</table>';
-    } else {
-        html += '<p class="text-muted">Aún no hay reparaciones registradas con metros cuadrados.</p>';
+
+    let data;
+    try {
+        const res = await fetch(URL_BASE + 'resumen_materiales.php?edificio_id=' + EDIFICIO_ID,
+                                { credentials: 'same-origin' });
+        const texto = await res.text();
+        try { data = JSON.parse(texto); }
+        catch (e) {
+            console.error('Resumen: respuesta inesperada', texto.slice(0, 200));
+            cont.innerHTML = '<p class="text-muted">No se pudo cargar el resumen.</p>';
+            return;
+        }
+    } catch (e) {
+        cont.innerHTML = '<p class="text-muted">Sin conexión para calcular el resumen.</p>';
+        return;
     }
-    html += '</div>';
+
+    if (!data.ok) {
+        cont.innerHTML = '<p class="text-muted">' + (data.mensaje || 'No se pudo cargar el resumen.') + '</p>';
+        return;
+    }
+
+    const mats = Object.entries(data.materiales || {});
+    const trab = Object.entries(data.por_trabajo || {});
+
+    let html = '<div style="border:3px solid #C9A227;border-radius:12px;overflow:hidden;">'
+        + '<div style="background:#C9A227;color:#22366F;padding:13px 18px;">'
+        + '<div style="font-size:17px;font-weight:800;">'
+        + '<i class="bi bi-building-fill-check"></i> MATERIALES DEL EDIFICIO COMPLETO</div>'
+        + '<div style="font-size:12.5px;font-weight:600;opacity:.85;margin-top:2px;">'
+        + 'Suma de todos los pisos, apartamentos y áreas comunes</div></div>'
+        + '<div style="padding:16px 18px;background:#fffdf5;">';
+
+    if (data.total_m2 > 0) {
+        html += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;">'
+            + '<div style="background:#fff;border:1px solid #C9A22755;border-radius:10px;padding:12px 18px;">'
+            + '<div style="font-size:26px;font-weight:800;color:#22366F;line-height:1;">'
+            + Number(data.total_m2).toLocaleString('es-VE', {maximumFractionDigits:2}) + ' m²</div>'
+            + '<div style="font-size:11px;color:#5b6478;text-transform:uppercase;margin-top:3px;">'
+            + 'Total a reparar</div></div>';
+
+        trab.forEach(([nombre, cant]) => {
+            html += '<div style="background:#fff;border:1px solid #e5e8f0;border-radius:10px;padding:12px 15px;">'
+                + '<div style="font-size:17px;font-weight:700;color:#2d4488;">'
+                + Number(cant).toLocaleString('es-VE') + ' m²</div>'
+                + '<div style="font-size:11.5px;color:#5b6478;">' + nombre + '</div></div>';
+        });
+        html += '</div>';
+    }
+
+    if (mats.length) {
+        html += '<table style="width:100%;border-collapse:collapse;background:#fff;border-radius:9px;overflow:hidden;">'
+            + '<tr style="background:#22366F;color:#fff;">'
+            + '<th style="text-align:left;padding:9px 12px;font-size:12px;text-transform:uppercase;">Material</th>'
+            + '<th style="text-align:right;padding:9px 12px;font-size:12px;text-transform:uppercase;">Cantidad</th></tr>';
+        mats.forEach(([m, c], i) => {
+            html += '<tr style="background:' + (i % 2 ? '#f7f9fd' : '#fff') + ';">'
+                + '<td style="padding:8px 12px;font-size:13.5px;">' + m + '</td>'
+                + '<td style="padding:8px 12px;text-align:right;font-weight:700;color:#22366F;font-size:14px;">'
+                + Number(c).toLocaleString('es-VE') + '</td></tr>';
+        });
+        html += '</table>'
+            + '<div style="font-size:11.5px;color:#8a6d1a;margin-top:9px;">'
+            + '<i class="bi bi-info-circle"></i> Cálculo aproximado. Verifique en obra antes de solicitar.</div>';
+    } else if (data.total_m2 > 0) {
+        html += '<div style="background:#fff;border:1px solid #C9A22755;border-radius:9px;'
+            + 'padding:12px 15px;font-size:13px;color:#8a6d1a;">'
+            + '<i class="bi bi-exclamation-triangle-fill"></i> '
+            + '<strong>Hay metros registrados pero no se calcularon materiales.</strong><br>'
+            + 'Falta indicar qué trabajo hay que hacer en cada ambiente.</div>';
+    } else {
+        html += '<p style="margin:0;color:#5b6478;font-size:13.5px;">'
+            + 'Todavía no hay reparaciones con metros cuadrados registrados.</p>';
+    }
+
+    html += '</div></div>';
     cont.innerHTML = html;
 }
 
