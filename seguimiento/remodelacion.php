@@ -322,6 +322,16 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <?php endif; ?>
 
+    <!-- Resumen antes del detalle por piso -->
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:11px;">
+            <i class="bi bi-clipboard-data"></i> Resumen del levantamiento
+        </div>
+        <div id="fs-resumen-pisos">
+            <span class="text-muted text-sm">Calculando…</span>
+        </div>
+    </div>
+
     <!-- Pisos y apartamentos -->
     <div id="fs-pisos"><p class="text-muted">Cargando pisos…</p></div>
 </div>
@@ -450,6 +460,13 @@ async function cargarFicha() {
     } catch (e) {
         console.error('Metros y materiales:', e);
         const c = document.getElementById('fs-m2-total');
+        if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
+    }
+
+    try { pintarResumenPisos(d); }
+    catch (e) {
+        console.error('Resumen de pisos:', e);
+        const c = document.getElementById('fs-resumen-pisos');
         if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
     }
 
@@ -622,7 +639,8 @@ function pintarAptosReparar(d) {
         + '<div style="width:' + pct + '%;height:100%;background:#C9A227;"></div></div>'
         + '<div style="font-size:12px;color:#5b6478;margin-top:5px;">'
         + '<strong>' + pct + '%</strong> de los apartamentos del edificio necesitan '
-        + 'alguna reparación.</div>';
+        + 'alguna reparación.</div>'
+        + resumenVisitas(d.visitas);
 }
 
 // Muestra el total de metros cuadrados a reparar del edificio.
@@ -855,8 +873,11 @@ function filaApartamento(ap, pisoId) {
                 <div class="fs-apto-info" style="flex:1;min-width:0;">
                     <div style="font-weight:600;color:#2a3140;font-size:13px;">
                         <i class="bi bi-door-open"></i> Apartamento ${ap.identificador}
+                        ${etiquetaVisita(ap)}
                     </div>
                     ${jefe}
+                    ${ap.visita_obs ? `<div style="font-size:11px;color:#767c94;
+                        font-style:italic;margin-top:2px;">${ap.visita_obs}</div>` : ''}
                 </div>
                 <span style="font-size:11px;color:#97a0b8;">${nAmb} ambiente(s)</span>
                 ${ap.m2 ? `<span style="font-size:11.5px;color:#5b6478;background:#f1f3f8;
@@ -869,6 +890,130 @@ function filaApartamento(ap, pisoId) {
             </div>
             <div class="fs-amb-lista hidden" id="amb-lista-${ap.id}" style="padding:4px 12px 10px;"></div>
         </div>`;
+}
+
+/**
+ * Resumen general antes del detalle: pisos, apartamentos y cuántos
+ * se pudieron inspeccionar. Da el panorama sin abrir cada piso.
+ */
+function pintarResumenPisos(d) {
+    const cont = document.getElementById('fs-resumen-pisos');
+    if (!cont) return;
+
+    const pisos = d.total_pisos || (d.pisos || []).length;
+    const aptos = d.total_aptos || 0;
+    const v = (d.aptos_reparar && d.aptos_reparar.visitas) || {};
+
+    const inspeccionados = v.inspeccionado || 0;
+    const noRequiere     = v.no_requiere || 0;
+    const noEsta         = v.no_esta || 0;
+    const denegado       = v.permiso_denegado || 0;
+    const sinVisitar     = v.sin_visitar || 0;
+
+    // "Cubiertos" = se llegó a ellos, con cualquier resultado.
+    const cubiertos = inspeccionados + noRequiere + noEsta + denegado;
+    const pct = aptos > 0 ? Math.round(cubiertos / aptos * 100) : 0;
+
+    let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">'
+        + tarjetaResumen(pisos, 'Pisos', '#2d4488')
+        + tarjetaResumen(aptos, 'Apartamentos', '#22366F')
+        + tarjetaResumen(inspeccionados, 'Inspeccionados', '#2E7D32')
+        + tarjetaResumen(sinVisitar, 'Sin visitar', sinVisitar > 0 ? '#a8871f' : '#97a0b8')
+        + '</div>';
+
+    // Barra de cobertura.
+    html += '<div style="display:flex;justify-content:space-between;font-size:12.5px;'
+        + 'color:#55617f;margin-bottom:4px;">'
+        + '<span>Apartamentos visitados</span>'
+        + '<strong style="color:' + (pct >= 100 ? '#2E7D32' : '#a8871f') + ';">'
+        + cubiertos + ' de ' + aptos + ' (' + pct + '%)</strong></div>'
+        + '<div style="background:#eef0f6;border-radius:20px;height:16px;overflow:hidden;">'
+        + '<div style="width:' + pct + '%;height:100%;background:'
+        + (pct >= 100 ? '#2E7D32' : '#C9A227') + ';"></div></div>';
+
+    // Detalle de los que no se pudieron levantar.
+    const otros = [];
+    if (noRequiere) otros.push(noRequiere + ' no requieren ayuda');
+    if (noEsta)     otros.push(noEsta + ' sin ocupante');
+    if (denegado)   otros.push(denegado + ' con permiso denegado');
+    if (otros.length) {
+        html += '<div style="font-size:12px;color:#5b6478;margin-top:7px;">'
+            + 'De los visitados: ' + otros.join(' · ') + '.</div>';
+    }
+
+    if (sinVisitar > 0) {
+        html += '<div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:8px;'
+            + 'padding:9px 12px;margin-top:9px;font-size:12.5px;color:#8a6d1a;">'
+            + '<i class="bi bi-exclamation-triangle-fill"></i> Faltan <strong>'
+            + sinVisitar + '</strong> apartamento(s) por visitar.</div>';
+    }
+
+    cont.innerHTML = html;
+}
+
+/** Tarjeta de un número del resumen. */
+function tarjetaResumen(valor, etiqueta, color) {
+    return '<div style="flex:1;min-width:110px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:1px solid ' + color + '33;background:' + color + '0a;">'
+        + '<div style="font-size:28px;font-weight:800;color:' + color + ';line-height:1;">'
+        + valor + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + etiqueta + '</div></div>';
+}
+
+/** Resumen de cómo resultó la visita a cada apartamento. */
+function resumenVisitas(v) {
+    if (!v) return '';
+    const filas = [
+        { k: 'inspeccionado',    c: '#2d4488', t: 'Inspeccionados' },
+        { k: 'no_requiere',      c: '#2E7D32', t: 'No requieren ayuda' },
+        { k: 'no_esta',          c: '#5b6478', t: 'Ocupante no se encontraba' },
+        { k: 'permiso_denegado', c: '#A61C1C', t: 'Permiso denegado' },
+        { k: 'sin_visitar',      c: '#a8871f', t: 'Sin visitar' },
+    ].filter(f => (v[f.k] || 0) > 0);
+
+    if (!filas.length) return '';
+
+    return '<div style="margin-top:12px;padding-top:11px;border-top:1px solid #eef0f5;">'
+        + '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
+        + 'font-weight:700;letter-spacing:.4px;margin-bottom:8px;">Resultado de las visitas</div>'
+        + '<div style="display:flex;gap:7px;flex-wrap:wrap;">'
+        + filas.map(f =>
+            '<span style="background:' + f.c + '15;color:' + f.c + ';border-radius:20px;'
+            + 'padding:5px 13px;font-size:12.5px;font-weight:600;">'
+            + v[f.k] + ' ' + f.t + '</span>').join('')
+        + '</div></div>';
+}
+
+/**
+ * Etiqueta con el resultado de la visita.
+ * Se ve en la lista, antes de abrir el apartamento, para saber de un
+ * vistazo cuáles se pudieron levantar y cuáles no.
+ */
+function etiquetaVisita(ap) {
+    const est = ap.estado_visita || '';
+    const nAmb = (ap.ambientes || []).length;
+
+    const estilos = {
+        no_requiere:      { c: '#2E7D32', i: 'bi-hand-thumbs-up-fill', t: 'No requiere ayuda' },
+        no_esta:          { c: '#5b6478', i: 'bi-door-closed-fill',    t: 'Ocupante no se encuentra' },
+        permiso_denegado: { c: '#A61C1C', i: 'bi-x-octagon-fill',      t: 'Permiso denegado' },
+    };
+
+    let e = estilos[est];
+
+    // Si no tiene estado pero sí ambientes registrados, se inspeccionó.
+    if (!e && nAmb > 0) {
+        e = { c: '#2d4488', i: 'bi-clipboard-check-fill', t: 'Inspeccionado' };
+    }
+    // Sin estado y sin ambientes: todavía no se visitó.
+    if (!e) {
+        e = { c: '#a8871f', i: 'bi-hourglass', t: 'Sin visitar' };
+    }
+
+    return `<span style="font-size:10.5px;font-weight:700;color:${e.c};
+        background:${e.c}18;border-radius:20px;padding:2px 9px;margin-left:6px;
+        white-space:nowrap;"><i class="bi ${e.i}"></i> ${e.t}</span>`;
 }
 
 // Despliega los ambientes de un apartamento.

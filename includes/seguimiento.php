@@ -3134,12 +3134,38 @@ function recAptosConReparacion(int $edificioId): array
         $total = (int)($r['total'] ?? 0);
         $con   = (int)($r['con_reparacion'] ?? 0);
 
+        // Resultado de la visita en cada apartamento.
+        $visitas = ['inspeccionado' => 0, 'no_requiere' => 0,
+                    'no_esta' => 0, 'permiso_denegado' => 0, 'sin_visitar' => 0];
+        try {
+            $stV = db()->prepare("
+                SELECT COALESCE(ap.estado_visita, '') AS est,
+                       (SELECT COUNT(*) FROM rec_ambiente am2
+                         WHERE am2.apartamento_id = ap.id) AS n_amb
+                  FROM rec_piso pi
+                  JOIN rec_apartamento ap ON ap.piso_id = pi.id
+                 WHERE pi.edificio_id = :e
+            ");
+            $stV->execute(['e' => $edificioId]);
+            foreach ($stV->fetchAll() as $v) {
+                $est = $v['est'];
+                if (in_array($est, ['no_requiere', 'no_esta', 'permiso_denegado'], true)) {
+                    $visitas[$est]++;
+                } elseif ((int)$v['n_amb'] > 0) {
+                    $visitas['inspeccionado']++;
+                } else {
+                    $visitas['sin_visitar']++;
+                }
+            }
+        } catch (Throwable $e) { /* sin datos de visita */ }
+
         return [
             'total'               => $total,
             'con_reparacion'      => $con,
             'sin_reparacion'      => max(0, $total - $con),
             'ambientes_a_reparar' => (int)($r['ambientes_a_reparar'] ?? 0),
             'porcentaje'          => $total > 0 ? (int)round($con / $total * 100) : 0,
+            'visitas'             => $visitas,
         ];
     } catch (Throwable $e) {
         return ['total' => 0, 'con_reparacion' => 0, 'sin_reparacion' => 0,
@@ -3200,6 +3226,7 @@ function recArbolAvance(int $edificioId): array
         "SELECT pi.id AS piso_id, pi.numero_piso,
                 ap.id AS apto_id, ap.identificador,
                 ap.jefe_nombre, ap.jefe_cedula, ap.jefe_telefono,
+                ap.estado_visita, ap.visita_obs,
                 am.id AS amb_id, am.tipo AS amb_tipo, am.numero AS amb_numero,
                 am.necesita_reparacion,
                 COALESCE(ava.porcentaje, 0) AS amb_pct,
@@ -3242,6 +3269,8 @@ function recArbolAvance(int $edificioId): array
                 'jefe_nombre'   => $r['jefe_nombre'],
                 'jefe_cedula'   => $r['jefe_cedula'],
                 'jefe_telefono' => $r['jefe_telefono'],
+                'estado_visita' => $r['estado_visita'] ?? null,
+                'visita_obs'    => $r['visita_obs'] ?? null,
                 'ambientes'     => [],
                 'avance'        => 0,
                 'tiene_foto_durante' => ((int)$r['apto_fotos_durante']) > 0,
