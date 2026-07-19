@@ -91,6 +91,25 @@ include __DIR__ . '/../includes/header.php';
              placeholder="Av. Principal, sector, casa o edificio cercano…">
     </div>
 
+    <!-- Buscador de direcciones -->
+    <div style="margin-bottom:10px;">
+      <label class="text-sm">Buscar la dirección en el mapa</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="ne-buscar" class="form-control" style="flex:1;min-width:200px;"
+               placeholder="Ej: Av. Sucre, Catia · Torre Este, Parque Central"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();buscarDireccion();}">
+        <button type="button" class="btn btn-outline" onclick="buscarDireccion()">
+          <i class="bi bi-search"></i> Buscar
+        </button>
+      </div>
+      <div id="ne-resultados" style="display:none;background:#fff;border:1px solid #dbe0ec;
+           border-radius:9px;margin-top:6px;max-height:210px;overflow-y:auto;"></div>
+      <div class="text-sm text-muted" style="margin-top:4px;">
+        Escriba la calle, avenida o punto de referencia. Luego ajuste
+        tocando el mapa si hace falta.
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
       <button type="button" class="btn btn-primary" onclick="tomarUbicacion()">
         <i class="bi bi-crosshair"></i> <span id="ne-gps-txt">Usar mi ubicación</span>
@@ -249,6 +268,63 @@ function ponerMarcador(lat, lng) {
     document.getElementById('ne-coords').innerHTML =
         '<i class="bi bi-check-circle-fill" style="color:#2E7D32;"></i> '
         + lat.toFixed(5) + ', ' + lng.toFixed(5);
+}
+
+/**
+ * Busca una dirección y la ubica en el mapa.
+ * Usa Nominatim (OpenStreetMap), gratuito y sin clave.
+ * La búsqueda se limita a Venezuela para evitar resultados de otros países.
+ */
+async function buscarDireccion() {
+    const txt = (document.getElementById('ne-buscar').value || '').trim();
+    const cont = document.getElementById('ne-resultados');
+    if (txt.length < 3) {
+        alert('Escriba al menos 3 letras de la dirección.');
+        return;
+    }
+
+    cont.style.display = 'block';
+    cont.innerHTML = '<div style="padding:11px 14px;color:#5b6478;font-size:13px;">'
+        + '<i class="bi bi-hourglass-split"></i> Buscando…</div>';
+
+    // Se añade la parroquia elegida para acotar la búsqueda.
+    const parr = document.getElementById('ne-parroquia').value;
+    const consulta = txt + (parr ? ', ' + parr : '') + ', Caracas, Venezuela';
+
+    try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6'
+                  + '&countrycodes=ve&accept-language=es&q=' + encodeURIComponent(consulta);
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const lista = await res.json();
+
+        if (!lista.length) {
+            cont.innerHTML = '<div style="padding:11px 14px;color:#8a6d1a;font-size:13px;">'
+                + '<i class="bi bi-info-circle"></i> No se encontró esa dirección. '
+                + 'Pruebe con menos detalle (solo la avenida o el sector), '
+                + 'o marque el punto tocando el mapa.</div>';
+            return;
+        }
+
+        cont.innerHTML = lista.map(r =>
+            '<div onclick="usarResultado(' + r.lat + ', ' + r.lon + ')" '
+            + 'style="padding:10px 14px;border-bottom:1px solid #f0f2f7;cursor:pointer;'
+            + 'font-size:13px;" onmouseover="this.style.background=\'#f7f9fd\'" '
+            + 'onmouseout="this.style.background=\'\'">'
+            + '<i class="bi bi-geo-alt" style="color:#2d4488;"></i> '
+            + r.display_name + '</div>').join('');
+
+    } catch (e) {
+        cont.innerHTML = '<div style="padding:11px 14px;color:#A61C1C;font-size:13px;">'
+            + 'No se pudo buscar. Verifique su conexión o marque el punto en el mapa.</div>';
+    }
+}
+
+/** Coloca el marcador en el resultado elegido. */
+function usarResultado(lat, lng) {
+    ponerMarcador(parseFloat(lat), parseFloat(lng));
+    _mapa.setView([lat, lng], 18);
+    document.getElementById('ne-resultados').style.display = 'none';
+    document.getElementById('ne-mapa').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function tomarUbicacion() {

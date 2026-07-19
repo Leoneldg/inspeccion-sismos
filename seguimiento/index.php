@@ -246,7 +246,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <div class="field" style="margin:0;">
                 <label class="text-sm">Estado</label>
-                <select id="f-estado" class="form-control" style="width:160px;" onchange="ejecutarBusqueda()">
+                <select id="f-estado" class="form-control" style="width:160px;" onchange="filtrarParroquias(); ejecutarBusqueda();">
                     <?php
                     $estadosLista = catalogoEstados();
                     foreach ($estadosLista as $est):
@@ -559,6 +559,9 @@ async function asignarEnteAlPunto() {
         mostrarMsg('Error de red al asignar.', false);
     }
 }
+
+// Al abrir, mostrar solo las parroquias del estado predeterminado.
+try { filtrarParroquias(); } catch (e) { /* no interrumpir */ }
 
 // Si se llega con ?abrir=ID, mostrar esa edificación de una vez.
 (function () {
@@ -933,6 +936,37 @@ function volverVistaParroquias() {
 
 // ===================== BÚSQUEDA DE EDIFICACIONES =====================
 let _ultimaBusqueda = [];   // resultados actuales, para imprimir
+
+async /**
+ * Muestra solo las parroquias del estado elegido.
+ * Antes salían todas mezcladas, lo que confundía al buscar.
+ */
+function filtrarParroquias() {
+    const estado = document.getElementById('f-estado').value;
+    const sel = document.getElementById('f-parroquia');
+    if (!sel) return;
+
+    let visibles = 0;
+    Array.from(sel.options).forEach(op => {
+        if (!op.value) { op.hidden = false; return; }   // "Todas las parroquias"
+        const suyo = op.dataset.estado || '';
+        const mostrar = !estado || suyo === estado;
+        op.hidden = !mostrar;
+        if (mostrar) visibles++;
+    });
+
+    // Si la parroquia elegida no pertenece al estado, se limpia.
+    const actual = sel.selectedOptions[0];
+    if (actual && actual.hidden) sel.value = '';
+
+    // Avisar si el estado no tiene parroquias con inspecciones.
+    const op0 = sel.options[0];
+    if (op0) {
+        op0.textContent = visibles > 0
+            ? 'Todas las parroquias'
+            : 'Sin parroquias en este estado';
+    }
+}
 
 async function ejecutarBusqueda() {
     const q = document.getElementById('f-buscar').value.trim();

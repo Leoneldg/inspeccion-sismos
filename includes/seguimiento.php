@@ -3287,6 +3287,7 @@ function recArbolAvance(int $edificioId): array
             $stFE->execute(['p' => $pid]);
             foreach ($stFE->fetchAll() as $f) {
                 $pisos[$pid]['fotos_elementos'][] = [
+                    'id'        => (int)$f['id'],
                     'ruta'      => APP_URL_BASE . ltrim($f['ruta'], '/'),
                     'elemento'  => $f['elemento'],
                     'parte'     => $f['parte'] ?: '',
@@ -3309,6 +3310,7 @@ function recArbolAvance(int $edificioId): array
         $stFG->execute(['e' => $edificioId]);
         foreach ($stFG->fetchAll() as $f) {
             $fotosEdificio[] = [
+                'id'    => (int)$f['id'],
                 'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
                 'parte' => $f['parte'] ?: 'general',
                 'fecha' => !empty($f['creado_en'])

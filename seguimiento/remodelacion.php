@@ -346,6 +346,14 @@ const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= $edificioId ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_CARGAR = <?= $puedeCargar ? 'true' : 'false' ?>;
+<?php
+$rolActual = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+$esAdminFoto = usuarioEsMaster()
+            || str_contains($rolActual, 'administrador')
+            || str_contains($rolActual, 'superadmin');
+?>
+// Solo un administrador puede borrar fotos ya cargadas.
+const PUEDE_BORRAR_FOTOS = <?= $esAdminFoto ? 'true' : 'false' ?>;
 const PLAZO_INICIO = <?= json_encode($plan['fecha_inicio_estimada'] ?? '') ?>;
 const PLAZO_FIN    = <?= json_encode($plan['fecha_fin_estimada'] ?? '') ?>;
 let _duranteDestino = null;
@@ -561,7 +569,7 @@ function pintarFotosEdificio(fotos) {
         return;
     }
     cont.innerHTML = '<div class="fotos-fila">'
-        + fotos.map(f => fotoHTML(f.ruta, f.parte || 'General', f.parte || '', f.fecha || '')).join('')
+        + fotos.map(f => fotoHTML(f.ruta, f.parte || 'General', f.parte || '', f.fecha || '', f.id)).join('')
         + '</div>';
 }
 
@@ -722,7 +730,7 @@ function pintarFotosEdificio(fotos) {
     if (num) num.textContent = fotos.length;
     cont.innerHTML = fotos.map(f =>
         fotoHTML(f.ruta, f.descripcion || f.parte || 'Edificio',
-                 f.parte || '', f.fecha || '')
+                 f.parte || '', f.fecha || '', f.id)
     ).join('');
 }
 
@@ -791,7 +799,7 @@ function togglePisoFicha(pisoId) {
             + '<i class="bi bi-images"></i> Fotos del piso (' + fe.length + ')</div>'
             + '<div class="fotos-fila">'
             + fe.map(f => fotoHTML(f.ruta, f.elemento || 'Elemento',
-                                   f.parte || '', f.fecha || '')).join('')
+                                   f.parte || '', f.fecha || '', f.id)).join('')
             + '</div>';
         cont.appendChild(bloque);
     }
@@ -822,7 +830,7 @@ function togglePisoFicha(pisoId) {
             + '<div class="fotos-fila">'
             + piso.fotos_elementos.map(f =>
                 fotoHTML(f.ruta, f.elemento || f.descripcion || 'Piso',
-                         f.parte || '', f.fecha || '')).join('')
+                         f.parte || '', f.fecha || '', f.id)).join('')
             + '</div></div>';
     }
 
@@ -1144,7 +1152,7 @@ async function verFotosAmbiente(ambienteId, etiqueta, parte) {
         });
         if (!lista.length) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
         cuerpo.innerHTML = `<div class="fotos-fila">${lista.map(f =>
-            fotoHTML(f.ruta, f.descripcion || etiqueta, f.parte_detalle || '', f.fecha || '')
+            fotoHTML(f.ruta, f.descripcion || etiqueta, f.parte_detalle || '', f.fecha || '', f.id)
         ).join('')}</div>`;
     } catch (e) {
         cuerpo.innerHTML = '<p class="text-muted">Error al cargar.</p>';
@@ -1192,15 +1200,15 @@ async function verFotosApto(aptoId, ident) {
         if (!ap) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
 
         let antes = '';
-        (ap.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, 'Apartamento', f.parte_detalle || '', f.fecha || ''); });
+        (ap.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, 'Apartamento', f.parte_detalle || '', f.fecha || '', f.id); });
         (ap.ambientes || []).forEach(am => (am.fotos_antes || []).forEach(f => {
-            antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || ''); }));
+            antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || '', f.id); }));
         if (!antes) antes = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos del levantamiento</div>';
 
         let durante = '';
-        (ap.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, 'Durante', f.parte_detalle || '', f.fecha || ''); });
+        (ap.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, 'Durante', f.parte_detalle || '', f.fecha || '', f.id); });
         (ap.ambientes || []).forEach(am => (am.fotos_durante || []).forEach(f => {
-            durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || ''); }));
+            durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || '', f.id); }));
         if (!durante) durante = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos aún</div>';
 
         const btnFoto = PUEDE_CARGAR
@@ -1224,7 +1232,7 @@ function cerrarModalFotos() {
  * Miniatura de una foto. Muestra qué parte se fotografió y permite
  * ampliarla: antes no se veía el detalle ni qué lado era.
  */
-function fotoHTML(ruta, cap, parte, fecha) {
+function fotoHTML(ruta, cap, parte, fecha, idFoto) {
     const etiqueta = parte
         ? `<span style="background:#22366F;color:#fff;font-size:10px;font-weight:700;
              padding:2px 7px;border-radius:9px;position:absolute;top:6px;left:6px;">${parte}</span>`
@@ -1234,7 +1242,7 @@ function fotoHTML(ruta, cap, parte, fecha) {
     const alt = (cap || 'Foto').replace(/"/g, '&quot;');
     return `<div class="foto-item" style="position:relative;">
         <img src="${ruta}" alt="${alt}" style="cursor:zoom-in;"
-             onclick="ampliarFoto('${ruta}', '${alt}', '${(parte||'').replace(/'/g,"")}')">
+             onclick="ampliarFoto('${ruta}', '${alt}', '${(parte||'').replace(/'/g,"")}', ${idFoto || 0})">
         ${etiqueta}
         <div class="cap">${cap || ''}</div>
         ${cuando}
@@ -1242,7 +1250,7 @@ function fotoHTML(ruta, cap, parte, fecha) {
 }
 
 /** Visor a pantalla completa, con zoom y desplazamiento. */
-function ampliarFoto(ruta, titulo, parte) {
+function ampliarFoto(ruta, titulo, parte, idFoto) {
     const capa = document.createElement('div');
     capa.id = 'visor-foto';
     capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'
@@ -1265,6 +1273,11 @@ function ampliarFoto(ruta, titulo, parte) {
                style="background:rgba(255,255,255,.15);color:#fff;width:38px;height:38px;
                       border-radius:9px;display:flex;align-items:center;justify-content:center;
                       text-decoration:none;"><i class="bi bi-download"></i></a>
+            ${(PUEDE_BORRAR_FOTOS && idFoto) ? `
+            <button onclick="borrarFoto(${idFoto})" title="Eliminar esta foto"
+                    style="background:#A61C1C;border:0;color:#fff;width:38px;height:38px;
+                           border-radius:9px;font-size:17px;cursor:pointer;">
+                <i class="bi bi-trash"></i></button>` : ''}
             <button onclick="cerrarVisor()" title="Cerrar"
                     style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
                            border-radius:9px;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
@@ -1287,6 +1300,37 @@ function ampliarFoto(ruta, titulo, parte) {
 
     // Cerrar con la tecla Escape.
     document.addEventListener('keydown', _escVisor);
+}
+
+/**
+ * Elimina una foto. Solo disponible para administradores.
+ * Pide confirmación porque no se puede deshacer.
+ */
+async function borrarFoto(idFoto) {
+    if (!confirm('¿Eliminar esta foto?\n\n'
+        + 'Se borra del sistema y del disco. Esta acción no se puede deshacer.')) return;
+
+    try {
+        const fd = new FormData();
+        fd.append('accion', 'eliminar');
+        fd.append('foto_id', idFoto);
+        const res = await fetch(URL_BASE + 'subir_foto_rec.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const d = await res.json();
+        if (!d.ok) { alert(d.mensaje || 'No se pudo eliminar.'); return; }
+
+        cerrarVisor();
+        // Quitar la miniatura de la pantalla sin recargar todo.
+        document.querySelectorAll('.foto-item').forEach(el => {
+            const img = el.querySelector('img');
+            const clic = img ? (img.getAttribute('onclick') || '') : '';
+            if (clic.includes(', ' + idFoto + ')')) el.remove();
+        });
+        cargarFicha();   // recalcular los conteos
+    } catch (e) {
+        alert('Sin conexión. Intente de nuevo.');
+    }
 }
 
 function _escVisor(e) { if (e.key === 'Escape') cerrarVisor(); }

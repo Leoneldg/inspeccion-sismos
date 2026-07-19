@@ -51,20 +51,36 @@ try {
     // --- Eliminar ---
     if (($_POST['accion'] ?? '') === 'eliminar') {
         $fotoId = (int)($_POST['foto_id'] ?? 0);
-        $st = db()->prepare('SELECT ruta, parte FROM rec_foto WHERE id = :id');
+        $st = db()->prepare('SELECT ruta, parte, nivel, ref_id FROM rec_foto WHERE id = :id');
         $st->execute(['id' => $fotoId]);
         $f = $st->fetch();
-        if ($f) {
-            // Las fotos del "Antes" (levantamiento) son inmutables: NO se borran.
-            // Solo se pueden eliminar fotos del "durante" o "despues".
-            $parte = $f['parte'] ?? '';
-            if ($parte !== 'durante' && $parte !== 'despues') {
-                jresp(false, 'Las fotos del levantamiento (Antes) no se pueden eliminar.');
-            }
-            $abs = dirname(__DIR__) . '/' . $f['ruta'];
-            if (is_file($abs)) @unlink($abs);
-            db()->prepare('DELETE FROM rec_foto WHERE id = :id')->execute(['id' => $fotoId]);
+        if (!$f) jresp(false, 'La foto ya no existe.');
+
+        // Un administrador puede borrar cualquier foto: hace falta para
+        // corregir subidas equivocadas o duplicadas.
+        $rol = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+        $esAdmin = usuarioEsMaster()
+                || str_contains($rol, 'administrador')
+                || str_contains($rol, 'superadmin');
+
+        $parte = $f['parte'] ?? '';
+        $esDelAntes = ($parte !== 'durante' && $parte !== 'despues');
+
+        if ($esDelAntes && !$esAdmin) {
+            jresp(false, 'Las fotos del levantamiento (Antes) solo las puede '
+                       . 'eliminar un administrador.');
         }
+
+        $abs = dirname(__DIR__) . '/' . $f['ruta'];
+        if (is_file($abs)) @unlink($abs);
+        db()->prepare('DELETE FROM rec_foto WHERE id = :id')->execute(['id' => $fotoId]);
+
+        // Queda constancia de quién borró qué.
+        recAuditar('foto_eliminada', null, null,
+            ($esDelAntes ? 'Foto del levantamiento' : 'Foto de seguimiento')
+            . ' · ' . $f['nivel'] . ' #' . $f['ref_id']
+            . ($parte ? ' (' . $parte . ')' : ''));
+
         jresp(true, 'Foto eliminada.');
     }
 
