@@ -416,6 +416,12 @@ function segKpis(): array
     // Edificaciones registradas en campo (no venían en el listado original).
     $r['agregadas'] = segEdificacionesAgregadas(true);
 
+    // Apartamentos que necesitan reparación: basta un ambiente marcado.
+    $ar = segAptosAReparar();
+    $r['aptos_reparar']     = $ar['aptos_reparar'];
+    $r['aptos_total']       = $ar['aptos_total'];
+    $r['ambientes_reparar'] = $ar['ambientes'];
+
     return $r;
 }
 
@@ -2996,6 +3002,88 @@ function recMetrosPorNivel(int $edificioId): array
     }
 }
 
+/**
+ * Cuenta los apartamentos que necesitan reparación en un edificio.
+ * Basta con que UN ambiente esté marcado para que el apartamento cuente:
+ * es la unidad con la que se planifica la obra.
+ */
+function recAptosConReparacion(int $edificioId): array
+{
+    try {
+        $st = db()->prepare("
+            SELECT
+                COUNT(DISTINCT ap.id) AS total,
+                COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                    THEN ap.id END) AS con_reparacion,
+                COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                    THEN am.id END) AS ambientes_a_reparar
+              FROM rec_piso pi
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+             WHERE pi.edificio_id = :e
+        ");
+        $st->execute(['e' => $edificioId]);
+        $r = $st->fetch() ?: [];
+
+        $total = (int)($r['total'] ?? 0);
+        $con   = (int)($r['con_reparacion'] ?? 0);
+
+        return [
+            'total'               => $total,
+            'con_reparacion'      => $con,
+            'sin_reparacion'      => max(0, $total - $con),
+            'ambientes_a_reparar' => (int)($r['ambientes_a_reparar'] ?? 0),
+            'porcentaje'          => $total > 0 ? (int)round($con / $total * 100) : 0,
+        ];
+    } catch (Throwable $e) {
+        return ['total' => 0, 'con_reparacion' => 0, 'sin_reparacion' => 0,
+                'ambientes_a_reparar' => 0, 'porcentaje' => 0];
+    }
+}
+
+/**
+ * Total de apartamentos a reparar en todo el sistema, para el dashboard.
+ * Respeta el alcance del usuario (estado y parroquias asignadas).
+ */
+function segAptosAReparar(): array
+{
+    $conds = [];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+    $where = $conds ? (' AND ' . implode(' AND ', $conds)) : '';
+
+    try {
+        $st = db()->prepare("
+            SELECT
+                COUNT(DISTINCT ap.id) AS aptos_total,
+                COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                    THEN ap.id END) AS aptos_reparar,
+                COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                    THEN am.id END) AS ambientes_reparar,
+                COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                    THEN i.id END) AS edificios_con_reparacion
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+             WHERE 1=1 $where
+        ");
+        $st->execute($params);
+        $r = $st->fetch() ?: [];
+
+        return [
+            'aptos_total'    => (int)($r['aptos_total'] ?? 0),
+            'aptos_reparar'  => (int)($r['aptos_reparar'] ?? 0),
+            'ambientes'      => (int)($r['ambientes_reparar'] ?? 0),
+            'edificios'      => (int)($r['edificios_con_reparacion'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        return ['aptos_total' => 0, 'aptos_reparar' => 0, 'ambientes' => 0, 'edificios' => 0];
+    }
+}
+
 function recArbolAvance(int $edificioId): array
 {
     recAsegurarTablasAvance();
@@ -3240,6 +3328,7 @@ function recArbolAvance(int $edificioId): array
         'm2_por_tipo'     => $m2['por_tipo'] ?? [],
         'materiales'      => $materiales,
         'por_trabajo'     => $porTrabajo,
+        'aptos_reparar'   => recAptosConReparacion($edificioId),
         'fotos_edificio'  => $fotosEdificio,
         'fotos_piso'      => $fotosPiso,
     ];

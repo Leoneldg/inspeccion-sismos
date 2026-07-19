@@ -191,6 +191,15 @@ include __DIR__ . '/../includes/header.php';
         <div class="seg-kpi-ico" style="background:#f1f2f6;color:#767c94;"><i class="bi bi-clipboard-x"></i></div>
         <div><div class="seg-kpi-num"><?= number_format((int)$kpis['sin_seguimiento'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
     </div>
+    <?php if ((int)($kpis['aptos_reparar'] ?? 0) > 0): ?>
+    <div class="seg-kpi" title="Apartamentos con al menos un ambiente a reparar">
+        <div class="seg-kpi-ico" style="background:#fdf6e3;color:#a8871f;"><i class="bi bi-house-gear-fill"></i></div>
+        <div><div class="seg-kpi-num" style="color:#a8871f;">
+                <?= number_format((int)$kpis['aptos_reparar'], 0, ',', '.') ?></div>
+             <div class="seg-kpi-lbl">APARTAMENTOS A REPARAR</div></div>
+    </div>
+    <?php endif; ?>
+
     <?php if ((int)($kpis['agregadas'] ?? 0) > 0): ?>
     <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="seg-kpi" style="text-decoration:none;">
         <div class="seg-kpi-ico" style="background:#eaf7ee;color:#2E7D32;"><i class="bi bi-plus-circle-fill"></i></div>
@@ -698,6 +707,8 @@ function pintarPanelParroquia(d) {
                     <div style="font-size:13.5px;color:#2a3140;font-weight:700;">
                         Frente de Trabajo ${f.numero}
                     </div>
+                    ${f.nombre ? `<div style="font-size:12.5px;color:#2d4488;font-weight:600;">
+                        ${f.nombre}</div>` : ''}
                     <div style="margin-top:4px;">${brigadas}</div>
                     ${f.obras ? `<div style="font-size:11px;color:#767c94;margin-top:3px;">
                         ${f.obras} edificación(es) asignada(s)</div>` : ''}

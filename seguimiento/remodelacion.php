@@ -129,6 +129,16 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Apartamentos que necesitan reparación -->
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:11px;">
+            <i class="bi bi-house-gear"></i> Apartamentos a reparar
+        </div>
+        <div id="fs-aptos-reparar">
+            <span class="text-muted text-sm">Calculando…</span>
+        </div>
+    </div>
+
     <!-- Acceso al levantamiento técnico -->
     <?php
     $puedeEditarLev = $edificioId > 0 ? recPuedeEditarLevantamiento($edificioId) : false;
@@ -435,6 +445,13 @@ async function cargarFicha() {
         if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
     }
 
+    try { pintarAptosReparar(d.aptos_reparar || null); }
+    catch (e) {
+        console.error('Apartamentos a reparar:', e);
+        const c = document.getElementById('fs-aptos-reparar');
+        if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
+    }
+
     try { pintarFotosEdificio(d.fotos_edificio || []); }
     catch (e) {
         console.error('Fotos del edificio:', e);
@@ -546,6 +563,58 @@ function pintarFotosEdificio(fotos) {
     cont.innerHTML = '<div class="fotos-fila">'
         + fotos.map(f => fotoHTML(f.ruta, f.parte || 'General', f.parte || '', f.fecha || '')).join('')
         + '</div>';
+}
+
+/**
+ * Apartamentos que necesitan reparación. Basta con que un ambiente esté
+ * marcado para que el apartamento cuente: es la unidad de planificación.
+ */
+function pintarAptosReparar(d) {
+    const cont = document.getElementById('fs-aptos-reparar');
+    if (!cont) return;
+    if (!d || !d.total) {
+        cont.innerHTML = '<span class="text-muted text-sm">'
+            + 'Todavía no hay apartamentos registrados.</span>';
+        return;
+    }
+
+    const pct = d.porcentaje || 0;
+    cont.innerHTML =
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:11px;">'
+        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:2px solid #C9A22755;background:#C9A2270a;">'
+        + '<div style="font-size:28px;font-weight:800;color:#a8871f;line-height:1;">'
+        + d.con_reparacion + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + 'Necesitan reparación</div></div>'
+
+        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:1px solid #2E7D3233;background:#2E7D320a;">'
+        + '<div style="font-size:28px;font-weight:800;color:#2E7D32;line-height:1;">'
+        + d.sin_reparacion + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + 'Sin daños</div></div>'
+
+        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:1px solid #2d448833;">'
+        + '<div style="font-size:28px;font-weight:800;color:#2d4488;line-height:1;">'
+        + d.total + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + 'Total del edificio</div></div>'
+
+        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:1px solid #97a0b833;">'
+        + '<div style="font-size:28px;font-weight:800;color:#5b6478;line-height:1;">'
+        + (d.ambientes_a_reparar || 0) + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + 'Ambientes a reparar</div></div>'
+        + '</div>'
+
+        + '<div style="background:#eef0f6;border-radius:20px;height:16px;overflow:hidden;">'
+        + '<div style="width:' + pct + '%;height:100%;background:#C9A227;"></div></div>'
+        + '<div style="font-size:12px;color:#5b6478;margin-top:5px;">'
+        + '<strong>' + pct + '%</strong> de los apartamentos del edificio necesitan '
+        + 'alguna reparación.</div>';
 }
 
 // Muestra el total de metros cuadrados a reparar del edificio.
