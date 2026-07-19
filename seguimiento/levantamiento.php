@@ -1769,7 +1769,7 @@ function pintarAmbientes(ambientes, contenedor) {
                     </span>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    ${['pared','techo','piso','closet'].map(sup => `
+                    ${['pared','techo','piso'].map(sup => `
                         <div style="width:110px;">
                             <label class="text-sm" style="text-transform:capitalize;">${sup} (m²)</label>
                             <input type="text" inputmode="decimal" class="form-control sup-${sup}"
@@ -2224,10 +2224,11 @@ async function _onFotoElegida(input, desdeCamara) {
     }
 }
 
-/* Muestra un pequeño panel con botones de parte (pared, techo, piso, closet…)
+/* Muestra un pequeño panel con botones de parte (pared, techo, piso…)
    más un campo "otra". Llama al callback con la parte elegida. */
 function pedirParte(callback) {
-    const partes = ['Pared','Techo','Piso','Closet','Puerta','Ventana','Baño','Otra'];
+    // Partes que se fotografían en obra de mampostería.
+    const partes = ['Pared','Techo','Piso','Puerta','Ventana','Grieta','Humedad','Otra'];
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,25,40,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center;';
     ov.innerHTML = `
