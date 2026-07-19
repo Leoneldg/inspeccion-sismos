@@ -305,26 +305,51 @@ let _duranteDestino = null;
 let _arbol = null;   // árbol de pisos/apartamentos con porcentajes
 
 // Carga instantánea: solo pisos y porcentajes (sin fotos).
+/** Espera una promesa con límite de tiempo, para no colgarse nunca. */
+function conLimite(promesa, ms, porDefecto) {
+    return Promise.race([
+        promesa,
+        new Promise(r => setTimeout(() => r(porDefecto), ms)),
+    ]);
+}
+
 async function cargarFicha() {
     let d = null;
 
     // Con señal: traer del servidor y guardar copia para trabajar sin señal.
     if (navigator.onLine) {
         try {
-            const res = await fetch(URL_BASE + 'arbol_avance.php?inspeccion=' + INSPECCION_ID);
-            d = await res.json();
-            if (d.ok && window.ObrasOffline) {
-                // Guardado automático de lo que abrió, por si vuelve sin señal.
-                ObrasOffline.descargarFicha(INSPECCION_ID).catch(() => {});
+            const res = await conLimite(
+                fetch(URL_BASE + 'arbol_avance.php?inspeccion=' + INSPECCION_ID),
+                20000, null);
+            if (res) {
+                const texto = await res.text();
+                try { d = JSON.parse(texto); }
+                catch (e) {
+                    // El servidor devolvió algo que no es JSON (sesión caída…)
+                    console.error('Respuesta inesperada:', texto.slice(0, 200));
+                    d = null;
+                }
             }
-        } catch (e) { d = null; }
+            // El respaldo local no debe bloquear la carga: va aparte.
+            if (d && d.ok && window.ObrasOffline) {
+                setTimeout(() => {
+                    ObrasOffline.descargarFicha(INSPECCION_ID).catch(() => {});
+                }, 1500);
+            }
+        } catch (e) {
+            console.error('Error al cargar la ficha:', e);
+            d = null;
+        }
     }
 
     // Sin señal o falló: usar la copia guardada en el teléfono.
+    // Con límite de tiempo: si IndexedDB está bloqueado, no se queda esperando.
     if (!d || !d.ok) {
         if (window.ObrasOffline) {
             try {
-                const guardada = await ObrasOffline.obtenerFicha(INSPECCION_ID);
+                const guardada = await conLimite(
+                    ObrasOffline.obtenerFicha(INSPECCION_ID), 4000, null);
                 if (guardada && guardada.arbol) {
                     d = guardada.arbol;
                     d.ok = true;
@@ -354,8 +379,30 @@ async function cargarFicha() {
         return;
     }
     _arbol = d;
-    pintarBarraGlobal(d.avance_edificio);
-    pintarPisos(d.pisos);
+
+    // Cada bloque se pinta por separado: si uno falla, los demás cargan.
+    try { pintarBarraGlobal(d.avance_edificio); }
+    catch (e) { console.error('Barra de avance:', e); }
+
+    try { pintarPisos(d.pisos || []); }
+    catch (e) { console.error('Pisos:', e); }
+
+    try {
+        pintarMetrosTotal(d.m2_total || 0, d.m2_comunes || 0,
+                          d.m2_por_tipo || {}, d.materiales || {},
+                          d.por_trabajo || {});
+    } catch (e) {
+        console.error('Metros y materiales:', e);
+        const c = document.getElementById('fs-m2-total');
+        if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
+    }
+
+    try { pintarFotosEdificio(d.fotos_edificio || []); }
+    catch (e) {
+        console.error('Fotos del edificio:', e);
+        const c = document.getElementById('fs-fotos-edificio');
+        if (c) { const t = c.closest('.fs-card'); if (t) t.style.display = 'none'; }
+    }
 }
 
 /** Ventana para definir o cambiar las fechas de la obra. */
