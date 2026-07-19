@@ -88,7 +88,9 @@ include __DIR__ . '/../includes/header.php';
     .apto-nom { font-weight:700; color:#22366F; font-size:15px; }
     .fotos-fila { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
     .foto-item { text-align:center; }
-    .foto-item img { width:92px; height:92px; object-fit:cover; border-radius:8px; border:1px solid #d8dce6; }
+    .foto-item img { width:100px; height:100px; object-fit:cover; border-radius:8px;
+                     border:1px solid #d8dce6; cursor:zoom-in; transition:transform .12s; }
+    .foto-item img:hover { transform:scale(1.06); border-color:#22366F; }
     .foto-item .cap { font-size:10px; color:#767c94; margin-top:2px; max-width:92px; }
     .col-fotos { flex:1; min-width:200px; }
     .col-fotos .tit { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
@@ -124,6 +126,26 @@ include __DIR__ . '/../includes/header.php';
             ?>
             <div class="fs-dato"><div class="l"><?= $l ?></div><div class="v"><?= e((string)$v) ?></div></div>
             <?php endforeach; ?>
+        </div>
+    </div>
+
+    <!-- Fotos generales del edificio -->
+    <div class="fs-card" id="fs-fotos-edificio" style="padding:15px 20px;display:none;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
+            <i class="bi bi-images"></i> Fotos del edificio
+            <span id="fs-nfotos-ed" style="background:#eef2fb;color:#22366F;border-radius:10px;
+                  padding:1px 9px;font-size:12px;font-weight:700;"></span>
+        </div>
+        <div id="fs-fotos-ed-lista" class="fotos-fila"></div>
+    </div>
+
+    <!-- Fotos generales del edificio -->
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
+            <i class="bi bi-images"></i> Fotos del edificio
+        </div>
+        <div id="fs-fotos-edificio">
+            <span class="text-muted text-sm">Cargando…</span>
         </div>
     </div>
 
@@ -415,6 +437,22 @@ function mostrarAvisoCopiaLocal(fecha) {
     cont.parentNode.insertBefore(div, cont);
 }
 
+/**
+ * Fotos generales del edificio: etiqueta, azotea, tanques.
+ * No cuelgan de ningún ambiente, por eso antes no se veían.
+ */
+function pintarFotosEdificio(fotos) {
+    const cont = document.getElementById('fs-fotos-edificio');
+    if (!cont) return;
+    if (!fotos.length) {
+        cont.closest('.fs-card').style.display = 'none';
+        return;
+    }
+    cont.innerHTML = '<div class="fotos-fila">'
+        + fotos.map(f => fotoHTML(f.ruta, f.parte || 'General', f.parte || '', f.fecha || '')).join('')
+        + '</div>';
+}
+
 // Muestra el total de metros cuadrados a reparar del edificio.
 function pintarMetrosTotal(m2, comunes, porTipo, materiales) {
     const cont = document.getElementById('fs-m2-total');
@@ -478,6 +516,23 @@ function pintarMetrosTotal(m2, comunes, porTipo, materiales) {
     cont.innerHTML = html;
 }
 
+/** Fotos generales del edificio: fachada, etiqueta, azotea, tanques. */
+function pintarFotosEdificio(fotos) {
+    const caja = document.getElementById('fs-fotos-edificio');
+    const cont = document.getElementById('fs-fotos-ed-lista');
+    const num  = document.getElementById('fs-nfotos-ed');
+    if (!caja || !cont) return;
+
+    if (!fotos.length) { caja.style.display = 'none'; return; }
+
+    caja.style.display = '';
+    if (num) num.textContent = fotos.length;
+    cont.innerHTML = fotos.map(f =>
+        fotoHTML(f.ruta, f.descripcion || f.parte || 'Edificio',
+                 f.parte || '', f.fecha || '')
+    ).join('');
+}
+
 function pintarBarraGlobal(pct) {
     const bg = document.getElementById('barra-global');
     bg.style.width = pct + '%';
@@ -529,6 +584,24 @@ function pintarPisos(pisos) {
 // Despliega un piso: muestra sus apartamentos con % (y carga fotos bajo demanda).
 function togglePisoFicha(pisoId) {
     const cont = document.getElementById('piso-aptos-' + pisoId);
+
+    // Fotos de los elementos del piso (escaleras, pasillos…), si las hay.
+    const pisoDatos = (_arbol.pisos || []).find(p => p.piso_id === pisoId);
+    if (pisoDatos && (pisoDatos.fotos_elementos || []).length && cont && !cont.dataset.fotosPuestas) {
+        cont.dataset.fotosPuestas = '1';
+        const fe = pisoDatos.fotos_elementos;
+        const bloque = document.createElement('div');
+        bloque.style.cssText = 'background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:11px;';
+        bloque.innerHTML =
+            '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
+            + 'font-weight:700;letter-spacing:.4px;margin-bottom:7px;">'
+            + '<i class="bi bi-images"></i> Fotos del piso (' + fe.length + ')</div>'
+            + '<div class="fotos-fila">'
+            + fe.map(f => fotoHTML(f.ruta, f.elemento || 'Elemento',
+                                   f.parte || '', f.fecha || '')).join('')
+            + '</div>';
+        cont.appendChild(bloque);
+    }
     const chev = document.getElementById('chev-' + pisoId);
     const abierto = !cont.classList.contains('hidden');
     if (abierto) {
@@ -542,8 +615,27 @@ function togglePisoFicha(pisoId) {
     cont.dataset.pintado = '1';
 
     const piso = _arbol.pisos.find(p => p.piso_id === pisoId);
-    if (!piso || !piso.apartamentos.length) {
-        cont.innerHTML = '<div style="color:#9aa1b4;padding:8px 0;">Sin apartamentos en este piso.</div>';
+    if (!piso) return;
+
+    // Fotos de los elementos del piso (escaleras, pasillos, fachada…).
+    // Antes no se mostraban en ningún sitio de la ficha.
+    let cabecera = '';
+    if (piso.fotos_elementos && piso.fotos_elementos.length) {
+        cabecera = '<div style="background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:11px;">'
+            + '<div style="font-size:11.5px;text-transform:uppercase;color:#55617f;'
+            + 'font-weight:700;letter-spacing:.3px;margin-bottom:8px;">'
+            + '<i class="bi bi-images"></i> Fotos del piso ('
+            + piso.fotos_elementos.length + ')</div>'
+            + '<div class="fotos-fila">'
+            + piso.fotos_elementos.map(f =>
+                fotoHTML(f.ruta, f.elemento || f.descripcion || 'Piso',
+                         f.parte || '', f.fecha || '')).join('')
+            + '</div></div>';
+    }
+
+    if (!piso.apartamentos.length) {
+        cont.innerHTML = cabecera
+            + '<div style="color:#9aa1b4;padding:8px 0;">Sin apartamentos en este piso.</div>';
         return;
     }
     cont.innerHTML = piso.apartamentos.map(ap => filaApartamento(ap, pisoId)).join('');
@@ -850,7 +942,13 @@ async function verFotosAmbiente(ambienteId, etiqueta, parte) {
         const res = await fetch(URL_BASE + 'listar_fotos_ambiente.php?ambiente=' + ambienteId);
         const d = await res.json();
         if (!d.ok) { cuerpo.innerHTML = '<p class="text-muted">No se pudieron cargar.</p>'; return; }
-        const lista = (d.fotos || []).filter(f => (f.parte || 'antes') === parte);
+        // Todo lo que no sea "durante" pertenece al estado inicial: las
+        // fotos del levantamiento se guardan con la parte física
+        // (Pared, Techo, Piso…), no con la palabra "antes".
+        const lista = (d.fotos || []).filter(f => {
+            const p = (f.parte || '').toLowerCase();
+            return parte === 'durante' ? p === 'durante' : p !== 'durante';
+        });
         if (!lista.length) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
         cuerpo.innerHTML = `<div class="fotos-fila">${lista.map(f =>
             fotoHTML(f.ruta, f.descripcion || etiqueta, f.parte_detalle || '', f.fecha || '')
@@ -880,6 +978,8 @@ function recalcularEnPantalla(pisoId) {
     pintarBarraGlobal(_arbol.avance_edificio);
     pintarMetrosTotal(_arbol.m2_total || 0, _arbol.m2_comunes || 0,
                       _arbol.m2_por_tipo || {}, _arbol.materiales || {});
+    pintarFotosEdificio(_arbol.fotos_edificio || []);
+    pintarFotosEdificio(_arbol.fotos_edificio || []);
 }
 
 // Ver fotos de un apartamento (bajo demanda, para no cargar todo de golpe).

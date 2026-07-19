@@ -2695,7 +2695,7 @@ function recArbolAvance(int $edificioId): array
                 COALESCE(ava.porcentaje, 0) AS amb_pct,
                 (SELECT COUNT(*) FROM rec_foto f
                   WHERE f.nivel='ambiente' AND f.ref_id=am.id
-                    AND (f.parte='antes' OR f.parte IS NULL OR f.parte='')) AS amb_fotos_antes,
+                    AND (f.parte IS NULL OR f.parte = '' OR f.parte <> 'durante')) AS amb_fotos_antes,
                 (SELECT COUNT(*) FROM rec_foto f
                   WHERE f.nivel='ambiente' AND f.ref_id=am.id AND f.parte='durante') AS amb_fotos_durante,
                 (SELECT COUNT(*) FROM rec_foto f
@@ -2775,10 +2775,58 @@ function recArbolAvance(int $edificioId): array
     }
     $avanceEdificio = $nPisos > 0 ? (int)round($sumaPisos / $nPisos) : 0;
 
+    // Fotos de los elementos del piso (escaleras, pasillos, fachada…),
+    // que el levantamiento guarda aparte de las de cada ambiente.
+    $fotosPiso = [];
+    try {
+        $stFP = db()->prepare("
+            SELECT ep.piso_id, f.id, f.ruta, f.parte, f.descripcion, f.creado_en,
+                   ep.tipo AS elemento
+              FROM rec_elemento_piso ep
+              JOIN rec_piso pi ON pi.id = ep.piso_id
+              JOIN rec_foto f ON f.nivel = 'elemento_piso' AND f.ref_id = ep.id
+             WHERE pi.edificio_id = :e
+             ORDER BY pi.numero_piso, f.creado_en
+        ");
+        $stFP->execute(['e' => $edificioId]);
+        foreach ($stFP->fetchAll() as $r) {
+            $fotosPiso[(int)$r['piso_id']][] = [
+                'id'    => (int)$r['id'],
+                'ruta'  => APP_URL_BASE . ltrim($r['ruta'], '/'),
+                'parte' => $r['parte'] ?: 'antes',
+                'elemento' => $r['elemento'] ?? '',
+                'descripcion' => $r['descripcion'] ?? '',
+                'fecha' => !empty($r['creado_en']) ? date('d/m/Y H:i', strtotime($r['creado_en'])) : '',
+            ];
+        }
+    } catch (Throwable $e) { /* sin fotos de elementos */ }
+
+    // Fotos del edificio (fachada, etiqueta, azotea, tanques…).
+    $fotosEdificio = [];
+    try {
+        $stFE = db()->prepare("
+            SELECT id, ruta, parte, descripcion, creado_en
+              FROM rec_foto
+             WHERE nivel = 'edificio' AND ref_id = :e
+             ORDER BY creado_en
+        ");
+        $stFE->execute(['e' => $edificioId]);
+        foreach ($stFE->fetchAll() as $r) {
+            $fotosEdificio[] = [
+                'id'    => (int)$r['id'],
+                'ruta'  => APP_URL_BASE . ltrim($r['ruta'], '/'),
+                'parte' => $r['parte'] ?: 'antes',
+                'descripcion' => $r['descripcion'] ?? '',
+                'fecha' => !empty($r['creado_en']) ? date('d/m/Y H:i', strtotime($r['creado_en'])) : '',
+            ];
+        }
+    } catch (Throwable $e) { /* sin fotos del edificio */ }
+
     // Metros cuadrados a reparar, por apartamento y por piso.
     $m2 = recMetrosPorNivel($edificioId);
     foreach ($pisos as $pid => $p) {
         $pisos[$pid]['m2'] = round($m2['por_piso'][$pid]['m2'] ?? 0, 2);
+        $pisos[$pid]['fotos_elementos'] = $fotosPiso[$pid] ?? [];
         foreach ($p['apartamentos'] as $i => $ap) {
             $pisos[$pid]['apartamentos'][$i]['m2'] =
                 round($m2['por_apartamento'][(int)$ap['id']] ?? 0, 2);
@@ -2792,8 +2840,53 @@ function recArbolAvance(int $edificioId): array
         catch (Throwable $e) { $materiales = []; }
     }
 
+    // Fotos que no cuelgan de un ambiente: elementos del piso y del
+    // edificio (etiqueta, azotea, tanques). Antes no se mostraban.
+    foreach ($pisos as $pid => $p) {
+        $pisos[$pid]['fotos_elementos'] = [];
+        try {
+            $stFE = db()->prepare("
+                SELECT f.id, f.ruta, f.parte, f.descripcion, f.creado_en,
+                       ep.tipo AS elemento
+                  FROM rec_elemento_piso ep
+                  JOIN rec_foto f ON f.nivel = 'elemento_piso' AND f.ref_id = ep.id
+                 WHERE ep.piso_id = :p
+                 ORDER BY ep.tipo, f.id
+            ");
+            $stFE->execute(['p' => $pid]);
+            foreach ($stFE->fetchAll() as $f) {
+                $pisos[$pid]['fotos_elementos'][] = [
+                    'ruta'      => APP_URL_BASE . ltrim($f['ruta'], '/'),
+                    'elemento'  => $f['elemento'],
+                    'parte'     => $f['parte'] ?: '',
+                    'fecha'     => !empty($f['creado_en'])
+                                   ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
+                ];
+            }
+        } catch (Throwable $e) { /* sin fotos de elementos */ }
+    }
+
+    // Fotos generales del edificio.
+    $fotosEdificio = [];
+    try {
+        $stFG = db()->prepare("SELECT id, ruta, parte, descripcion, creado_en
+                                 FROM rec_foto
+                                WHERE nivel = 'edificio' AND ref_id = :e
+                                ORDER BY id");
+        $stFG->execute(['e' => $edificioId]);
+        foreach ($stFG->fetchAll() as $f) {
+            $fotosEdificio[] = [
+                'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
+                'parte' => $f['parte'] ?: 'general',
+                'fecha' => !empty($f['creado_en'])
+                           ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
+            ];
+        }
+    } catch (Throwable $e) { /* sin fotos del edificio */ }
+
     return [
         'pisos'           => array_values($pisos),
+        'fotos_edificio'  => $fotosEdificio,
         'avance_edificio' => $avanceEdificio,
         'total_pisos'     => $nPisos,
         'total_aptos'     => array_sum(array_map(fn($p) => count($p['apartamentos']), $pisos)),
@@ -2801,6 +2894,8 @@ function recArbolAvance(int $edificioId): array
         'm2_comunes'      => round($m2['areas_comunes'], 2),
         'm2_por_tipo'     => $m2['por_tipo'] ?? [],
         'materiales'      => $materiales,
+        'fotos_edificio'  => $fotosEdificio,
+        'fotos_piso'      => $fotosPiso,
     ];
 }
 

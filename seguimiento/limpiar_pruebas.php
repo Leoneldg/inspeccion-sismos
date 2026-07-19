@@ -132,6 +132,57 @@ function borrarLevantamiento(PDO $pdo, int $inspeccionId): array
     return $res;
 }
 
+/**
+ * Elimina POR COMPLETO una edificación agregada en campo: su
+ * levantamiento, la inspección y todo rastro en la bitácora.
+ *
+ * Solo se permite con las que se registraron en campo, nunca con las
+ * del listado original importado.
+ */
+function borrarEdificacionCompleta(PDO $pdo, int $inspeccionId): array
+{
+    $res = ['inspeccion' => 0, 'auditoria' => 0, 'era_agregada' => false];
+
+    // Comprobación de seguridad: solo las agregadas en campo.
+    $st = $pdo->prepare("SELECT COUNT(*) FROM rec_auditoria
+                          WHERE inspeccion_id = :i AND accion = 'edificacion_agregada'");
+    $st->execute(['i' => $inspeccionId]);
+    $res['era_agregada'] = ((int)$st->fetchColumn()) > 0;
+
+    if (!$res['era_agregada']) {
+        // No se toca: es una inspección del listado original.
+        return $res;
+    }
+
+    // 1) Borrar el levantamiento y todo lo que cuelga de él.
+    borrarLevantamiento($pdo, $inspeccionId);
+
+    // 2) Quitar asignaciones a frentes y brigadas.
+    foreach (['asignacion_frente_obra', 'obra_brigada', 'asignacion_frente',
+              'obra_cuadrilla', 'asignacion_integrante'] as $t) {
+        try {
+            $pdo->prepare("DELETE FROM `$t` WHERE inspeccion_id = :i")->execute(['i' => $inspeccionId]);
+        } catch (Throwable $e) { /* la tabla puede no existir */ }
+    }
+
+    // 3) Borrar la bitácora de esta edificación (incluida la marca
+    //    'edificacion_agregada', que es la que alimenta el contador).
+    try {
+        $stA = $pdo->prepare('DELETE FROM rec_auditoria WHERE inspeccion_id = :i');
+        $stA->execute(['i' => $inspeccionId]);
+        $res['auditoria'] = $stA->rowCount();
+    } catch (Throwable $e) {}
+
+    // 4) Borrar la inspección.
+    try {
+        $stI = $pdo->prepare('DELETE FROM inspecciones WHERE id = :i');
+        $stI->execute(['i' => $inspeccionId]);
+        $res['inspeccion'] = $stI->rowCount();
+    } catch (Throwable $e) {}
+
+    return $res;
+}
+
 // --- Procesar borrado ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'borrar') {
     $ids = array_map('intval', (array)($_POST['ids'] ?? []));
@@ -145,22 +196,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'borra
         $mensaje = 'Para confirmar debe escribir exactamente la palabra BORRAR.';
         $tipoMsg = 'error';
     } else {
+        // Modo de borrado: solo el levantamiento, o la edificación completa.
+        $completo = !empty($_POST['borrar_completo']);
+
         $tot = ['fotos'=>0,'ambientes'=>0,'apartamentos'=>0,'pisos'=>0,'edificio'=>0];
         $nombres = [];
+        $eliminadas = 0;
+        $noAgregadas = [];
+
         foreach ($ids as $iid) {
             $st = $pdo->prepare('SELECT codigo, nombre_edificio FROM inspecciones WHERE id = :i');
             $st->execute(['i' => $iid]);
-            if ($row = $st->fetch()) {
-                $nombres[] = $row['codigo'] . ' — ' . $row['nombre_edificio'];
+            if (!($row = $st->fetch())) continue;
+            $etq = $row['codigo'] . ' — ' . $row['nombre_edificio'];
+
+            if ($completo) {
+                $r = borrarEdificacionCompleta($pdo, $iid);
+                if ($r['era_agregada']) {
+                    $eliminadas += $r['inspeccion'];
+                    $nombres[] = $etq;
+                } else {
+                    // No se toca: es del listado original importado.
+                    $noAgregadas[] = $etq;
+                }
+            } else {
+                $nombres[] = $etq;
                 $r = borrarLevantamiento($pdo, $iid);
-                foreach ($r as $k => $v) $tot[$k] += $v;
+                foreach ($tot as $k => $v) {
+                    if (isset($r[$k])) $tot[$k] += $r[$k];
+                }
             }
         }
-        $mensaje = $tot['edificio'] . ' levantamiento(s) eliminado(s). Se borraron '
-                 . $tot['pisos'] . ' piso(s), ' . $tot['apartamentos'] . ' apartamento(s), '
-                 . $tot['ambientes'] . ' ambiente(s) y ' . $tot['fotos'] . ' foto(s). '
-                 . 'Las ' . count($nombres) . ' inspección(es) se conservaron y volvieron a "sin asignar".';
-        registrarLog($_SESSION['user_id'] ?? null, 'levantamientos_eliminados', implode(' | ', $nombres));
+
+        if ($completo) {
+            $mensaje = $eliminadas . ' edificación(es) eliminada(s) por completo del sistema.';
+            if ($noAgregadas) {
+                $mensaje .= ' No se tocaron ' . count($noAgregadas)
+                    . ' porque pertenecen al listado original: '
+                    . implode(', ', array_slice($noAgregadas, 0, 3))
+                    . (count($noAgregadas) > 3 ? '…' : '')
+                    . '. Para esas use el borrado del levantamiento.';
+            }
+            registrarLog($_SESSION['user_id'] ?? null, 'edificaciones_eliminadas', implode(' | ', $nombres));
+        } else {
+            $mensaje = $tot['edificio'] . ' levantamiento(s) eliminado(s). Se borraron '
+                     . $tot['pisos'] . ' piso(s), ' . $tot['apartamentos'] . ' apartamento(s), '
+                     . $tot['ambientes'] . ' ambiente(s) y ' . $tot['fotos'] . ' foto(s). '
+                     . 'Las ' . count($nombres) . ' inspección(es) se conservaron y volvieron a "sin asignar".';
+            registrarLog($_SESSION['user_id'] ?? null, 'levantamientos_eliminados', implode(' | ', $nombres));
+        }
     }
 }
 
@@ -310,9 +394,26 @@ include __DIR__ . '/../includes/header.php';
                 <input type="text" name="confirmar" class="form-control" style="max-width:200px;"
                        placeholder="BORRAR" autocomplete="off">
             </div>
+            <label style="display:flex;align-items:flex-start;gap:9px;background:#fff6f6;
+                          border:1px solid #A61C1C33;border-radius:9px;padding:11px 13px;
+                          margin:10px 0;cursor:pointer;max-width:560px;">
+                <input type="checkbox" name="borrar_completo" id="lp-completo" style="margin-top:2px;">
+                <span>
+                    <span style="font-weight:700;color:#A61C1C;font-size:14px;">
+                        Eliminar la edificación por completo
+                    </span>
+                    <span style="display:block;font-size:12.5px;color:#5b6478;margin-top:2px;">
+                        Borra la inspección y todo su rastro, incluido el contador de
+                        "agregadas en campo". Solo funciona con las registradas en campo:
+                        las del listado original nunca se eliminan.
+                    </span>
+                </span>
+            </label>
+
             <button type="submit" class="btn" style="background:#A61C1C;color:#fff;border:0;"
                     onclick="return confirmarBorrado()">
-                <i class="bi bi-trash3"></i> Borrar levantamiento (<span id="lp-contador">0</span>)
+                <i class="bi bi-trash3"></i> <span id="lp-btn-texto">Borrar levantamiento</span>
+                (<span id="lp-contador">0</span>)
             </button>
             <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline">Cancelar</a>
         </div>
@@ -331,9 +432,33 @@ function contar() {
     const n = document.querySelectorAll('input[name="ids[]"]:checked').length;
     document.getElementById('lp-contador').textContent = n;
 }
+// Cambiar el texto del botón según el modo elegido.
+document.addEventListener('DOMContentLoaded', function () {
+    const chk = document.getElementById('lp-completo');
+    const txt = document.getElementById('lp-btn-texto');
+    if (chk && txt) {
+        chk.addEventListener('change', function () {
+            txt.textContent = this.checked
+                ? 'ELIMINAR edificación completa' : 'Borrar levantamiento';
+        });
+    }
+});
+
 function confirmarBorrado() {
     const n = document.querySelectorAll('input[name="ids[]"]:checked').length;
     if (n === 0) { alert('Seleccione al menos un levantamiento.'); return false; }
+
+    const completo = document.getElementById('lp-completo');
+    if (completo && completo.checked) {
+        return confirm(
+            'ATENCIÓN: se eliminarán POR COMPLETO ' + n + ' edificación(es).\n\n'
+            + 'Se borra la inspección, su levantamiento, sus fotos y todo su rastro '
+            + 'en el sistema. Esta acción NO se puede deshacer.\n\n'
+            + 'Las del listado original no se tocan: solo se eliminan las que se '
+            + 'registraron en campo.\n\n'
+            + '¿Continuar?');
+    }
+
     return confirm('Se borrará el levantamiento de ' + n + ' edificación(es): pisos, apartamentos, ambientes y fotos.\n\nLa inspección se conserva y volverá a "sin asignar".\n\n¿Continuar?');
 }
 contar();
