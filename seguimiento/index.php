@@ -40,17 +40,21 @@ include __DIR__ . '/../includes/header.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <style>
+/* Cada tarjeta necesita ancho suficiente para el número completo:
+   con 180px el ícono se comía el espacio y el número se recortaba. */
+.seg-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)) !important; }
+
 /* ---- KPIs: grandes pero sin desbordarse ----
    El tamaño se adapta al ancho disponible, así un número de 5 cifras
    no se sale de la tarjeta. */
 .seg-kpi-num {
-    font-size: clamp(24px, 4.4vw, 42px) !important;
+    /* El tamaño se adapta al ancho, pero el número SIEMPRE se ve completo:
+       nada de recortarlo con puntos suspensivos. */
+    font-size: clamp(22px, 3.6vw, 40px) !important;
     font-weight: 800 !important;
     letter-spacing: -0.5px;
     line-height: 1.05;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     max-width: 100%;
 }
 .seg-kpi-lbl {
@@ -66,7 +70,6 @@ include __DIR__ . '/../includes/header.php';
 .seg-kpi {
     padding: 18px 20px !important; gap: 14px; align-items: center;
     min-width: 0;   /* permite que el contenido se encoja dentro del grid */
-    overflow: hidden;
 }
 /* El bloque de texto del KPI también debe poder encogerse. */
 .seg-kpi > div:not(.seg-kpi-ico) { min-width: 0; flex: 1; }
@@ -81,6 +84,7 @@ include __DIR__ . '/../includes/header.php';
 /* Tablets */
 @media (max-width: 900px) {
     #seg-map { height: 460px !important; }
+    .seg-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important; }
     .seg-kpi-num { font-size: clamp(22px, 5vw, 34px) !important; }
     .seg-kpi-ico { width: 44px !important; height: 44px !important; font-size: 20px !important; }
     .seg-kpi { padding: 14px 16px !important; }
@@ -89,6 +93,7 @@ include __DIR__ . '/../includes/header.php';
 /* Teléfonos */
 @media (max-width: 640px) {
     #seg-map { height: 380px !important; }
+    .seg-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important; }
     .seg-kpi-num { font-size: clamp(20px, 6.5vw, 30px) !important; }
     .seg-kpi-lbl { font-size: 11px !important; }
     .seg-kpi-ico { width: 40px !important; height: 40px !important; font-size: 18px !important; }
