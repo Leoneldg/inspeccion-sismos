@@ -2989,7 +2989,14 @@ function recArbolAvance(int $edificioId): array
     } catch (Throwable $e) { /* sin fotos del edificio */ }
 
     // Metros cuadrados a reparar, por apartamento y por piso.
-    $m2 = recMetrosPorNivel($edificioId);
+    // Si algo falla aquí, la ficha debe cargar igual: el avance y los
+    // pisos son lo esencial, los metros son un extra.
+    try {
+        $m2 = recMetrosPorNivel($edificioId);
+    } catch (Throwable $e) {
+        $m2 = ['por_apartamento' => [], 'por_piso' => [], 'elementos_piso' => [],
+               'por_tipo' => [], 'areas_comunes' => 0, 'total' => 0];
+    }
     foreach ($pisos as $pid => $p) {
         $pisos[$pid]['m2'] = round($m2['por_piso'][$pid]['m2'] ?? 0, 2);
         $pisos[$pid]['fotos_elementos'] = $fotosPiso[$pid] ?? [];
@@ -3002,9 +3009,10 @@ function recArbolAvance(int $edificioId): array
     // Materiales según el TIPO DE TRABAJO registrado (friso, mampostería,
     // vaciado…). Si no hay trabajos indicados, se cae al cálculo antiguo
     // por superficie para no dejar la ficha vacía.
-    $trabajos = recTrabajosDeEdificio($edificioId);
     $materiales = [];
     $porTrabajo = [];
+    try { $trabajos = recTrabajosDeEdificio($edificioId); }
+    catch (Throwable $e) { $trabajos = []; }
 
     if ($trabajos) {
         try {
@@ -3026,6 +3034,7 @@ function recArbolAvance(int $edificioId): array
 
     // Fotos que no cuelgan de un ambiente: elementos del piso y del
     // edificio (etiqueta, azotea, tanques). Antes no se mostraban.
+    try {
     foreach ($pisos as $pid => $p) {
         $pisos[$pid]['fotos_elementos'] = [];
         try {
@@ -3049,6 +3058,8 @@ function recArbolAvance(int $edificioId): array
             }
         } catch (Throwable $e) { /* sin fotos de elementos */ }
     }
+
+    } catch (Throwable $e) { /* sin fotos de elementos */ }
 
     // Fotos generales del edificio.
     $fotosEdificio = [];

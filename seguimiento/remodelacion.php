@@ -335,6 +335,16 @@ async function cargarFicha() {
     }
 
     if (!d || !d.ok) {
+        // Limpiar los bloques que quedarían en "Cargando…" para siempre.
+        const m2c = document.getElementById('fs-m2-total');
+        if (m2c) m2c.innerHTML = '<span class="text-muted text-sm">'
+            + 'No se pudo calcular: ' + ((d && d.mensaje) || 'error al cargar') + '</span>';
+        const fec = document.getElementById('fs-fotos-edificio');
+        if (fec) {
+            const tarjeta = fec.closest('.fs-card');
+            if (tarjeta) tarjeta.style.display = 'none';
+        }
+
         document.getElementById('fs-pisos').innerHTML =
             '<div style="background:#fff6f6;border:1px solid #A61C1C33;border-radius:9px;padding:14px;">'
             + '<strong style="color:#A61C1C;"><i class="bi bi-wifi-off"></i> Sin señal y sin copia guardada</strong>'
