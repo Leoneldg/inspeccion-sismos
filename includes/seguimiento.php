@@ -2323,6 +2323,7 @@ function recTiposSuperficie(): array
 function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones): void
 {
     recAsegurarTablasTrabajo();
+    recAsegurarAreasPartidas();
     $pdo = db();
     // Se reemplazan las existentes por las nuevas.
     $pdo->prepare('DELETE FROM rec_reparacion WHERE nivel = :n AND ref_id = :r')
@@ -2330,8 +2331,9 @@ function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones):
 
     $tipos = array_keys(recTiposSuperficie());
     $ins = $pdo->prepare(
-        'INSERT INTO rec_reparacion (nivel, ref_id, tipo_superficie, metros_cuadrados, observaciones, tipo_trabajo)
-         VALUES (:n, :r, :t, :m, :o, :tr)'
+        'INSERT INTO rec_reparacion
+            (nivel, ref_id, tipo_superficie, metros_cuadrados, observaciones, tipo_trabajo, partida)
+         VALUES (:n, :r, :t, :m, :o, :tr, :p)'
     );
     // El tipo de trabajo llega junto a las reparaciones y se conserva
     // aunque se vuelvan a guardar los metros.
@@ -2345,15 +2347,25 @@ function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones):
         } catch (Throwable $e) {}
     }
 
+    // Cada partida es un trabajo distinto sobre el mismo ambiente.
+    // Ejemplo: demoler una pared Y frisar el techo son dos partidas.
+    $partida = 0;
     foreach ($reparaciones as $k => $rep) {
         if (!is_array($rep)) continue;   // saltar 'tipo_trabajo'
+
+        // Una partida puede traer su propio trabajo; si no, usa el general.
+        $trabajoPartida = trim($rep['tipo_trabajo'] ?? '') ?: $trabajo;
+        $partida++;
+
         $tipo = $rep['tipo_superficie'] ?? '';
         $m2   = (float)($rep['metros_cuadrados'] ?? 0);
         if (!in_array($tipo, $tipos, true) || $m2 <= 0) continue;
+
         $ins->execute([
             'n' => $nivel, 'r' => $refId, 't' => $tipo, 'm' => $m2,
             'o' => trim($rep['observaciones'] ?? '') ?: null,
-            'tr' => $trabajo,
+            'tr' => $trabajoPartida,
+            'p' => $partida,
         ]);
     }
 }
@@ -2804,6 +2816,52 @@ function recPlan(int $edificioId): ?array
 // =====================================================================
 
 /** Catálogo de áreas comunes típicas de un edificio (Venezuela). */
+/** Asegura las columnas de áreas personalizadas y partidas múltiples. */
+function recAsegurarAreasPartidas(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_area_comun")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ([
+            'nombre_libre'     => "VARCHAR(120) DEFAULT NULL",
+            'metros_cuadrados' => "DECIMAL(10,2) DEFAULT NULL",
+            'tipo_trabajo'     => "VARCHAR(40) DEFAULT NULL",
+        ] as $col => $def) {
+            if (!in_array($col, $cols, true)) {
+                db()->exec("ALTER TABLE rec_area_comun ADD COLUMN `$col` $def");
+            }
+        }
+        $cols2 = db()->query("SHOW COLUMNS FROM rec_reparacion")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('partida', $cols2, true)) {
+            db()->exec("ALTER TABLE rec_reparacion ADD COLUMN partida INT NOT NULL DEFAULT 1");
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Áreas comunes del edificio, incluidas las que se agregaron con
+ * nombre libre desde la opción "Otros".
+ */
+function recAreasComunesConNombre(int $edificioId): array
+{
+    recAsegurarAreasPartidas();
+    $tipicas = recAreasComunesTipicas();
+    try {
+        $st = db()->prepare('SELECT * FROM rec_area_comun WHERE edificio_id = :e ORDER BY id');
+        $st->execute(['e' => $edificioId]);
+        $out = [];
+        foreach ($st->fetchAll() as $a) {
+            $a['etiqueta'] = !empty($a['nombre_libre'])
+                ? $a['nombre_libre']
+                : ($tipicas[$a['tipo']] ?? $a['tipo']);
+            $out[] = $a;
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
 function recAreasComunesTipicas(): array
 {
     return [
@@ -2816,6 +2874,8 @@ function recAreasComunesTipicas(): array
         'cuarto_maquinas'  => 'Cuarto de máquinas',
         'tanque_agua'      => 'Tanque de agua',
         'planta_electrica' => 'Planta eléctrica',
+        'cuarto_bomba'     => 'Cuarto de bomba',
+        'conserjeria'      => 'Conserjería',
         'jardines'         => 'Jardines / Áreas verdes',
         'patio'            => 'Patio',
         'azotea'           => 'Azotea / Terraza',

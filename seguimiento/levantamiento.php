@@ -1768,6 +1768,12 @@ function pintarAmbientes(ambientes, contenedor) {
                         — indique al menos uno
                     </span>
                 </div>
+                <div class="amb-partidas"></div>
+                <button type="button" class="btn btn-outline btn-sm"
+                        style="margin-top:9px;border-color:#2d448855;color:#2d4488;font-size:12px;"
+                        onclick="agregarPartida(this, ${am.id})">
+                    <i class="bi bi-plus-circle"></i> Agregar otro trabajo aquí
+                </button>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     ${['pared','techo','piso'].map(sup => `
                         <div style="width:110px;">
@@ -1844,6 +1850,47 @@ function aNumero(txt) {
     if (txt === null || txt === undefined) return 0;
     const n = parseFloat(String(txt).replace(',', '.'));
     return isNaN(n) ? 0 : n;
+}
+
+/**
+ * Agrega otro trabajo al mismo ambiente.
+ * Sirve cuando en una habitación hay que hacer dos cosas distintas:
+ * por ejemplo levantar una pared Y frisar el techo.
+ */
+function agregarPartida(btn, ambId) {
+    const row = btn.closest('.amb-row');
+    const cont = row.querySelector('.amb-partidas');
+    if (!cont) return;
+
+    const n = cont.querySelectorAll('.partida-extra').length + 2;
+    const opciones = (Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : [])
+        .map(t => '<option value="' + t.clave + '">' + t.nombre + '</option>').join('');
+
+    const bloque = document.createElement('div');
+    bloque.className = 'partida-extra';
+    bloque.style.cssText = 'border-top:1px dashed #C9A22766;margin-top:11px;padding-top:11px;';
+    bloque.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">'
+        + '<span style="font-size:12px;font-weight:700;color:#8a6d1a;">'
+        + '<i class="bi bi-tools"></i> Trabajo ' + n + '</span>'
+        + '<button type="button" onclick="this.closest(\'.partida-extra\').remove()" '
+        + 'style="background:transparent;border:0;color:#c4c9d6;cursor:pointer;font-size:15px;">'
+        + '<i class="bi bi-x-circle"></i></button></div>'
+
+        + '<select class="form-control part-trabajo" style="margin-bottom:9px;">'
+        + '<option value="">— ¿Qué trabajo? —</option>' + opciones + '</select>'
+
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + ['pared', 'techo', 'piso'].map(sup =>
+            '<div class="field" style="width:104px;margin:0;">'
+            + '<label class="text-sm" style="text-transform:capitalize;">' + sup + '</label>'
+            + '<input type="text" inputmode="decimal" class="form-control part-m2" '
+            + 'data-sup="' + sup + '" value="0" oninput="normalizarDecimal(this)"></div>').join('')
+        + '</div>';
+
+    cont.appendChild(bloque);
+    const sel = bloque.querySelector('.part-trabajo');
+    if (sel) sel.focus();
 }
 
 /** Guarda el tipo de trabajo elegido para un ambiente. */
@@ -1944,15 +1991,45 @@ async function toggleReparar(chk, ambId) {
 async function guardarReparacion(ambId, input) {
     const row = input.closest('.amb-row');
     const reparaciones = [];
+
+    // Trabajo principal del ambiente.
+    const selT = row.querySelector('.amb-trabajo');
+    const trabajoBase = selT ? selT.value : '';
+
+    // Metros del trabajo principal: los campos que NO están dentro de
+    // una partida extra.
     row.querySelectorAll('[data-sup]').forEach(inp => {
+        if (inp.closest('.partida-extra')) return;   // esos van aparte
         const m2 = aNumero(inp.value);
-        if (m2 > 0) reparaciones.push({ tipo_superficie: inp.dataset.sup, metros_cuadrados: m2 });
+        if (m2 > 0) {
+            reparaciones.push({
+                tipo_superficie: inp.dataset.sup,
+                metros_cuadrados: m2,
+                tipo_trabajo: trabajoBase,
+            });
+        }
+    });
+
+    // Trabajos adicionales del mismo ambiente, cada uno con lo suyo.
+    row.querySelectorAll('.partida-extra').forEach(bloque => {
+        const sel = bloque.querySelector('.part-trabajo');
+        const trab = sel ? sel.value : '';
+        if (!trab) return;   // sin trabajo indicado no se guarda
+        bloque.querySelectorAll('[data-sup]').forEach(inp => {
+            const m2 = aNumero(inp.value);
+            if (m2 > 0) {
+                reparaciones.push({
+                    tipo_superficie: inp.dataset.sup,
+                    metros_cuadrados: m2,
+                    tipo_trabajo: trab,
+                });
+            }
+        });
     });
 
     // El tipo de trabajo viaja junto a los metros: así no se pierde si el
     // técnico llena los m² antes de elegir el trabajo.
-    const selT = row.querySelector('.amb-trabajo');
-    reparaciones.tipo_trabajo = selT ? selT.value : '';
+    reparaciones.tipo_trabajo = trabajoBase;
 
     const payload = {
         accion: 'guardar_reparaciones', nivel: 'ambiente', ref_id: ambId,
