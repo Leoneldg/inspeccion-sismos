@@ -195,6 +195,52 @@ ob_start();
   <?php endif; ?>
 
 
+  <!-- Tipo de trabajo -->
+  <?php
+  $cats = $c['categorias'] ?? [];
+  $CAT = [
+      'demolicion'    => ['Demolición',    '#A61C1C', 'Pared a tumbar'],
+      'construccion'  => ['Construcción',  '#22366F', 'Pared a levantar'],
+      'revestimiento' => ['Revestimiento', '#C9A227', 'Friso y acabado'],
+  ];
+  $totCat = 0;
+  foreach ($CAT as $k => $v) $totCat += $cats[$k]['m2'] ?? 0;
+  ?>
+  <?php if ($totCat > 0): ?>
+  <div class="caja" style="margin-bottom:13px;">
+    <h3>Tipo de trabajo · <?= num($totCat, 0) ?> m² en total</h3>
+    <div style="display:table;width:100%;border-spacing:6px 0;">
+      <?php foreach ($CAT as $k => $v):
+          $m2 = $cats[$k]['m2'] ?? 0;
+          $pct = $totCat > 0 ? round($m2 / $totCat * 100) : 0;
+      ?>
+      <div style="display:table-cell;width:33%;border-radius:7px;
+                  border:1px solid <?= $v[1] ?>33;background:<?= $v[1] ?>0a;
+                  padding:9px 11px;">
+        <div style="font-size:17px;font-weight:800;color:<?= $v[1] ?>;line-height:1;">
+          <?= num($m2, 0) ?> m²
+        </div>
+        <div style="font-size:9.5px;font-weight:700;color:#2a3140;margin-top:3px;">
+          <?= $v[0] ?>
+          <span style="color:#767c94;font-weight:400;">· <?= $pct ?>%</span>
+        </div>
+        <div style="font-size:8px;color:#767c94;"><?= $v[2] ?></div>
+
+        <!-- Barra de proporción -->
+        <div style="background:#f1f3f8;border-radius:10px;height:6px;
+                    overflow:hidden;margin-top:5px;">
+          <div style="width:<?= $pct ?>%;height:100%;background:<?= $v[1] ?>;"></div>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <div style="font-size:8px;color:#767c94;margin-top:7px;">
+      Una pared que se tumba y se levanta de nuevo aporta a las tres
+      categorías. El revestimiento cuenta las dos caras.
+    </div>
+  </div>
+  <?php endif; ?>
+
   <!-- Torta y parroquias, lado a lado -->
   <div class="fila">
     <div class="col" style="width:38%;">

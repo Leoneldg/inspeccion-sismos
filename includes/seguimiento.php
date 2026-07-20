@@ -2886,6 +2886,81 @@ function segSinEtiqueta(): array
  * siempre hay desperdicio, roturas y cortes: pedir la cifra exacta
  * significa quedarse corto.
  */
+/**
+ * Reparte los trabajos en tres categorías: demolición, construcción y
+ * revestimiento.
+ *
+ * Las acciones combinadas incluyen varias etapas a la vez. "Demoler y
+ * hacer pared completa" es demolición + construcción + revestimiento,
+ * así que sus metros se reparten entre las tres.
+ *
+ * Cada valor es cuántos m² de esa etapa genera 1 m² de la acción:
+ *   demolición    → superficie de pared tumbada
+ *   construcción  → superficie de pared levantada
+ *   revestimiento → superficie frisada y pintada (doble si son dos caras)
+ */
+function segTrabajosPorCategoria(array $trabajos): array
+{
+    $reparto = [
+        // acción => [demolición, construcción, revestimiento]
+        'demoler_pared_completa_concreto' => [1.0, 1.0, 2.0],
+        'demoler_pared_completa_arcilla'  => [1.0, 1.0, 2.0],
+        'pared_completa_concreto'         => [0.0, 1.0, 2.0],
+        'pared_completa_arcilla'          => [0.0, 1.0, 2.0],
+        'friso_completo_dos_caras'        => [0.0, 0.0, 2.0],
+        'friso_completo'                  => [0.0, 0.0, 1.0],
+        'friso_reparacion'                => [0.0, 0.0, 1.0],
+        'solo_pintura'                    => [0.0, 0.0, 1.0],
+        'pintura'                         => [0.0, 0.0, 1.0],
+        // Las que quedaron de versiones anteriores.
+        'demoler_reconstruir_concreto'    => [1.0, 1.0, 0.0],
+        'demoler_reconstruir_arcilla'     => [1.0, 1.0, 0.0],
+        'mamposteria_bloque_concreto'     => [0.0, 1.0, 0.0],
+        'mamposteria_bloque_arcilla'      => [0.0, 1.0, 0.0],
+        'demolicion_mamposteria'          => [1.0, 0.0, 0.0],
+    ];
+
+    $out = [
+        'demolicion'   => ['m2' => 0.0, 'acciones' => []],
+        'construccion' => ['m2' => 0.0, 'acciones' => []],
+        'revestimiento'=> ['m2' => 0.0, 'acciones' => []],
+    ];
+
+    // Nombres legibles.
+    $nombres = [];
+    try {
+        foreach (recTiposTrabajo() as $t) $nombres[$t['clave']] = $t['nombre'];
+    } catch (Throwable $e) {}
+
+    $claves = ['demolicion', 'construccion', 'revestimiento'];
+
+    foreach ($trabajos as $clave => $m2) {
+        $m2 = (float)$m2;
+        if ($m2 <= 0 || !isset($reparto[$clave])) continue;
+
+        foreach ($claves as $i => $cat) {
+            $factor = $reparto[$clave][$i];
+            if ($factor <= 0) continue;
+
+            $aporte = $m2 * $factor;
+            $out[$cat]['m2'] += $aporte;
+
+            $nom = $nombres[$clave] ?? $clave;
+            $out[$cat]['acciones'][$nom] = ($out[$cat]['acciones'][$nom] ?? 0) + $aporte;
+        }
+    }
+
+    foreach ($claves as $cat) {
+        $out[$cat]['m2'] = round($out[$cat]['m2'], 2);
+        foreach ($out[$cat]['acciones'] as $k => $v) {
+            $out[$cat]['acciones'][$k] = round($v, 2);
+        }
+        arsort($out[$cat]['acciones']);
+    }
+
+    return $out;
+}
+
 function segConsolidadoMateriales(float $margen = 0): array
 {
     // El margen viene de la constante global: así todas las pantallas
@@ -3031,6 +3106,9 @@ function segConsolidadoMateriales(float $margen = 0): array
         foreach ($trabajos as $k => $m2) {
             $out['trabajos'][] = ['nombre' => $nombres[$k] ?? $k, 'm2' => round($m2, 2)];
         }
+
+        // Repartido en demolición, construcción y revestimiento.
+        $out['categorias'] = segTrabajosPorCategoria($trabajos);
 
         // --- Superficie de friso y pintura ---
         $factores = [
