@@ -72,15 +72,11 @@ $COL = [
     'Derrumbado'                                   => ['Derrumbado', '#2B2B2B'],
 ];
 
-// Las cinco parroquias con más edificios; el resto se agrupa.
+// Todas las parroquias donde hubo levantamientos, de mayor a menor.
 $parr = $c['parroquias'];
-arsort($parr);
-$topParr = array_slice($parr, 0, 6, true);
+uasort($parr, fn($a, $b) => $b['edificios'] <=> $a['edificios']);
+$topParr = $parr;
 $restoN = 0;
-$i = 0;
-foreach ($parr as $pn => $p) {
-    if ($i++ >= 6) $restoN += $p['edificios'];
-}
 
 $fecha = date('d/m/Y');
 
@@ -172,6 +168,32 @@ ob_start();
       <div class="l" style="color:#ffffffcc;">m² a reparar</div>
     </div>
   </div>
+
+  <!-- Material -->
+  <?php if ($c['materiales']): ?>
+  <div style="margin-bottom:13px;">
+    <div class="mat-cab">MATERIAL QUE SE REQUIERE</div>
+    <div class="mat-caja">
+      <div class="mat">
+        <?php $i = 0; foreach ($c['materiales'] as $m): ?>
+          <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
+          <div class="m">
+            <div class="c"><?= num($m['cantidad'], 0) ?></div>
+            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
+          </div>
+        <?php $i++; endforeach; ?>
+        <?php while ($i % 4 !== 0): ?>
+          <div class="m" style="border:0;background:none;"></div>
+        <?php $i++; endwhile; ?>
+      </div>
+      <div style="font-size:8.5px;color:#8a6d1a;margin-top:7px;">
+        Incluye 10% de holgura por desperdicio y roturas.
+        Calculado sobre <?= ent($c['edificios']) ?> levantamientos completados.
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
 
   <!-- Torta y parroquias, lado a lado -->
   <div class="fila">
@@ -265,31 +287,6 @@ ob_start();
       </div>
     </div>
   </div>
-
-  <!-- Material -->
-  <?php if ($c['materiales']): ?>
-  <div style="margin-top:13px;">
-    <div class="mat-cab">MATERIAL QUE SE REQUIERE</div>
-    <div class="mat-caja">
-      <div class="mat">
-        <?php $i = 0; foreach (array_slice($c['materiales'], 0, 8) as $m): ?>
-          <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
-          <div class="m">
-            <div class="c"><?= num($m['cantidad'], 0) ?></div>
-            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
-          </div>
-        <?php $i++; endforeach; ?>
-        <?php while ($i % 4 !== 0): ?>
-          <div class="m" style="border:0;background:none;"></div>
-        <?php $i++; endwhile; ?>
-      </div>
-      <div style="font-size:8.5px;color:#8a6d1a;margin-top:7px;">
-        Incluye 10% de holgura por desperdicio y roturas.
-        Calculado sobre <?= ent($c['edificios']) ?> levantamientos completados.
-      </div>
-    </div>
-  </div>
-  <?php endif; ?>
 
   <?php endif; ?>
 

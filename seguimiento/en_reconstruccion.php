@@ -172,11 +172,16 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <input type="text" id="rc-buscar" class="form-control" style="width:200px;"
                    placeholder="Buscar edificación…" oninput="filtrarLista()">
+            <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php"
+               target="_blank" class="btn btn-primary btn-sm"
+               title="Resumen global: materiales, edificaciones y parroquias">
+                <i class="bi bi-file-earmark-bar-graph-fill"></i> Resumen global
+            </a>
             <a href="<?= APP_URL_BASE ?>seguimiento/pdf_reconstruccion.php<?= $parrF ? '?parroquia=' . urlencode($parrF) : '' ?>"
                target="_blank" class="btn btn-outline btn-sm"
                style="border-color:#A61C1C55;color:#A61C1C;"
-               title="Descargar todo el listado en PDF">
-                <i class="bi bi-file-earmark-pdf-fill"></i> PDF del listado
+               title="Listado detallado de los levantamientos">
+                <i class="bi bi-file-earmark-pdf-fill"></i> Listado
             </a>
             <?php
             $rolAct = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
