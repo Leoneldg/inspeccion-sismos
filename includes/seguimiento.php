@@ -2838,11 +2838,188 @@ function segSinEtiqueta(): array
     }
 }
 
+/**
+ * Datos consolidados para el reporte ejecutivo.
+ *
+ * Reúne en una sola consulta lo que hace falta para entender el estado
+ * del programa: cuántas edificaciones hay, cuántas se levantaron,
+ * cuántos apartamentos necesitan reparación y qué material se requiere.
+ *
+ * $filtros acepta: parroquia, uso, color.
+ */
+function segReporteEjecutivo(array $filtros = []): array
+{
+    $conds = [];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+
+    if (!empty($filtros['parroquia'])) {
+        $conds[] = 'i.parroquia = :parr';
+        $params['parr'] = $filtros['parroquia'];
+    }
+    if (!empty($filtros['uso'])) {
+        $conds[] = 'i.uso_edificacion = :uso';
+        $params['uso'] = $filtros['uso'];
+    }
+    if (!empty($filtros['color'])) {
+        $mapa = [
+            'verde'      => 'Edificación Inspeccionada - Acceso Permitido',
+            'amarillo'   => 'Acceso Restringido - Precaución al Entrar',
+            'rojo'       => 'Edificación Insegura - Acceso No Permitido',
+            'derrumbado' => 'Derrumbado',
+        ];
+        if (isset($mapa[$filtros['color']])) {
+            $conds[] = 'i.decision_final = :dec';
+            $params['dec'] = $mapa[$filtros['color']];
+        }
+    }
+    $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
+
+    $out = [
+        'totales'      => [],
+        'por_color'    => [],
+        'por_parroquia'=> [],
+        'por_uso'      => [],
+        'materiales'   => [],
+        'trabajos'     => [],
+        'familias'     => 0,
+        'personas'     => 0,
+    ];
+
+    try {
+        // --- Totales generales ---
+        $st = db()->prepare("
+            SELECT COUNT(*) AS edificaciones,
+                   SUM(CASE WHEN re.id IS NOT NULL THEN 1 ELSE 0 END) AS con_levantamiento,
+                   SUM(CASE WHEN re.completado = 1 THEN 1 ELSE 0 END) AS levantamientos_cerrados,
+                   SUM(COALESCE(i.familias, 0)) AS familias,
+                   SUM(COALESCE(i.numero_personas, 0)) AS personas,
+                   COUNT(DISTINCT i.parroquia) AS parroquias
+              FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+        ");
+        $st->execute($params);
+        $out['totales'] = $st->fetch() ?: [];
+        $out['familias'] = (int)($out['totales']['familias'] ?? 0);
+        $out['personas'] = (int)($out['totales']['personas'] ?? 0);
+
+        // --- Por color de decisión ---
+        $st2 = db()->prepare("
+            SELECT i.decision_final AS decision, COUNT(*) AS n,
+                   SUM(COALESCE(i.familias, 0)) AS familias
+              FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+             GROUP BY i.decision_final
+        ");
+        $st2->execute($params);
+        $out['por_color'] = $st2->fetchAll();
+
+        // --- Por parroquia ---
+        $st3 = db()->prepare("
+            SELECT i.parroquia,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN re.completado = 1 THEN 1 ELSE 0 END) AS levantadas,
+                   SUM(COALESCE(i.familias, 0)) AS familias,
+                   SUM(i.decision_final = 'Edificación Insegura - Acceso No Permitido') AS rojos,
+                   SUM(i.decision_final = 'Acceso Restringido - Precaución al Entrar') AS amarillos,
+                   SUM(i.decision_final = 'Edificación Inspeccionada - Acceso Permitido') AS verdes,
+                   SUM(i.decision_final = 'Derrumbado') AS derrumbados
+              FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+             GROUP BY i.parroquia
+             ORDER BY total DESC
+        ");
+        $st3->execute($params);
+        $out['por_parroquia'] = $st3->fetchAll();
+
+        // --- Por uso ---
+        $st4 = db()->prepare("
+            SELECT COALESCE(NULLIF(i.uso_edificacion, ''), 'Sin especificar') AS uso,
+                   COUNT(*) AS n
+              FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+             GROUP BY uso
+             ORDER BY n DESC
+        ");
+        $st4->execute($params);
+        $out['por_uso'] = $st4->fetchAll();
+
+        // --- Apartamentos y ambientes a reparar ---
+        $st5 = db()->prepare("
+            SELECT COUNT(DISTINCT ap.id) AS aptos_total,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN ap.id END) AS aptos_reparar,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN am.id END) AS ambientes_reparar
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+              $where
+        ");
+        $st5->execute($params);
+        $ap = $st5->fetch() ?: [];
+        $out['totales']['aptos_total']       = (int)($ap['aptos_total'] ?? 0);
+        $out['totales']['aptos_reparar']     = (int)($ap['aptos_reparar'] ?? 0);
+        $out['totales']['ambientes_reparar'] = (int)($ap['ambientes_reparar'] ?? 0);
+
+        // --- Trabajos y sus metros ---
+        $st6 = db()->prepare("
+            SELECT rr.tipo_trabajo, tt.nombre, tt.orden,
+                   SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+              JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
+              JOIN rec_ambiente am ON am.id = rr.ref_id AND rr.nivel = 'ambiente'
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+              JOIN rec_edificio re ON re.id = pi.edificio_id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+              $where
+               AND rr.metros_cuadrados > 0
+             GROUP BY rr.tipo_trabajo
+             ORDER BY tt.orden
+        ");
+        $st6->execute($params);
+        $trabajos = [];
+        foreach ($st6->fetchAll() as $t) {
+            $out['trabajos'][] = [
+                'nombre' => $t['nombre'],
+                'm2'     => round((float)$t['m2'], 2),
+            ];
+            $trabajos[$t['tipo_trabajo']] = (float)$t['m2'];
+        }
+
+        // --- Materiales que se necesitan ---
+        if ($trabajos) {
+            try {
+                foreach (recMaterialesPorTrabajo($trabajos) as $mat => $d) {
+                    $out['materiales'][] = [
+                        'material' => $mat,
+                        'cantidad' => $d['cantidad'],
+                        'unidad'   => $d['unidad'],
+                    ];
+                }
+            } catch (Throwable $e) {}
+        }
+
+    } catch (Throwable $e) { /* devolver lo que se haya podido reunir */ }
+
+    return $out;
+}
+
 function segEnReconstruccion(array $filtros = []): array
 {
     recAsegurarTablasAvance();
 
-    $conds = ['re.completado = 1'];
+    // Ahora se incluyen los levantamientos en proceso, no solo los
+    // cerrados: hace falta ver en qué va cada uno.
+    $conds = [];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
@@ -2860,7 +3037,15 @@ function segEnReconstruccion(array $filtros = []): array
     try {
         $st = db()->prepare("
             SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final,
-                   re.id AS edificio_id,
+                   re.id AS edificio_id, re.completado, re.creado_en,
+                   (SELECT COUNT(*) FROM rec_piso p2 WHERE p2.edificio_id = re.id) AS n_pisos,
+                   (SELECT COUNT(*) FROM rec_apartamento a2
+                      JOIN rec_piso p3 ON p3.id = a2.piso_id
+                     WHERE p3.edificio_id = re.id) AS n_aptos,
+                   (SELECT COUNT(*) FROM rec_apartamento a3
+                      JOIN rec_piso p4 ON p4.id = a3.piso_id
+                     WHERE p4.edificio_id = re.id
+                       AND (a3.completado = 1 OR a3.estado_visita IS NOT NULL)) AS aptos_hechos,
                    ent.nombre AS ente_nombre,
                    pl.fecha_inicio_estimada, pl.fecha_fin_estimada,
                    COALESCE(ROUND(x.pct), 0) AS avance
@@ -2878,8 +3063,7 @@ function segEnReconstruccion(array $filtros = []): array
                    GROUP BY re2.inspeccion_id
               ) x ON x.inspeccion_id = i.id
               $where
-             HAVING avance < 100
-             ORDER BY pl.fecha_fin_estimada IS NULL, pl.fecha_fin_estimada, i.nombre_edificio
+             ORDER BY re.completado, i.parroquia, i.nombre_edificio
         ");
         $st->execute($params);
         $lista = $st->fetchAll();
@@ -2889,6 +3073,13 @@ function segEnReconstruccion(array $filtros = []): array
                 'fecha_inicio_estimada' => $e['fecha_inicio_estimada'],
                 'fecha_fin_estimada'    => $e['fecha_fin_estimada'],
             ], (int)$e['avance']);
+
+            // Estado del levantamiento: en proceso o completado.
+            $nAptos = (int)$e['n_aptos'];
+            $hechos = (int)$e['aptos_hechos'];
+            $e['lev_completado'] = !empty($e['completado']);
+            $e['lev_pct'] = $nAptos > 0 ? (int)round($hechos / $nAptos * 100) : 0;
+            $e['lev_estado'] = $e['lev_completado'] ? 'completado' : 'proceso';
         }
         unset($e);
         return $lista;
