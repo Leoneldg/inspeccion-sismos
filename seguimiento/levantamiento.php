@@ -3242,7 +3242,8 @@ async function cargarResumen() {
         });
         html += '</table>'
             + '<div style="font-size:11.5px;color:#8a6d1a;margin-top:9px;">'
-            + '<i class="bi bi-info-circle"></i> Cálculo aproximado. Verifique en obra antes de solicitar.</div>';
+            + '<i class="bi bi-info-circle"></i> Incluye 10% de holgura por desperdicio. '
+            + 'Verifique en obra antes de solicitar.</div>';
     } else if (data.total_m2 > 0) {
         html += '<div style="background:#fff;border:1px solid #C9A22755;border-radius:9px;'
             + 'padding:12px 15px;font-size:13px;color:#8a6d1a;">'

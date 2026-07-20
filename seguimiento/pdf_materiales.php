@@ -5,8 +5,7 @@
  * Todo lo que hace falta para los levantamientos cerrados: edificios,
  * apartamentos, metros y el material total con su margen de holgura.
  *
- * Uso: pdf_materiales.php          → margen del 10%
- *      pdf_materiales.php?margen=15
+ * Uso: pdf_materiales.php
  */
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/db.php';
@@ -21,11 +20,9 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 function num($v, $d = 2) { return number_format((float)$v, $d, ',', '.'); }
 function ent($v) { return number_format((int)$v, 0, ',', '.'); }
 
-// Margen de holgura: 10% por defecto, entre 0 y 30.
-$margen = (float)($_GET['margen'] ?? 10);
-$margen = max(0, min(30, $margen));
-
-$c = segConsolidadoMateriales($margen);
+// El margen es el mismo en todo el sistema (constante MARGEN_MATERIALES).
+$c = segConsolidadoMateriales();
+$margen = $c['margen'];
 
 $fecha = date('d/m/Y');
 $hora  = date('H:i');

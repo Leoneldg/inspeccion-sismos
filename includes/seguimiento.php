@@ -2470,6 +2470,20 @@ function recAsegurarTablasTrabajo(): void
  * Devuelve cada material con su cantidad y unidad, redondeado hacia
  * arriba porque en obra no se compran fracciones de saco.
  */
+/**
+ * Holgura que se suma a todo cálculo de materiales.
+ *
+ * En obra siempre se pierde material: bloques que se parten, mortero
+ * que cae, pintura que queda en el envase. Pedir la cantidad exacta
+ * significa quedarse corto y parar esperando otro despacho.
+ *
+ * Se aplica sobre el cálculo, no sobre los metros registrados: el dato
+ * que midió el técnico se conserva tal cual.
+ */
+if (!defined('MARGEN_MATERIALES')) {
+    define('MARGEN_MATERIALES', 10.0);   // por ciento
+}
+
 function recMaterialesPorTrabajo(array $trabajos): array
 {
     $recetas = recRecetasTrabajo();
@@ -2488,13 +2502,17 @@ function recMaterialesPorTrabajo(array $trabajos): array
         }
     }
 
-    // Los materiales que se compran por unidad entera se redondean hacia
-    // arriba: no se puede pedir medio bloque ni 3,4 sacos.
+    // Se suma la holgura y después se redondea. Los materiales que se
+    // compran por unidad entera van hacia arriba: no se puede pedir
+    // medio bloque ni 3,4 sacos.
+    $factor  = 1 + (MARGEN_MATERIALES / 100);
     $enteros = ['unidad', 'saco', 'pieza', 'pliego'];
+
     foreach ($totales as $mat => $d) {
+        $conHolgura = $d['cantidad'] * $factor;
         $totales[$mat]['cantidad'] = in_array($d['unidad'], $enteros, true)
-            ? (float)ceil($d['cantidad'])
-            : round($d['cantidad'], 2);
+            ? (float)ceil($conHolgura)
+            : round($conHolgura, 2);
     }
 
     ksort($totales);
@@ -2868,8 +2886,12 @@ function segSinEtiqueta(): array
  * siempre hay desperdicio, roturas y cortes: pedir la cifra exacta
  * significa quedarse corto.
  */
-function segConsolidadoMateriales(float $margen = 10.0): array
+function segConsolidadoMateriales(float $margen = 0): array
 {
+    // El margen viene de la constante global: así todas las pantallas
+    // muestran la misma cifra.
+    $margen = MARGEN_MATERIALES;
+
     $conds = ['re.completado = 1'];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
@@ -3030,19 +3052,15 @@ function segConsolidadoMateriales(float $margen = 10.0): array
         $out['friso']   = round($out['friso'], 2);
         $out['pintura'] = round($out['pintura'], 2);
 
-        // --- Materiales, con el margen aplicado ---
+        // --- Materiales ---
+        // recMaterialesPorTrabajo ya suma la holgura: no se aplica de nuevo
+        // o quedaría doble.
         if ($trabajos) {
-            $factor = 1 + ($margen / 100);
-            $enteros = ['unidad', 'saco', 'pieza', 'pliego'];
             try {
                 foreach (recMaterialesPorTrabajo($trabajos) as $mat => $d) {
-                    $cant = $d['cantidad'] * $factor;
-                    // Lo que se compra entero se redondea hacia arriba.
-                    $cant = in_array($d['unidad'], $enteros, true)
-                          ? ceil($cant) : round($cant, 2);
                     $out['materiales'][] = [
                         'material' => $mat,
-                        'cantidad' => $cant,
+                        'cantidad' => $d['cantidad'],
                         'unidad'   => $d['unidad'],
                     ];
                 }

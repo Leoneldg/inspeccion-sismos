@@ -940,7 +940,8 @@ function pintarMetrosTotal(m2, comunes, porTipo, materiales, porTrabajo) {
         });
         html += '</div>'
             + '<div style="font-size:11.5px;color:#8a6d1a;margin-top:10px;">'
-            + '<i class="bi bi-info-circle"></i> Cálculo aproximado según los metros registrados. '
+            + '<i class="bi bi-info-circle"></i> Las cantidades incluyen un '
+            + '<strong>10% de holgura</strong> por desperdicio y roturas. '
             + 'Verifique en obra antes de solicitar.</div>'
             + '</div></div>';
     } else if (tipos.length) {

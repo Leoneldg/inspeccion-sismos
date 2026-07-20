@@ -1124,6 +1124,11 @@ function pintarResultados(puntos) {
                title="Material total de los levantamientos cerrados">
                 <i class="bi bi-box-seam-fill"></i> Materiales
             </a>
+            <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php" target="_blank"
+               class="btn btn-primary btn-sm"
+               title="Resumen de una página para presentar">
+                <i class="bi bi-file-earmark-bar-graph-fill"></i> Resumen ejecutivo
+            </a>
         </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }
