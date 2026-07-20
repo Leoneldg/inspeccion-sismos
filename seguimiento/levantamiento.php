@@ -1235,6 +1235,11 @@ function pintarApartamento(a, lista) {
                             onclick="marcarVisita(${a.id}, 'cuenta_propia', this)">
                         <i class="bi bi-tools"></i> Reparación por cuenta propia
                     </button>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#2E7D3255;color:#2E7D32;"
+                            onclick="marcarVisita(${a.id}, 'sin_dano', this)">
+                        <i class="bi bi-check-circle"></i> Inspeccionado · sin daño
+                    </button>
                 </div>
                 <div class="text-sm" style="color:#8a6d1a;margin-top:8px;font-size:11.5px;">
                     Si marca alguna, se pasa directo al siguiente apartamento.
@@ -1317,6 +1322,7 @@ function pintarApartamento(a, lista) {
  */
 async function marcarVisita(aptoId, estado, btn) {
     const textos = {
+        sin_dano:          '¿Confirma que revisó el apartamento y NO TIENE DAÑOS?',
         cuenta_propia:     '¿Confirma que la familia REPARA POR CUENTA PROPIA?',
         no_esta:           '¿Confirma que EL OCUPANTE NO SE ENCUENTRA?',
         permiso_denegado:  '¿Confirma que NO DEJARON ENTRAR?',
@@ -1324,6 +1330,7 @@ async function marcarVisita(aptoId, estado, btn) {
     if (!confirm(textos[estado] || '¿Confirma?')) return;
 
     const ejemplos = {
+        sin_dano:         'Ej: se revisaron todos los ambientes, sin grietas',
         no_esta:          'Ej: se visitó dos veces, sin respuesta',
         permiso_denegado: 'Ej: el ocupante no permitió el ingreso',
         cuenta_propia:    'Ej: la familia ya contrató a un albañil',
@@ -1372,6 +1379,8 @@ async function marcarVisita(aptoId, estado, btn) {
 /** Deja el apartamento marcado visualmente y cierra su detalle. */
 function pintarAptoMarcado(card, cuerpo, estado, obs) {
     const estilos = {
+        sin_dano:         { color: '#2E7D32', icono: 'bi-check-circle-fill',
+                            texto: 'Inspeccionado · sin daño' },
         cuenta_propia:    { color: '#2d4488', icono: 'bi-tools',
                             texto: 'Repara por cuenta propia' },
         no_esta:          { color: '#5b6478', icono: 'bi-door-closed-fill',

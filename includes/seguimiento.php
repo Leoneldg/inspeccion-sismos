@@ -2112,7 +2112,8 @@ function recAsegurarEstadoVisita(): void
 }
 
 /**
- * Marca un apartamento que no se pudo levantar.
+ * Marca el resultado de la visita al apartamento.
+ *   'sin_dano'         → se revisó y no tiene daños
  *   'cuenta_propia'    → la familia repara por su cuenta
  *   'no_esta'          → el ocupante no se encontraba
  *   'permiso_denegado' → no dejaron entrar
@@ -2124,7 +2125,7 @@ function recAsegurarEstadoVisita(): void
 function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): void
 {
     recAsegurarEstadoVisita();
-    $validos = ['levantado', 'cuenta_propia', 'no_esta',
+    $validos = ['levantado', 'sin_dano', 'cuenta_propia', 'no_esta',
                 'permiso_denegado', 'no_requiere'];
     if (!in_array($estado, $validos, true)) $estado = 'no_esta';
 
@@ -2143,6 +2144,7 @@ function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): 
         $st->execute(['id' => $apartamentoId]);
         $ident = $st->fetchColumn() ?: $apartamentoId;
         $textos = [
+            'sin_dano'         => 'Inspeccionado, sin daño',
             'cuenta_propia'    => 'Repara por cuenta propia',
             'no_esta'          => 'Ocupante no se encuentra',
             'permiso_denegado' => 'No dejó entrar',
@@ -3199,8 +3201,9 @@ function recAptosConReparacion(int $edificioId): array
         $con   = (int)($r['con_reparacion'] ?? 0);
 
         // Resultado de la visita en cada apartamento.
-        $visitas = ['inspeccionado' => 0, 'cuenta_propia' => 0, 'no_requiere' => 0,
-                    'no_esta' => 0, 'permiso_denegado' => 0, 'sin_visitar' => 0];
+        $visitas = ['inspeccionado' => 0, 'sin_dano' => 0, 'cuenta_propia' => 0,
+                    'no_requiere' => 0, 'no_esta' => 0, 'permiso_denegado' => 0,
+                    'sin_visitar' => 0];
         try {
             $stV = db()->prepare("
                 SELECT COALESCE(ap.estado_visita, '') AS est,
@@ -3213,7 +3216,7 @@ function recAptosConReparacion(int $edificioId): array
             $stV->execute(['e' => $edificioId]);
             foreach ($stV->fetchAll() as $v) {
                 $est = $v['est'];
-                if (in_array($est, ['cuenta_propia', 'no_requiere',
+                if (in_array($est, ['sin_dano', 'cuenta_propia', 'no_requiere',
                                     'no_esta', 'permiso_denegado'], true)) {
                     $visitas[$est]++;
                 } elseif ((int)$v['n_amb'] > 0) {

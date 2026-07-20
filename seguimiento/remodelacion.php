@@ -904,7 +904,9 @@ function pintarResumenPisos(d) {
     const aptos = d.total_aptos || 0;
     const v = (d.aptos_reparar && d.aptos_reparar.visitas) || {};
 
-    const inspeccionados = v.inspeccionado || 0;
+    // "Sin daño" cuenta como inspeccionado: el técnico entró y revisó.
+    const sinDano        = v.sin_dano || 0;
+    const inspeccionados = (v.inspeccionado || 0) + sinDano;
     const cuentaPropia   = v.cuenta_propia || 0;
     const noRequiere     = (v.no_requiere || 0) + cuentaPropia;
     const noEsta         = v.no_esta || 0;
@@ -961,12 +963,14 @@ function pintarResumenPisos(d) {
 
     // Los que no requieren ayuda no van en el gráfico, pero sí cuentan
     // como resueltos: se mencionan aquí para que el total cuadre.
-    if (noRequiere > 0) {
-        const partes = [];
-        if (cuentaPropia) partes.push(cuentaPropia + ' repara(n) por cuenta propia');
-        if (v.no_requiere) partes.push(v.no_requiere + ' no requiere(n) ayuda');
+    const detalles = [];
+    if (sinDano)       detalles.push(sinDano + ' sin daño');
+    if (cuentaPropia)  detalles.push(cuentaPropia + ' repara(n) por cuenta propia');
+    if (v.no_requiere) detalles.push(v.no_requiere + ' no requiere(n) ayuda');
+    if (detalles.length) {
         html += '<div style="font-size:12px;color:#5b6478;margin-top:10px;">'
-            + '<i class="bi bi-tools"></i> ' + partes.join(' · ') + '.</div>';
+            + '<i class="bi bi-info-circle"></i> De los inspeccionados: '
+            + detalles.join(' · ') + '.</div>';
     }
 
     // Qué falta por cubrir.
@@ -1017,6 +1021,7 @@ function etiquetaVisita(ap) {
     const nAmb = (ap.ambientes || []).length;
 
     const estilos = {
+        sin_dano:         { c: '#2E7D32', i: 'bi-check-circle-fill',   t: 'Inspeccionado · sin daño' },
         cuenta_propia:    { c: '#2d4488', i: 'bi-tools',               t: 'Repara por cuenta propia' },
         no_esta:          { c: '#5b6478', i: 'bi-door-closed-fill',    t: 'Ocupante no se encuentra' },
         permiso_denegado: { c: '#A61C1C', i: 'bi-x-octagon-fill',      t: 'No dejó entrar' },
