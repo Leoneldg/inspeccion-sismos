@@ -1106,7 +1106,7 @@ function pintarResultados(puntos) {
         </div>`).join('');
     cont.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
             <div style="font-weight:700;color:#22366F;"><i class="bi bi-list-ul"></i> ${puntos.length} resultado(s)</div>
-            <button class="btn btn-outline btn-sm" onclick="imprimirResultados()"><i class="bi bi-file-earmark-pdf"></i> Imprimir lista</button>
+            <button class="btn btn-outline btn-sm" onclick="abrirPdfListado()"><i class="bi bi-file-earmark-pdf-fill"></i> Descargar PDF</button>
         </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }
@@ -1136,6 +1136,33 @@ function limpiarBusqueda() {
     capaPuntos.clearLayers();
     // Volver a mostrar las burbujas de conteo por parroquia.
     location.reload();
+}
+
+/**
+ * Abre el listado en PDF, agrupado por parroquia y por color.
+ * Se genera en el servidor con los mismos filtros del buscador.
+ */
+function abrirPdfListado() {
+    if (!_ultimaBusqueda.length) {
+        alert('Primero busque las edificaciones que quiere en el listado.');
+        return;
+    }
+
+    const val = id => {
+        const el = document.getElementById(id);
+        return el ? (el.value || '') : '';
+    };
+
+    const url = APP_URL_BASE + 'seguimiento/pdf_listado.php'
+        + '?q=' + encodeURIComponent(val('f-buscar').trim())
+        + '&parroquia=' + encodeURIComponent(val('f-parroquia'))
+        + '&estado=' + encodeURIComponent(val('f-estado'))
+        + '&ente_id=' + encodeURIComponent(val('f-ente'))
+        + '&color=' + encodeURIComponent(val('f-color'))
+        + '&uso=' + encodeURIComponent(val('f-uso'))
+        + '&fase=' + encodeURIComponent(val('f-fase') || 'todas');
+
+    window.open(url, '_blank');
 }
 
 // Imprimir la lista, agrupada por parroquia y por color.
