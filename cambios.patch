@@ -1,0 +1,388 @@
+diff --git a/admin/materiales.php b/admin/materiales.php
+index dcdcb29..78e956c 100644
+--- a/admin/materiales.php
++++ b/admin/materiales.php
+@@ -32,12 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $puedeEditar) {
+     try {
+         if ($accion === 'actualizar') {
+             $cantidades = $_POST['cantidad'] ?? [];
++            $etapas     = $_POST['etapa'] ?? [];
++            $etapasValidas = ['demolicion', 'construccion', 'revestimiento'];
+             $n = 0;
+-            $st = db()->prepare('UPDATE rec_receta_trabajo SET cantidad = :c WHERE id = :id');
++            $st = db()->prepare('UPDATE rec_receta_trabajo SET cantidad = :c, etapa = :e WHERE id = :id');
+             foreach ($cantidades as $id => $val) {
+                 $val = (float)str_replace(',', '.', $val);
+                 if ($val < 0) continue;
+-                $st->execute(['c' => $val, 'id' => (int)$id]);
++                $et = $etapas[$id] ?? '';
++                $et = in_array($et, $etapasValidas, true) ? $et : null;
++                $st->execute(['c' => $val, 'e' => $et, 'id' => (int)$id]);
+                 $n++;
+             }
+             $mensaje = $n . ' rendimiento(s) actualizado(s).';
+@@ -49,13 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $puedeEditar) {
+             $mat     = trim($_POST['nuevo_material'] ?? '');
+             $uni     = trim($_POST['nueva_unidad'] ?? '');
+             $cant    = (float)str_replace(',', '.', $_POST['nueva_cantidad'] ?? '0');
++            $etapasValidas = ['demolicion', 'construccion', 'revestimiento'];
++            $eta     = trim($_POST['nueva_etapa'] ?? '');
++            $eta     = in_array($eta, $etapasValidas, true) ? $eta : null;
+             if ($trabajo && $mat && $uni && $cant > 0) {
+                 db()->prepare(
+-                    'INSERT INTO rec_receta_trabajo (tipo_trabajo, material, unidad, cantidad, nota)
+-                     VALUES (:t, :m, :u, :c, :n)'
++                    'INSERT INTO rec_receta_trabajo (tipo_trabajo, material, unidad, cantidad, nota, etapa)
++                     VALUES (:t, :m, :u, :c, :n, :e)'
+                 )->execute([
+                     't' => $trabajo, 'm' => $mat, 'u' => $uni, 'c' => $cant,
+                     'n' => trim($_POST['nueva_nota'] ?? '') ?: null,
++                    'e' => $eta,
+                 ]);
+                 $mensaje = 'Material agregado.';
+             } else {
+@@ -124,7 +132,11 @@ include __DIR__ . '/../includes/header.php';
+             Ejemplo: si el friso completo consume <code>0,155</code> sacos de cemento por m²,
+             entonces 100 m² de friso necesitan 15,5 sacos.<br>
+             Los rendimientos vienen de valores usuales de obra. Ajústelos según la
+-            experiencia real del equipo.
++            experiencia real del equipo.<br>
++            La <strong>etapa</strong> (demolición/construcción/revestimiento) es la que
++            usa el Resumen Ejecutivo en PDF para agrupar el material por caja: un
++            material "Sin clasificar" no aparece sumado en ese resumen aunque sí
++            aparezca en la ficha del edificio, así que clasifique todos los renglones.
+         </div>
+     </div>
+ </div>
+@@ -175,6 +187,19 @@ include __DIR__ . '/../includes/header.php';
+             <?php endif; ?>
+             <span class="mt-uni"><?= e($r['unidad']) ?></span>
+             <?php if ($puedeEditar): ?>
++            <select name="etapa[<?= (int)$r['id'] ?>]" class="form-control"
++                    style="width:135px;<?= empty($r['etapa']) ? 'border-color:#C9A227;' : '' ?>">
++                <option value="">Sin clasificar</option>
++                <option value="demolicion"    <?= $r['etapa'] === 'demolicion'    ? 'selected' : '' ?>>Demolición</option>
++                <option value="construccion"  <?= $r['etapa'] === 'construccion'  ? 'selected' : '' ?>>Construcción</option>
++                <option value="revestimiento" <?= $r['etapa'] === 'revestimiento' ? 'selected' : '' ?>>Revestimiento</option>
++            </select>
++            <?php else: ?>
++            <span class="mt-uni">
++                <?= $r['etapa'] ? e(ucfirst($r['etapa'])) : '— sin clasificar' ?>
++            </span>
++            <?php endif; ?>
++            <?php if ($puedeEditar): ?>
+             <button type="submit" form="quitar-<?= (int)$r['id'] ?>"
+                     title="Quitar este material"
+                     style="background:transparent;border:0;color:#c4c9d6;cursor:pointer;font-size:15px;">
+@@ -203,6 +228,13 @@ include __DIR__ . '/../includes/header.php';
+                 <input type="number" step="0.0001" min="0" name="nueva_cantidad"
+                        form="agregar-<?= e($t['clave']) ?>"
+                        class="form-control" style="width:110px;" placeholder="Cantidad">
++                <select name="nueva_etapa" form="agregar-<?= e($t['clave']) ?>"
++                        class="form-control" style="width:135px;">
++                    <option value="">Sin clasificar</option>
++                    <option value="demolicion">Demolición</option>
++                    <option value="construccion">Construcción</option>
++                    <option value="revestimiento">Revestimiento</option>
++                </select>
+                 <input type="text" name="nueva_nota" form="agregar-<?= e($t['clave']) ?>"
+                        class="form-control" style="flex:1;min-width:130px;" placeholder="Nota (opcional)">
+                 <button type="submit" form="agregar-<?= e($t['clave']) ?>" class="btn btn-outline btn-sm">
+diff --git a/includes/seguimiento.php b/includes/seguimiento.php
+index ac29f26..80e9b56 100644
+--- a/includes/seguimiento.php
++++ b/includes/seguimiento.php
+@@ -2453,6 +2453,7 @@ function recAsegurarTablasTrabajo(): void
+             unidad VARCHAR(20) NOT NULL,
+             cantidad DECIMAL(12,4) NOT NULL,
+             nota VARCHAR(200) DEFAULT NULL,
++            etapa ENUM('demolicion','construccion','revestimiento') DEFAULT NULL,
+             activo TINYINT(1) NOT NULL DEFAULT 1,
+             PRIMARY KEY (id), KEY idx_rt_trabajo (tipo_trabajo)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+@@ -2460,12 +2461,18 @@ function recAsegurarTablasTrabajo(): void
+         if (!in_array('tipo_trabajo', $cols, true)) {
+             db()->exec("ALTER TABLE rec_reparacion ADD COLUMN tipo_trabajo VARCHAR(40) DEFAULT NULL");
+         }
++        // Instalaciones que ya tenían rec_receta_trabajo antes de la columna etapa.
++        $colsReceta = db()->query("SHOW COLUMNS FROM rec_receta_trabajo")->fetchAll(PDO::FETCH_COLUMN);
++        if (!in_array('etapa', $colsReceta, true)) {
++            db()->exec("ALTER TABLE rec_receta_trabajo
++                ADD COLUMN etapa ENUM('demolicion','construccion','revestimiento') DEFAULT NULL");
++        }
+     } catch (Throwable $e) { /* seguir */ }
+ }
+ 
+ /**
+  * Calcula materiales a partir de los trabajos registrados.
+- * $trabajos = ['friso_completo' => 45.5, 'mamposteria_bloque_concreto' => 12]
++ * $trabajos = ['friso_completo' => 45.5, 'mamposteria_bloque_arcilla' => 12]
+  *
+  * Devuelve cada material con su cantidad y unidad, redondeado hacia
+  * arriba porque en obra no se compran fracciones de saco.
+@@ -2913,34 +2920,32 @@ function segSinEtiqueta(): array
+  */
+ function segMaterialPorEtapa(array $trabajos): array
+ {
+-    // Cuánto aporta cada acción a cada etapa.
++    // Cuánto aporta cada acción a cada etapa (para los m² informativos
++    // de cada caja del PDF). Las cantidades de material YA NO salen de
++    // aquí: salen de la receta editable en Admin > Materiales,
++    // clasificada por etapa. Así "Materiales y rendimientos" es la
++    // única fuente de verdad, en vez de tener números repetidos y
++    // desincronizados en el código.
+     $reparto = [
+-        'demoler_pared_completa_concreto' => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+         'demoler_pared_completa_arcilla'  => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+-        'demolicion_parcial_concreto'     => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+         'demolicion_parcial_arcilla'      => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+-        'pared_completa_concreto'         => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+         'pared_completa_arcilla'          => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+         'friso_completo_dos_caras'        => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
+         'friso_completo'                  => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+         'friso_reparacion'                => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
++        'friso_pintura_una_cara'          => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
++        'friso_pintura_dos_caras'         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
+         'solo_pintura'                    => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+         'pintura'                         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
++        // Estas tres ya estaban en segTrabajosPorCategoria() pero nunca
++        // se habían agregado aquí: los edificios con estos trabajos
++        // quedaban con material en $0 en el resumen ejecutivo aunque sí
++        // tuvieran m² registrados.
++        'demoler_reconstruir_arcilla'     => ['dem' => 1.0, 'con' => 1.0, 'rev' => 0.0],
++        'mamposteria_bloque_arcilla'      => ['dem' => 0.0, 'con' => 1.0, 'rev' => 0.0],
++        'demolicion_mamposteria'          => ['dem' => 1.0, 'con' => 0.0, 'rev' => 0.0],
+     ];
+ 
+-    // Qué bloque usa cada acción, para el pedido de construcción.
+-    $bloqueDe = [
+-        'demoler_pared_completa_concreto' => 'Bloque de concreto 15x20x40',
+-        'demolicion_parcial_concreto'     => 'Bloque de concreto 15x20x40',
+-        'pared_completa_concreto'         => 'Bloque de concreto 15x20x40',
+-        'demoler_pared_completa_arcilla'  => 'Bloque de arcilla 10x20x30',
+-        'demolicion_parcial_arcilla'      => 'Bloque de arcilla 10x20x30',
+-        'pared_completa_arcilla'          => 'Bloque de arcilla 10x20x30',
+-    ];
+-
+-    // Rendimientos por etapa, para 1 m² de esa etapa.
+-    //   Construcción: bloques según el tipo, más el mortero de pega.
+-    //   Revestimiento: friso de una cara más su acabado.
+     $M3_POR_M2  = 0.15;   // escombro que genera un m² demolido
+     $M3_SACO    = 0.05;   // capacidad del saco
+     $M3_CAMION  = 7.0;    // capacidad del camión
+@@ -2951,36 +2956,50 @@ function segMaterialPorEtapa(array $trabajos): array
+         'revestimiento' => ['m2' => 0.0, 'materiales' => []],
+     ];
+ 
+-    $bloques = [];   // material => cantidad
++    $recetas = recRecetasTrabajo();
++    $matCon = [];   // material => ['cantidad'=>..,'unidad'=>..]
++    $matRev = [];
+     $m2Con = 0.0;
+     $m2Rev = 0.0;
++    $sinEtapa = [];   // recetas activas sin clasificar, para avisar
+ 
+     foreach ($trabajos as $clave => $m2) {
+         $m2 = (float)$m2;
+         if ($m2 <= 0 || !isset($reparto[$clave])) continue;
+         $r = $reparto[$clave];
+ 
+-        // --- Demolición ---
++        // --- Demolición: volumen de escombro, no viene de receta ---
+         if ($r['dem'] > 0) {
+             $out['demolicion']['m2'] += $m2 * $r['dem'];
+         }
+-
+-        // --- Construcción ---
+-        if ($r['con'] > 0) {
+-            $m2c = $m2 * $r['con'];
+-            $m2Con += $m2c;
+-            if (isset($bloqueDe[$clave])) {
+-                $porM2 = str_contains($bloqueDe[$clave], 'arcilla') ? 15.8 : 12.5;
+-                // La parcial consume más por los cortes de ajuste.
+-                if (str_contains($clave, 'parcial')) $porM2 *= 1.08;
+-                $bloques[$bloqueDe[$clave]] = ($bloques[$bloqueDe[$clave]] ?? 0)
+-                                            + $m2c * $porM2;
++        if ($r['con'] > 0) $m2Con += $m2 * $r['con'];
++        if ($r['rev'] > 0) $m2Rev += $m2 * $r['rev'];
++
++        // --- Materiales: los de la receta de ESTE trabajo, repartidos
++        // según cómo el ingeniero clasificó cada renglón (etapa). La
++        // cantidad de la receta ya es "por m² del trabajo", así que se
++        // multiplica directo por el m² del trabajo (no por m2Con/m2Rev).
++        foreach ($recetas[$clave] ?? [] as $ing) {
++            $etapaIng = $ing['etapa'] ?? null;
++            if ($etapaIng === null) {
++                $sinEtapa[$clave . ' · ' . $ing['material']] = true;
++                continue;   // sin clasificar: no se suma a ninguna caja
+             }
+-        }
++            $destino = $etapaIng === 'construccion' ? 'con'
++                     : ($etapaIng === 'revestimiento' ? 'rev' : null);
++            if ($destino === null) continue;   // 'demolicion' no aplica aquí
+ 
+-        // --- Revestimiento ---
+-        if ($r['rev'] > 0) {
+-            $m2Rev += $m2 * $r['rev'];
++            if ($destino === 'con') {
++                $bucket =& $matCon;
++            } else {
++                $bucket =& $matRev;
++            }
++            $mat = $ing['material'];
++            if (!isset($bucket[$mat])) {
++                $bucket[$mat] = ['cantidad' => 0.0, 'unidad' => $ing['unidad']];
++            }
++            $bucket[$mat]['cantidad'] += $m2 * (float)$ing['cantidad'];
++            unset($bucket);
+         }
+     }
+ 
+@@ -2994,42 +3013,24 @@ function segMaterialPorEtapa(array $trabajos): array
+         $out['demolicion']['camiones'] = round($m3 / $M3_CAMION, 1);
+     }
+ 
+-    // --- Construcción: bloques, cemento de pega y arena ---
++    // --- Construcción ---
+     if ($m2Con > 0) {
+         $out['construccion']['m2'] = round($m2Con, 2);
+-        foreach ($bloques as $mat => $cant) {
++        foreach ($matCon as $mat => $d) {
+             $out['construccion']['materiales'][] = [
+-                'material' => $mat,
+-                'cantidad' => (float)ceil($cant),
+-                'unidad'   => 'unidad',
++                'material' => $mat, 'cantidad' => $d['cantidad'], 'unidad' => $d['unidad'],
+             ];
+         }
+-        // Mortero de pega: 0,16 sacos y 0,026 m³ por m² de pared.
+-        $out['construccion']['materiales'][] = [
+-            'material' => 'Cemento gris',
+-            'cantidad' => (float)ceil($m2Con * 0.16),
+-            'unidad'   => 'saco',
+-        ];
+-        $out['construccion']['materiales'][] = [
+-            'material' => 'Arena lavada',
+-            'cantidad' => round($m2Con * 0.026, 2),
+-            'unidad'   => 'm3',
+-        ];
+     }
+ 
+-    // --- Revestimiento: friso y acabado ---
++    // --- Revestimiento ---
+     if ($m2Rev > 0) {
+         $out['revestimiento']['m2'] = round($m2Rev, 2);
+-        $out['revestimiento']['materiales'] = [
+-            ['material' => 'Cemento gris',
+-             'cantidad' => (float)ceil($m2Rev * 0.155), 'unidad' => 'saco'],
+-            ['material' => 'Arena lavada',
+-             'cantidad' => round($m2Rev * 0.023, 2), 'unidad' => 'm3'],
+-            ['material' => 'Pintura de caucho',
+-             'cantidad' => round($m2Rev * 0.22, 2), 'unidad' => 'litro'],
+-            ['material' => 'Fondo antialcalino',
+-             'cantidad' => round($m2Rev * 0.10, 2), 'unidad' => 'litro'],
+-        ];
++        foreach ($matRev as $mat => $d) {
++            $out['revestimiento']['materiales'][] = [
++                'material' => $mat, 'cantidad' => $d['cantidad'], 'unidad' => $d['unidad'],
++            ];
++        }
+     }
+ 
+     // Aplicar la holgura del sistema a todas las cantidades.
+@@ -3047,6 +3048,10 @@ function segMaterialPorEtapa(array $trabajos): array
+         }
+     }
+ 
++    if ($sinEtapa) {
++        $out['avisos'] = ['materiales_sin_etapa' => array_keys($sinEtapa)];
++    }
++
+     return $out;
+ }
+ 
+@@ -3054,21 +3059,18 @@ function segTrabajosPorCategoria(array $trabajos): array
+ {
+     $reparto = [
+         // acción => [demolición, construcción, revestimiento]
+-        'demoler_pared_completa_concreto' => [1.0, 1.0, 2.0],
+         'demoler_pared_completa_arcilla'  => [1.0, 1.0, 2.0],
+-        'demolicion_parcial_concreto'     => [1.0, 1.0, 2.0],
+         'demolicion_parcial_arcilla'      => [1.0, 1.0, 2.0],
+-        'pared_completa_concreto'         => [0.0, 1.0, 2.0],
+         'pared_completa_arcilla'          => [0.0, 1.0, 2.0],
+         'friso_completo_dos_caras'        => [0.0, 0.0, 2.0],
+         'friso_completo'                  => [0.0, 0.0, 1.0],
+         'friso_reparacion'                => [0.0, 0.0, 1.0],
++        'friso_pintura_una_cara'          => [0.0, 0.0, 1.0],
++        'friso_pintura_dos_caras'         => [0.0, 0.0, 2.0],
+         'solo_pintura'                    => [0.0, 0.0, 1.0],
+         'pintura'                         => [0.0, 0.0, 1.0],
+         // Las que quedaron de versiones anteriores.
+-        'demoler_reconstruir_concreto'    => [1.0, 1.0, 0.0],
+         'demoler_reconstruir_arcilla'     => [1.0, 1.0, 0.0],
+-        'mamposteria_bloque_concreto'     => [0.0, 1.0, 0.0],
+         'mamposteria_bloque_arcilla'      => [0.0, 1.0, 0.0],
+         'demolicion_mamposteria'          => [1.0, 0.0, 0.0],
+     ];
+@@ -3266,15 +3268,14 @@ function segConsolidadoMateriales(float $margen = 0): array
+ 
+         // --- Superficie de friso y pintura ---
+         $factores = [
+-            'demoler_pared_completa_concreto' => [2.0, 2.0],
+             'demoler_pared_completa_arcilla'  => [2.0, 2.0],
+-            'demolicion_parcial_concreto'     => [2.0, 2.0],
+             'demolicion_parcial_arcilla'      => [2.0, 2.0],
+-            'pared_completa_concreto'         => [2.0, 2.0],
+             'pared_completa_arcilla'          => [2.0, 2.0],
+             'friso_completo_dos_caras'        => [2.0, 2.0],
+             'friso_completo'                  => [1.0, 1.0],
+             'friso_reparacion'                => [1.0, 1.0],
++            'friso_pintura_una_cara'          => [1.0, 1.0],
++            'friso_pintura_dos_caras'         => [2.0, 2.0],
+             'solo_pintura'                    => [0.0, 1.0],
+             'pintura'                         => [0.0, 1.0],
+         ];
+@@ -4295,13 +4296,13 @@ function recGlobalFrisoPintura(int $edificioId): array
+     //   friso  → m² de friso por m² registrado
+     //   pintura → m² de pintura por m² registrado
+     $factores = [
+-        'demoler_pared_completa_concreto' => ['friso' => 2.0, 'pintura' => 2.0],
+         'demoler_pared_completa_arcilla'  => ['friso' => 2.0, 'pintura' => 2.0],
+-        'pared_completa_concreto'         => ['friso' => 2.0, 'pintura' => 2.0],
+         'pared_completa_arcilla'          => ['friso' => 2.0, 'pintura' => 2.0],
+         'friso_completo_dos_caras'        => ['friso' => 2.0, 'pintura' => 2.0],
+         'friso_completo'                  => ['friso' => 1.0, 'pintura' => 1.0],
+         'friso_reparacion'                => ['friso' => 1.0, 'pintura' => 1.0],
++        'friso_pintura_una_cara'          => ['friso' => 1.0, 'pintura' => 1.0],
++        'friso_pintura_dos_caras'         => ['friso' => 2.0, 'pintura' => 2.0],
+         'solo_pintura'                    => ['friso' => 0.0, 'pintura' => 1.0],
+         'pintura'                         => ['friso' => 0.0, 'pintura' => 1.0],
+     ];
+diff --git a/seguimiento/pdf_ejecutivo.php b/seguimiento/pdf_ejecutivo.php
+index 76f919b..d33ab42 100644
+--- a/seguimiento/pdf_ejecutivo.php
++++ b/seguimiento/pdf_ejecutivo.php
+@@ -227,7 +227,7 @@ ob_start();
+         <?php $i = 0; foreach ($con['materiales'] as $m): ?>
+           <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
+           <div class="m" style="border-color:#22366F44;">
+-            <div class="c"><?= num($m['cantidad'], 0) ?></div>
++            <div class="c"><?= num($m['cantidad'], $m['unidad'] === 'saco' || $m['unidad'] === 'unidad' ? 0 : 2) ?></div>
+             <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
+           </div>
+         <?php $i++; endforeach; ?>
+@@ -264,6 +264,13 @@ ob_start();
+       Incluye 10% de holgura. Escombro calculado a 0,15 m³ por m² demolido.
+       Sobre <?= ent($c['edificios']) ?> levantamientos completados.
+     </div>
++    <?php if (!empty($et['avisos']['materiales_sin_etapa'])): ?>
++    <div style="font-size:8px;color:#A61C1C;margin-top:4px;">
++      ⚠ Hay materiales en la receta sin clasificar por etapa (no se sumaron aquí):
++      <?= esc(implode(' · ', $et['avisos']['materiales_sin_etapa'])) ?>.
++      Clasifíquelos en Configuración › Materiales y rendimientos.
++    </div>
++    <?php endif; ?>
+   </div>
+ 
+   <!-- Tipo de trabajo -->

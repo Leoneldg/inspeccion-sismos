@@ -227,7 +227,7 @@ ob_start();
         <?php $i = 0; foreach ($con['materiales'] as $m): ?>
           <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
           <div class="m" style="border-color:#22366F44;">
-            <div class="c"><?= num($m['cantidad'], 0) ?></div>
+            <div class="c"><?= num($m['cantidad'], $m['unidad'] === 'saco' || $m['unidad'] === 'unidad' ? 0 : 2) ?></div>
             <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
           </div>
         <?php $i++; endforeach; ?>
@@ -264,6 +264,13 @@ ob_start();
       Incluye 10% de holgura. Escombro calculado a 0,15 m³ por m² demolido.
       Sobre <?= ent($c['edificios']) ?> levantamientos completados.
     </div>
+    <?php if (!empty($et['avisos']['materiales_sin_etapa'])): ?>
+    <div style="font-size:8px;color:#A61C1C;margin-top:4px;">
+      ⚠ Hay materiales en la receta sin clasificar por etapa (no se sumaron aquí):
+      <?= esc(implode(' · ', $et['avisos']['materiales_sin_etapa'])) ?>.
+      Clasifíquelos en Configuración › Materiales y rendimientos.
+    </div>
+    <?php endif; ?>
   </div>
 
   <!-- Tipo de trabajo -->

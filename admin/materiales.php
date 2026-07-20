@@ -32,12 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $puedeEditar) {
     try {
         if ($accion === 'actualizar') {
             $cantidades = $_POST['cantidad'] ?? [];
+            $etapas     = $_POST['etapa'] ?? [];
+            $etapasValidas = ['demolicion', 'construccion', 'revestimiento'];
             $n = 0;
-            $st = db()->prepare('UPDATE rec_receta_trabajo SET cantidad = :c WHERE id = :id');
+            $st = db()->prepare('UPDATE rec_receta_trabajo SET cantidad = :c, etapa = :e WHERE id = :id');
             foreach ($cantidades as $id => $val) {
                 $val = (float)str_replace(',', '.', $val);
                 if ($val < 0) continue;
-                $st->execute(['c' => $val, 'id' => (int)$id]);
+                $et = $etapas[$id] ?? '';
+                $et = in_array($et, $etapasValidas, true) ? $et : null;
+                $st->execute(['c' => $val, 'e' => $et, 'id' => (int)$id]);
                 $n++;
             }
             $mensaje = $n . ' rendimiento(s) actualizado(s).';
@@ -49,13 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $puedeEditar) {
             $mat     = trim($_POST['nuevo_material'] ?? '');
             $uni     = trim($_POST['nueva_unidad'] ?? '');
             $cant    = (float)str_replace(',', '.', $_POST['nueva_cantidad'] ?? '0');
+            $etapasValidas = ['demolicion', 'construccion', 'revestimiento'];
+            $eta     = trim($_POST['nueva_etapa'] ?? '');
+            $eta     = in_array($eta, $etapasValidas, true) ? $eta : null;
             if ($trabajo && $mat && $uni && $cant > 0) {
                 db()->prepare(
-                    'INSERT INTO rec_receta_trabajo (tipo_trabajo, material, unidad, cantidad, nota)
-                     VALUES (:t, :m, :u, :c, :n)'
+                    'INSERT INTO rec_receta_trabajo (tipo_trabajo, material, unidad, cantidad, nota, etapa)
+                     VALUES (:t, :m, :u, :c, :n, :e)'
                 )->execute([
                     't' => $trabajo, 'm' => $mat, 'u' => $uni, 'c' => $cant,
                     'n' => trim($_POST['nueva_nota'] ?? '') ?: null,
+                    'e' => $eta,
                 ]);
                 $mensaje = 'Material agregado.';
             } else {
@@ -124,7 +132,11 @@ include __DIR__ . '/../includes/header.php';
             Ejemplo: si el friso completo consume <code>0,155</code> sacos de cemento por m²,
             entonces 100 m² de friso necesitan 15,5 sacos.<br>
             Los rendimientos vienen de valores usuales de obra. Ajústelos según la
-            experiencia real del equipo.
+            experiencia real del equipo.<br>
+            La <strong>etapa</strong> (demolición/construcción/revestimiento) es la que
+            usa el Resumen Ejecutivo en PDF para agrupar el material por caja: un
+            material "Sin clasificar" no aparece sumado en ese resumen aunque sí
+            aparezca en la ficha del edificio, así que clasifique todos los renglones.
         </div>
     </div>
 </div>
@@ -175,6 +187,19 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <span class="mt-uni"><?= e($r['unidad']) ?></span>
             <?php if ($puedeEditar): ?>
+            <select name="etapa[<?= (int)$r['id'] ?>]" class="form-control"
+                    style="width:135px;<?= empty($r['etapa']) ? 'border-color:#C9A227;' : '' ?>">
+                <option value="">Sin clasificar</option>
+                <option value="demolicion"    <?= $r['etapa'] === 'demolicion'    ? 'selected' : '' ?>>Demolición</option>
+                <option value="construccion"  <?= $r['etapa'] === 'construccion'  ? 'selected' : '' ?>>Construcción</option>
+                <option value="revestimiento" <?= $r['etapa'] === 'revestimiento' ? 'selected' : '' ?>>Revestimiento</option>
+            </select>
+            <?php else: ?>
+            <span class="mt-uni">
+                <?= $r['etapa'] ? e(ucfirst($r['etapa'])) : '— sin clasificar' ?>
+            </span>
+            <?php endif; ?>
+            <?php if ($puedeEditar): ?>
             <button type="submit" form="quitar-<?= (int)$r['id'] ?>"
                     title="Quitar este material"
                     style="background:transparent;border:0;color:#c4c9d6;cursor:pointer;font-size:15px;">
@@ -203,6 +228,13 @@ include __DIR__ . '/../includes/header.php';
                 <input type="number" step="0.0001" min="0" name="nueva_cantidad"
                        form="agregar-<?= e($t['clave']) ?>"
                        class="form-control" style="width:110px;" placeholder="Cantidad">
+                <select name="nueva_etapa" form="agregar-<?= e($t['clave']) ?>"
+                        class="form-control" style="width:135px;">
+                    <option value="">Sin clasificar</option>
+                    <option value="demolicion">Demolición</option>
+                    <option value="construccion">Construcción</option>
+                    <option value="revestimiento">Revestimiento</option>
+                </select>
                 <input type="text" name="nueva_nota" form="agregar-<?= e($t['clave']) ?>"
                        class="form-control" style="flex:1;min-width:130px;" placeholder="Nota (opcional)">
                 <button type="submit" form="agregar-<?= e($t['clave']) ?>" class="btn btn-outline btn-sm">
