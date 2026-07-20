@@ -197,6 +197,19 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Revisión del levantamiento -->
+    <div id="fs-revision-caja" style="display:none;"></div>
+
+    <!-- Trabajos a realizar en el edificio -->
+    <div class="fs-card" style="padding:15px 20px;">
+        <div style="font-weight:700;color:#22366F;margin-bottom:11px;">
+            <i class="bi bi-list-check"></i> Trabajos a realizar
+        </div>
+        <div id="fs-trabajos">
+            <span class="text-muted text-sm">Calculando…</span>
+        </div>
+    </div>
+
     <!-- Metros cuadrados a reparar -->
     <div class="fs-card" style="padding:15px 20px;">
         <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
@@ -463,6 +476,16 @@ async function cargarFicha() {
         if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
     }
 
+    try { pintarRevision(d.revision || null); }
+    catch (e) { console.error('Revisión:', e); }
+
+    try { pintarTrabajos(d.detalle_trabajos || []); }
+    catch (e) {
+        console.error('Trabajos:', e);
+        const c = document.getElementById('fs-trabajos');
+        if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
+    }
+
     try { pintarResumenPisos(d); }
     catch (e) {
         console.error('Resumen de pisos:', e);
@@ -641,6 +664,170 @@ function pintarAptosReparar(d) {
         + '<strong>' + pct + '%</strong> de los apartamentos del edificio necesitan '
         + 'alguna reparación.</div>'
         ;
+}
+
+/**
+ * Panel de revisión: qué le falta al levantamiento.
+ * Se muestra arriba de todo cuando hay algo incompleto, para que el
+ * supervisor lo vea sin buscar.
+ */
+function pintarRevision(rev) {
+    const caja = document.getElementById('fs-revision-caja');
+    if (!caja) return;
+
+    const r = (rev && rev.resumen) || { criticos: 0, avisos: 0, total: 0 };
+    const lista = (rev && rev.problemas) || [];
+
+    // Todo en orden: un mensaje breve y nada más.
+    if (!r.total) {
+        caja.style.display = '';
+        caja.innerHTML = '<div class="fs-card" style="padding:13px 20px;'
+            + 'border-left:5px solid #2E7D32;">'
+            + '<div style="display:flex;align-items:center;gap:11px;">'
+            + '<i class="bi bi-shield-check" style="font-size:22px;color:#2E7D32;"></i>'
+            + '<div><div style="font-weight:700;color:#2E7D32;">'
+            + 'El levantamiento está completo</div>'
+            + '<div style="font-size:12.5px;color:#5b6478;">'
+            + 'Todos los ambientes tienen trabajo, metros y foto.</div></div></div></div>';
+        return;
+    }
+
+    const color = r.criticos > 0 ? '#A61C1C' : '#C9A227';
+    const icono = r.criticos > 0 ? 'bi-exclamation-triangle-fill' : 'bi-info-circle-fill';
+
+    let html = '<div class="fs-card" style="padding:0;overflow:hidden;'
+        + 'border-left:5px solid ' + color + ';">'
+
+        // Encabezado
+        + '<div style="padding:13px 20px;background:' + color + '0d;">'
+        + '<div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap;">'
+        + '<i class="bi ' + icono + '" style="font-size:22px;color:' + color + ';"></i>'
+        + '<div style="flex:1;min-width:180px;">'
+        + '<div style="font-weight:700;color:' + color + ';font-size:15px;">'
+        + 'Revisión del levantamiento</div>'
+        + '<div style="font-size:12.5px;color:#5b6478;">'
+        + (r.criticos > 0
+            ? r.criticos + ' dato(s) obligatorio(s) sin completar'
+            : 'Todo lo obligatorio está completo')
+        + (r.avisos > 0 ? ' · ' + r.avisos + ' cosa(s) por revisar' : '')
+        + '</div></div>'
+        + '<button onclick="verRevision()" class="btn btn-outline btn-sm">'
+        + '<i class="bi bi-list-ul"></i> <span id="fs-rev-btn">Ver detalle</span></button>'
+        + '</div></div>'
+
+        // Detalle, oculto al principio
+        + '<div id="fs-revision-detalle" style="display:none;padding:0 20px 14px;">';
+
+    lista.forEach(p => {
+        const esCritico = p.tipo === 'critico';
+        const c = esCritico ? '#A61C1C' : '#C9A227';
+        html += '<div style="display:flex;gap:11px;padding:10px 0;'
+            + 'border-bottom:1px solid #f0f2f7;">'
+            + '<span style="width:8px;height:8px;border-radius:50%;background:' + c + ';'
+            + 'flex-shrink:0;margin-top:6px;"></span>'
+            + '<div style="flex:1;min-width:0;">'
+            + '<div style="font-size:12.5px;font-weight:600;color:#2a3140;">'
+            + p.que + '</div>'
+            + '<div style="font-size:11.5px;color:#5b6478;">'
+            + '<i class="bi bi-geo-alt"></i> ' + p.donde + '</div>'
+            + (p.como ? '<div style="font-size:11px;color:#767c94;font-style:italic;">'
+                + p.como + '</div>' : '')
+            + '</div></div>';
+    });
+
+    html += '</div></div>';
+    caja.innerHTML = html;
+    caja.style.display = '';
+}
+
+/** Muestra u oculta el detalle de la revisión. */
+function verRevision() {
+    const d = document.getElementById('fs-revision-detalle');
+    const b = document.getElementById('fs-rev-btn');
+    if (!d) return;
+    const abierto = d.style.display !== 'none';
+    d.style.display = abierto ? 'none' : '';
+    if (b) b.textContent = abierto ? 'Ver detalle' : 'Ocultar';
+}
+
+/**
+ * Todos los trabajos del edificio, uno por uno.
+ * Muestra cuántos metros, en cuántos ambientes y su material.
+ */
+function pintarTrabajos(lista) {
+    const cont = document.getElementById('fs-trabajos');
+    if (!cont) return;
+
+    if (!lista || !lista.length) {
+        cont.innerHTML = '<div style="background:#fffbf0;border:1px solid #C9A22755;'
+            + 'border-radius:9px;padding:11px 14px;font-size:12.5px;color:#8a6d1a;">'
+            + '<i class="bi bi-info-circle-fill"></i> '
+            + 'Todavía no hay trabajos registrados. Se indican en el levantamiento '
+            + 'técnico, al marcar cada ambiente que necesita reparación.</div>';
+        return;
+    }
+
+    const totalM2 = lista.reduce((a, t) => a + (t.m2 || 0), 0);
+
+    let html = '<div style="font-size:12.5px;color:#5b6478;margin-bottom:11px;">'
+        + '<strong>' + lista.length + '</strong> tipo(s) de trabajo · '
+        + '<strong>' + totalM2.toLocaleString('es-VE', {maximumFractionDigits:2})
+        + ' m²</strong> en total</div>';
+
+    lista.forEach((t, i) => {
+        const pct = totalM2 > 0 ? Math.round(t.m2 / totalM2 * 100) : 0;
+
+        html += '<div style="border:1px solid #e5e8f0;border-radius:10px;'
+            + 'padding:12px 14px;margin-bottom:9px;">'
+
+            // Encabezado: número, nombre y metros
+            + '<div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap;">'
+            + '<span style="background:#22366F;color:#fff;width:26px;height:26px;'
+            + 'border-radius:7px;display:flex;align-items:center;justify-content:center;'
+            + 'font-weight:800;font-size:12.5px;flex-shrink:0;">' + (i + 1) + '</span>'
+            + '<span style="flex:1;min-width:150px;font-weight:700;color:#2a3140;'
+            + 'font-size:14px;">' + t.nombre + '</span>'
+            + '<span style="font-size:19px;font-weight:800;color:#22366F;">'
+            + t.m2.toLocaleString('es-VE', {maximumFractionDigits:2}) + ' m²</span>'
+            + '</div>'
+
+            // Dónde se hace
+            + '<div style="font-size:12px;color:#5b6478;margin-top:6px;">'
+            + '<i class="bi bi-geo"></i> '
+            + t.ambientes + ' ambiente' + (t.ambientes === 1 ? '' : 's')
+            + (t.apartamentos ? ' · ' + t.apartamentos + ' apartamento'
+                + (t.apartamentos === 1 ? '' : 's') : '')
+            + (t.pisos ? ' · ' + t.pisos + ' piso' + (t.pisos === 1 ? '' : 's') : '')
+            + '</div>'
+
+            // Barra de proporción
+            + '<div style="display:flex;align-items:center;gap:9px;margin-top:7px;">'
+            + '<span style="flex:1;background:#f1f3f8;border-radius:20px;height:8px;'
+            + 'overflow:hidden;"><span style="display:block;width:' + pct + '%;'
+            + 'height:100%;background:#C9A227;"></span></span>'
+            + '<span style="font-size:11.5px;color:#767c94;min-width:34px;text-align:right;">'
+            + pct + '%</span></div>';
+
+        // Materiales de este trabajo
+        if (t.materiales && t.materiales.length) {
+            html += '<div style="margin-top:9px;padding-top:9px;border-top:1px solid #f0f2f7;">'
+                + '<div style="font-size:11px;text-transform:uppercase;color:#767c94;'
+                + 'font-weight:700;margin-bottom:6px;">Material que necesita</div>'
+                + '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+            t.materiales.forEach(m => {
+                html += '<span style="background:#f7f9fd;border:1px solid #e5e8f0;'
+                    + 'border-radius:7px;padding:5px 10px;font-size:11.5px;">'
+                    + '<strong style="color:#22366F;">'
+                    + m.cantidad.toLocaleString('es-VE') + '</strong> '
+                    + m.unidad + ' · ' + m.material + '</span>';
+            });
+            html += '</div></div>';
+        }
+
+        html += '</div>';
+    });
+
+    cont.innerHTML = html;
 }
 
 // Muestra el total de metros cuadrados a reparar del edificio.

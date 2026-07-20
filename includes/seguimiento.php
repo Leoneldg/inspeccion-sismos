@@ -3284,6 +3284,236 @@ function segAptosAReparar(): array
     }
 }
 
+/**
+ * Detalle de los trabajos del edificio: cuántos metros, en cuántos
+ * ambientes y en qué apartamentos. Sirve para planificar la obra:
+ * no es lo mismo 40 m² en un apartamento que repartidos en diez.
+ */
+function recDetalleTrabajos(int $edificioId): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        $st = db()->prepare("
+            SELECT rr.tipo_trabajo,
+                   tt.nombre AS trabajo_nombre,
+                   tt.orden,
+                   SUM(rr.metros_cuadrados) AS m2,
+                   COUNT(DISTINCT rr.ref_id) AS ambientes,
+                   COUNT(DISTINCT ap.id) AS apartamentos,
+                   COUNT(DISTINCT pi.id) AS pisos
+              FROM rec_reparacion rr
+              JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
+              LEFT JOIN rec_ambiente am ON rr.nivel = 'ambiente' AND am.id = rr.ref_id
+              LEFT JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              LEFT JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE rr.metros_cuadrados > 0
+               AND (
+                   (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                       SELECT am2.id FROM rec_ambiente am2
+                         JOIN rec_apartamento ap2 ON ap2.id = am2.apartamento_id
+                         JOIN rec_piso pi2 ON pi2.id = ap2.piso_id
+                        WHERE pi2.edificio_id = :e))
+                OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                       SELECT ep.id FROM rec_elemento_piso ep
+                         JOIN rec_piso pi3 ON pi3.id = ep.piso_id
+                        WHERE pi3.edificio_id = :e2))
+               )
+             GROUP BY rr.tipo_trabajo
+             ORDER BY tt.orden
+        ");
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            // Materiales de este trabajo en concreto.
+            $mats = [];
+            try {
+                $det = recMaterialesPorTrabajo([$r['tipo_trabajo'] => (float)$r['m2']]);
+                foreach ($det as $mat => $d) {
+                    $mats[] = [
+                        'material' => $mat,
+                        'cantidad' => $d['cantidad'],
+                        'unidad'   => $d['unidad'],
+                    ];
+                }
+            } catch (Throwable $e) {}
+
+            $out[] = [
+                'clave'        => $r['tipo_trabajo'],
+                'nombre'       => $r['trabajo_nombre'],
+                'm2'           => round((float)$r['m2'], 2),
+                'ambientes'    => (int)$r['ambientes'],
+                'apartamentos' => (int)$r['apartamentos'],
+                'pisos'        => (int)$r['pisos'],
+                'materiales'   => $mats,
+            ];
+        }
+        return $out;
+
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Revisa el levantamiento y devuelve lo que está incompleto.
+ *
+ * Un ambiente marcado para reparar necesita tres cosas: qué trabajo,
+ * cuántos metros y una foto del daño. Si falta alguna, el cálculo de
+ * materiales queda mal o no se puede justificar la reparación.
+ *
+ * También detecta datos incoherentes: metros sin trabajo indicado,
+ * apartamentos sin jefe de familia, fotos sin ambiente.
+ */
+function recRevisarLevantamiento(int $edificioId): array
+{
+    $problemas = [];
+    $resumen = ['criticos' => 0, 'avisos' => 0, 'total' => 0];
+
+    try {
+        // --- Ambientes marcados para reparar, con lo que les falta ---
+        $st = db()->prepare("
+            SELECT am.id, am.tipo, am.numero,
+                   ap.identificador AS apto, pi.numero_piso,
+                   (SELECT COUNT(*) FROM rec_reparacion rr
+                     WHERE rr.nivel = 'ambiente' AND rr.ref_id = am.id
+                       AND rr.metros_cuadrados > 0) AS con_metros,
+                   (SELECT COUNT(*) FROM rec_reparacion rr2
+                     WHERE rr2.nivel = 'ambiente' AND rr2.ref_id = am.id
+                       AND rr2.tipo_trabajo IS NOT NULL
+                       AND rr2.tipo_trabajo <> '') AS con_trabajo,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel = 'ambiente' AND f.ref_id = am.id) AS con_foto
+              FROM rec_ambiente am
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND am.necesita_reparacion = 1
+             ORDER BY pi.numero_piso, ap.identificador, am.tipo
+        ");
+        $st->execute(['e' => $edificioId]);
+
+        foreach ($st->fetchAll() as $a) {
+            $falta = [];
+            if ((int)$a['con_trabajo'] === 0) $falta[] = 'el tipo de trabajo';
+            if ((int)$a['con_metros'] === 0)  $falta[] = 'los metros cuadrados';
+            if ((int)$a['con_foto'] === 0)    $falta[] = 'la foto del daño';
+
+            if ($falta) {
+                $problemas[] = [
+                    'tipo'     => 'critico',
+                    'donde'    => 'Piso ' . $a['numero_piso'] . ' · Apto ' . $a['apto']
+                                  . ' · ' . $a['tipo'] . ' ' . $a['numero'],
+                    'que'      => 'Falta ' . implode(' y ', $falta),
+                    'como'     => 'Ábralo en el levantamiento y complete el dato.',
+                    'apto_id'  => null,
+                ];
+                $resumen['criticos']++;
+            }
+        }
+
+        // --- Metros registrados sin trabajo indicado ---
+        $st2 = db()->prepare("
+            SELECT ap.identificador AS apto, pi.numero_piso,
+                   am.tipo, am.numero, SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+              JOIN rec_ambiente am ON am.id = rr.ref_id AND rr.nivel = 'ambiente'
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND rr.metros_cuadrados > 0
+               AND (rr.tipo_trabajo IS NULL OR rr.tipo_trabajo = '')
+             GROUP BY am.id
+             ORDER BY pi.numero_piso, ap.identificador
+             LIMIT 30
+        ");
+        $st2->execute(['e' => $edificioId]);
+        foreach ($st2->fetchAll() as $r) {
+            $problemas[] = [
+                'tipo'  => 'critico',
+                'donde' => 'Piso ' . $r['numero_piso'] . ' · Apto ' . $r['apto']
+                           . ' · ' . $r['tipo'] . ' ' . $r['numero'],
+                'que'   => 'Tiene ' . round((float)$r['m2'], 2)
+                           . ' m² pero no dice qué trabajo hacer',
+                'como'  => 'Sin el trabajo no se pueden calcular materiales.',
+            ];
+            $resumen['criticos']++;
+        }
+
+        // --- Apartamentos inspeccionados sin jefe de familia ---
+        $st3 = db()->prepare("
+            SELECT ap.identificador AS apto, pi.numero_piso
+              FROM rec_apartamento ap
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND COALESCE(ap.estado_visita, 'levantado') = 'levantado'
+               AND (ap.jefe_nombre IS NULL OR ap.jefe_nombre = '')
+               AND EXISTS (SELECT 1 FROM rec_ambiente am2
+                            WHERE am2.apartamento_id = ap.id)
+             ORDER BY pi.numero_piso, ap.identificador
+             LIMIT 30
+        ");
+        $st3->execute(['e' => $edificioId]);
+        foreach ($st3->fetchAll() as $r) {
+            $problemas[] = [
+                'tipo'  => 'aviso',
+                'donde' => 'Piso ' . $r['numero_piso'] . ' · Apto ' . $r['apto'],
+                'que'   => 'Tiene ambientes pero no registró el jefe de familia',
+                'como'  => 'Hace falta para entregar la obra.',
+            ];
+            $resumen['avisos']++;
+        }
+
+        // --- Apartamentos sin visitar ---
+        $st4 = db()->prepare("
+            SELECT COUNT(*) FROM rec_apartamento ap
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND (ap.estado_visita IS NULL OR ap.estado_visita = '')
+               AND NOT EXISTS (SELECT 1 FROM rec_ambiente am3
+                                WHERE am3.apartamento_id = ap.id)
+        ");
+        $st4->execute(['e' => $edificioId]);
+        $sinVisitar = (int)$st4->fetchColumn();
+        if ($sinVisitar > 0) {
+            $problemas[] = [
+                'tipo'  => 'aviso',
+                'donde' => 'Todo el edificio',
+                'que'   => $sinVisitar . ' apartamento(s) sin visitar',
+                'como'  => 'Falta llegar a ellos o marcar por qué no se pudo.',
+            ];
+            $resumen['avisos']++;
+        }
+
+        // --- Ambientes con foto pero sin marcar reparación ---
+        $st5 = db()->prepare("
+            SELECT ap.identificador AS apto, pi.numero_piso, am.tipo, am.numero
+              FROM rec_ambiente am
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND am.necesita_reparacion = 0
+               AND EXISTS (SELECT 1 FROM rec_reparacion rr3
+                            WHERE rr3.nivel = 'ambiente' AND rr3.ref_id = am.id
+                              AND rr3.metros_cuadrados > 0)
+             LIMIT 20
+        ");
+        $st5->execute(['e' => $edificioId]);
+        foreach ($st5->fetchAll() as $r) {
+            $problemas[] = [
+                'tipo'  => 'aviso',
+                'donde' => 'Piso ' . $r['numero_piso'] . ' · Apto ' . $r['apto']
+                           . ' · ' . $r['tipo'] . ' ' . $r['numero'],
+                'que'   => 'Tiene metros registrados pero no está marcado para reparar',
+                'como'  => 'Esos metros no entran en el cálculo.',
+            ];
+            $resumen['avisos']++;
+        }
+
+    } catch (Throwable $e) { /* devolver lo que se haya podido revisar */ }
+
+    $resumen['total'] = count($problemas);
+    return ['resumen' => $resumen, 'problemas' => $problemas];
+}
+
 function recArbolAvance(int $edificioId): array
 {
     recAsegurarTablasAvance();
@@ -3533,6 +3763,8 @@ function recArbolAvance(int $edificioId): array
         'm2_por_tipo'     => $m2['por_tipo'] ?? [],
         'materiales'      => $materiales,
         'por_trabajo'     => $porTrabajo,
+        'detalle_trabajos'=> recDetalleTrabajos($edificioId),
+        'revision'        => recRevisarLevantamiento($edificioId),
         'aptos_reparar'   => recAptosConReparacion($edificioId),
         'fotos_edificio'  => $fotosEdificio,
         'fotos_piso'      => $fotosPiso,
