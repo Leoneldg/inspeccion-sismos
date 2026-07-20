@@ -172,6 +172,12 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <input type="text" id="rc-buscar" class="form-control" style="width:200px;"
                    placeholder="Buscar edificación…" oninput="filtrarLista()">
+            <a href="<?= APP_URL_BASE ?>seguimiento/pdf_reconstruccion.php<?= $parrF ? '?parroquia=' . urlencode($parrF) : '' ?>"
+               target="_blank" class="btn btn-outline btn-sm"
+               style="border-color:#A61C1C55;color:#A61C1C;"
+               title="Descargar todo el listado en PDF">
+                <i class="bi bi-file-earmark-pdf-fill"></i> PDF del listado
+            </a>
             <?php
             $rolAct = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
             if (usuarioEsMaster() || str_contains($rolAct, 'administrador')): ?>
@@ -283,14 +289,14 @@ include __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div style="display:flex;gap:6px;">
-                    <?php if ($est !== 'proceso'): ?>
+                    <?php // El PDF sale siempre: aunque esté en proceso, sirve
+                          // para ver lo que lleva registrado hasta ahora. ?>
                     <a href="<?= APP_URL_BASE ?>seguimiento/pdf_levantamiento.php?inspeccion=<?= (int)$e['id'] ?>"
                        target="_blank" class="btn btn-outline btn-sm"
                        style="border-color:#A61C1C55;color:#A61C1C;"
                        title="Descargar el levantamiento en PDF">
                         <i class="bi bi-file-earmark-pdf-fill"></i>
                     </a>
-                    <?php endif; ?>
                     <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
                        class="btn btn-outline btn-sm" title="Abrir la ficha">
                         <i class="bi bi-arrow-right"></i>
