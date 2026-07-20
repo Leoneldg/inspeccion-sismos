@@ -88,7 +88,7 @@ try {
 
     $sql = "SELECT i.id AS inspeccion_id, i.codigo, i.nombre_edificio,
                    i.latitud, i.longitud, i.parroquia, i.municipio, i.estado,
-                   i.uso_edificacion, i.num_pisos, i.numero_personas,
+                   i.uso_edificacion, i.num_pisos, i.numero_personas, i.familias,
                    i.decision_final, i.fecha_inspeccion,
                    so.estado_obra, so.avance_pct, so.ente_id, e.nombre AS ente_nombre,
                    re.id AS rec_edificio_id, re.completado,
@@ -135,6 +135,7 @@ try {
             'municipio'     => $ed['municipio'] ?: '—',
             'estado'        => $ed['estado'] ?: '—',
             'uso'           => $ed['uso_edificacion'] ?: '—',
+            'familias'      => (int)($ed['familias'] ?? 0) ?: null,
             'pisos'         => (int)($ed['num_pisos'] ?? 0),
             'personas'      => (int)($ed['numero_personas'] ?? 0),
             'fecha'         => $ed['fecha_inspeccion'] ?: '—',

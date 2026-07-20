@@ -1138,61 +1138,192 @@ function limpiarBusqueda() {
     location.reload();
 }
 
-// Imprimir la lista de resultados (abre ventana lista para PDF/impresión).
+// Imprimir la lista, agrupada por parroquia y por color.
 function imprimirResultados() {
-    if (!_ultimaBusqueda.length) return;
+    if (!_ultimaBusqueda.length) { alert('No hay resultados que imprimir.'); return; }
     const hoy = new Date().toLocaleDateString('es-VE');
-    // Contar por color para el resumen.
-    const cnt = { '#A61C1C':0, '#C9A227':0, '#2E7D32':0, '#2B2B2B':0 };
-    _ultimaBusqueda.forEach(p => { if (cnt[p.color] !== undefined) cnt[p.color]++; });
 
-    const filas = _ultimaBusqueda.map((p, i) => `
-        <tr>
-            <td style="text-align:center;">${i+1}</td>
-            <td><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${p.color};"></span></td>
-            <td>${p.nombre || 'Sin nombre'}</td>
-            <td>${p.codigo || ''}</td>
-            <td>${p.parroquia || ''}</td>
-            <td>${p.decision || ''}</td>
-            <td>${p.ente || 'Sin asignar'}</td>
-        </tr>`).join('');
+    // Qué filtros se usaron, para dejarlo escrito en el informe.
+    const fUso  = document.getElementById('f-uso');
+    const fParr = document.getElementById('f-parroquia');
+    const fEnte = document.getElementById('f-ente');
+    const fTxt  = document.getElementById('f-buscar');
+    const filtros = [];
+    if (fTxt && fTxt.value.trim()) filtros.push('Búsqueda: ' + fTxt.value.trim());
+    filtros.push((fParr && fParr.value) ? ('Parroquia: ' + fParr.value)
+                                        : 'Todas las parroquias');
+    if (fUso && fUso.value) filtros.push('Uso: ' + fUso.value);
+    if (fEnte && fEnte.selectedIndex > 0) {
+        filtros.push('Ente: ' + fEnte.options[fEnte.selectedIndex].text);
+    }
 
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de edificaciones</title>
-        <style>
-            * { font-family: Arial, sans-serif; }
-            body { margin: 24px; color: #2a3140; }
-            h1 { color: #22366F; font-size: 20px; margin: 0; }
-            .sub { color: #767c94; font-size: 12px; margin: 2px 0 0; }
-            .linea { height: 3px; background: #C9A227; width: 70px; margin: 10px 0; }
-            .resumen { display: flex; gap: 8px; margin: 12px 0; }
-            .rcard { flex: 1; text-align: center; padding: 8px; border-radius: 8px; border: 1px solid #ddd; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th { background: #22366F; color: #fff; font-size: 11px; padding: 7px 6px; text-align: left; }
-            td { font-size: 11px; padding: 5px 6px; border-bottom: 1px solid #e8ebf3; }
-            @media print { .noprint { display: none; } }
-        </style></head><body>
-        <h1>Lista de edificaciones</h1>
-        <p class="sub">Seguimiento y Control · ${_ultimaBusqueda.length} edificaciones · ${hoy}</p>
-        <div class="linea"></div>
-        <div class="resumen">
-            <div class="rcard" style="color:#A61C1C;border-color:#A61C1C55;"><b style="font-size:20px;">${cnt['#A61C1C']}</b><br>ROJO</div>
-            <div class="rcard" style="color:#C9A227;border-color:#C9A22755;"><b style="font-size:20px;">${cnt['#C9A227']}</b><br>AMARILLO</div>
-            <div class="rcard" style="color:#2E7D32;border-color:#2E7D3255;"><b style="font-size:20px;">${cnt['#2E7D32']}</b><br>VERDE</div>
-            <div class="rcard" style="color:#2B2B2B;border-color:#2B2B2B55;"><b style="font-size:20px;">${cnt['#2B2B2B']}</b><br>DERRUMBADO</div>
-        </div>
-        <table>
-            <thead><tr><th>#</th><th></th><th>Edificación</th><th>Código</th><th>Parroquia</th><th>Status</th><th>Ente</th></tr></thead>
-            <tbody>${filas}</tbody>
-        </table>
-        <p class="noprint" style="margin-top:16px;text-align:center;">
-            <button onclick="window.print()" style="padding:8px 20px;background:#22366F;color:#fff;border:0;border-radius:6px;cursor:pointer;font-size:14px;">Imprimir / Guardar PDF</button>
-        </p>
-        <script>window.onload = () => setTimeout(() => window.print(), 400);<\/script>
-        </body></html>`;
+    // Orden de los colores: primero lo más grave.
+    const COLORES = [
+        { c: '#A61C1C', t: 'ROJO', d: 'Acceso no permitido' },
+        { c: '#C9A227', t: 'AMARILLO', d: 'Acceso restringido' },
+        { c: '#2E7D32', t: 'VERDE', d: 'Acceso permitido' },
+        { c: '#2B2B2B', t: 'DERRUMBADO', d: '' },
+    ];
+
+    // Agrupar: parroquia, y dentro por color.
+    const porParroquia = {};
+    _ultimaBusqueda.forEach(function (p) {
+        const parr = p.parroquia || 'Sin parroquia';
+        if (!porParroquia[parr]) porParroquia[parr] = {};
+        const col = p.color || '#767c94';
+        if (!porParroquia[parr][col]) porParroquia[parr][col] = [];
+        porParroquia[parr][col].push(p);
+    });
+
+    // Totales generales.
+    const cnt = {};
+    COLORES.forEach(function (x) { cnt[x.c] = 0; });
+    _ultimaBusqueda.forEach(function (p) {
+        if (cnt[p.color] !== undefined) cnt[p.color]++;
+    });
+
+    // Cuerpo: una sección por parroquia.
+    let cuerpo = '';
+    Object.keys(porParroquia).sort().forEach(function (parr) {
+        const grupos = porParroquia[parr];
+        let totalParr = 0;
+        Object.keys(grupos).forEach(function (c) { totalParr += grupos[c].length; });
+
+        cuerpo += '<div class="parroquia">'
+            + '<div class="parr-cab">' + parr
+            + '<span class="parr-n">' + totalParr + ' edificación'
+            + (totalParr === 1 ? '' : 'es') + '</span></div>';
+
+        // Chips con el conteo por color de esta parroquia.
+        cuerpo += '<div class="mini-res">';
+        COLORES.forEach(function (cl) {
+            const n = (grupos[cl.c] || []).length;
+            if (n > 0) {
+                cuerpo += '<span class="chip" style="background:' + cl.c + '18;color:'
+                    + cl.c + ';">' + n + ' ' + cl.t + '</span>';
+            }
+        });
+        cuerpo += '</div>';
+
+        // Una tabla por color.
+        COLORES.forEach(function (cl) {
+            const lista = grupos[cl.c] || [];
+            if (!lista.length) return;
+
+            cuerpo += '<div class="color-cab" style="background:' + cl.c + ';">'
+                + cl.t + (cl.d ? ' · ' + cl.d : '')
+                + '<span style="float:right;">' + lista.length + '</span></div>'
+                + '<table><thead><tr>'
+                + '<th style="width:26px;">#</th>'
+                + '<th>Edificación</th>'
+                + '<th style="width:108px;">Código</th>'
+                + '<th style="width:112px;">Uso</th>'
+                + '<th style="width:126px;">Ente</th>'
+                + '<th style="width:62px;">Familias</th>'
+                + '</tr></thead><tbody>';
+
+            lista.forEach(function (p, i) {
+                cuerpo += '<tr>'
+                    + '<td style="text-align:center;color:#767c94;">' + (i + 1) + '</td>'
+                    + '<td><strong>' + (p.nombre || 'Sin nombre') + '</strong></td>'
+                    + '<td style="color:#55617f;">' + (p.codigo || '') + '</td>'
+                    + '<td style="font-size:10px;">' + (p.uso || '—') + '</td>'
+                    + '<td style="font-size:10px;">' + (p.ente || 'Sin asignar') + '</td>'
+                    + '<td style="text-align:center;">' + (p.familias || '—') + '</td>'
+                    + '</tr>';
+            });
+            cuerpo += '</tbody></table>';
+        });
+
+        // Las que no tienen color conocido.
+        Object.keys(grupos).forEach(function (c) {
+            if (COLORES.some(function (x) { return x.c === c; })) return;
+            const lista = grupos[c];
+            cuerpo += '<div class="color-cab" style="background:#767c94;">SIN CLASIFICAR'
+                + '<span style="float:right;">' + lista.length + '</span></div>'
+                + '<table><tbody>';
+            lista.forEach(function (p, i) {
+                cuerpo += '<tr><td style="width:26px;text-align:center;">' + (i + 1) + '</td>'
+                    + '<td><strong>' + (p.nombre || 'Sin nombre') + '</strong></td>'
+                    + '<td style="color:#55617f;">' + (p.codigo || '') + '</td></tr>';
+            });
+            cuerpo += '</tbody></table>';
+        });
+
+        cuerpo += '</div>';
+    });
+
+    const nParr = Object.keys(porParroquia).length;
+
+    let resumen = '<div class="resumen">'
+        + '<div class="rcard" style="border-color:#22366F55;">'
+        + '<b style="color:#22366F;">' + _ultimaBusqueda.length + '</b>'
+        + '<span>EDIFICACIONES</span></div>'
+        + '<div class="rcard" style="border-color:#2d448855;">'
+        + '<b style="color:#2d4488;">' + nParr + '</b>'
+        + '<span>PARROQUIAS</span></div>';
+    COLORES.forEach(function (cl) {
+        resumen += '<div class="rcard" style="border-color:' + cl.c + '55;">'
+            + '<b style="color:' + cl.c + ';">' + cnt[cl.c] + '</b>'
+            + '<span>' + cl.t + '</span></div>';
+    });
+    resumen += '</div>';
+
+    const estilo = '* { font-family: Arial, sans-serif; box-sizing: border-box; }'
+        + 'body { margin: 22px; color: #2a3140; font-size: 12px; }'
+        + 'h1 { color: #22366F; font-size: 21px; margin: 0; }'
+        + '.sub { color: #767c94; font-size: 11.5px; margin: 3px 0 0; }'
+        + '.linea { height: 3px; background: #C9A227; width: 70px; margin: 10px 0 14px; }'
+        + '.filtros { background: #f4f7fd; border-radius: 8px; padding: 9px 13px;'
+        + ' font-size: 11px; color: #55617f; margin-bottom: 14px; }'
+        + '.filtros b { color: #22366F; }'
+        + '.resumen { display: flex; gap: 7px; margin-bottom: 18px; }'
+        + '.rcard { flex: 1; text-align: center; padding: 9px 6px; border-radius: 8px;'
+        + ' border: 1px solid #ddd; }'
+        + '.rcard b { font-size: 21px; display: block; }'
+        + '.rcard span { font-size: 9.5px; }'
+        + '.parroquia { margin-bottom: 22px; page-break-inside: avoid; }'
+        + '.parr-cab { background: #22366F; color: #fff; padding: 9px 14px;'
+        + ' border-radius: 8px 8px 0 0; font-size: 14px; font-weight: bold; }'
+        + '.parr-n { float: right; font-size: 11px; font-weight: normal; opacity: .85; }'
+        + '.mini-res { padding: 9px 14px; background: #fafbfe;'
+        + ' border-left: 1px solid #e8ebf3; border-right: 1px solid #e8ebf3; }'
+        + '.chip { display: inline-block; border-radius: 20px; padding: 3px 10px;'
+        + ' font-size: 10.5px; font-weight: bold; margin-right: 5px; }'
+        + '.color-cab { color: #fff; padding: 5px 14px; font-size: 11px;'
+        + ' font-weight: bold; letter-spacing: .3px; }'
+        + 'table { width: 100%; border-collapse: collapse; }'
+        + 'th { background: #eef2fb; color: #22366F; font-size: 9.5px; padding: 5px 8px;'
+        + ' text-align: left; text-transform: uppercase; }'
+        + 'td { font-size: 11px; padding: 5px 8px; border-bottom: 1px solid #eef0f5; }'
+        + 'tr:nth-child(even) td { background: #fafbfe; }'
+        + '.pie { margin-top: 18px; padding-top: 9px; border-top: 1px solid #e8ebf3;'
+        + ' font-size: 9.5px; color: #767c94; text-align: center; }'
+        + '@media print { .noprint { display: none; }'
+        + ' .parroquia { page-break-inside: avoid; } }';
+
+    const html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        + '<title>Listado de edificaciones</title><style>' + estilo + '</style></head><body>'
+        + '<h1>Listado de edificaciones</h1>'
+        + '<p class="sub">Seguimiento y Control · ' + hoy + '</p>'
+        + '<div class="linea"></div>'
+        + '<div class="filtros"><b>Filtros aplicados:</b> ' + filtros.join(' · ') + '</div>'
+        + resumen
+        + cuerpo
+        + '<div class="pie">Gestión de Obras Avanzadas · ' + _ultimaBusqueda.length
+        + ' edificaciones en ' + nParr + ' parroquia' + (nParr === 1 ? '' : 's')
+        + ' · Generado el ' + hoy + '</div>'
+        + '<p class="noprint" style="margin-top:16px;text-align:center;">'
+        + '<button onclick="window.print()" style="padding:9px 22px;background:#22366F;'
+        + 'color:#fff;border:0;border-radius:7px;cursor:pointer;font-size:14px;">'
+        + 'Imprimir / Guardar PDF</button></p>'
+        + '</body></html>';
 
     const w = window.open('', '_blank');
+    if (!w) { alert('El navegador bloqueó la ventana. Permita las ventanas emergentes.'); return; }
     w.document.write(html);
     w.document.close();
+    setTimeout(function () { try { w.print(); } catch (e) {} }, 600);
 }
 </script>
 
