@@ -1111,6 +1111,8 @@ function pintarResultados(puntos) {
             <div style="flex:1;min-width:0;">
                 <div style="font-weight:600;color:#2a3140;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.nombre||'Sin nombre'}</div>
                 <div style="font-size:11px;color:#767c94;">${p.codigo} · ${p.parroquia} · ${p.decision}</div>
+                ${p.levanto ? `<div style="font-size:11px;color:#2d4488;font-weight:600;">
+                    <i class="bi bi-person-fill"></i> ${p.levanto}</div>` : ''}
             </div>
             ${p.tiene_coord ? '<i class="bi bi-geo-alt-fill" style="color:#2d4488;" title="Ubicada en el mapa"></i>' : '<i class="bi bi-geo" style="color:#c9a227;" title="Sin coordenadas"></i>'}
         </div>`).join('');

@@ -92,11 +92,14 @@ try {
                    i.decision_final, i.fecha_inspeccion,
                    so.estado_obra, so.avance_pct, so.ente_id, e.nombre AS ente_nombre,
                    re.id AS rec_edificio_id, re.completado,
+                   COALESCE(uf.nombre_completo, uc.nombre_completo) AS levanto,
                    fr.numero AS frente_numero, fr.nombre AS frente_nombre
               FROM inspecciones i
               LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
               LEFT JOIN entes e ON e.id = so.ente_id
               LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN usuarios uc ON uc.id = re.creado_por
+              LEFT JOIN usuarios uf ON uf.id = re.completado_por
               LEFT JOIN asignacion_frente_obra afo ON afo.inspeccion_id = i.id
               LEFT JOIN frente fr ON fr.id = afo.frente_id
               $where
@@ -140,6 +143,7 @@ try {
             'personas'      => (int)($ed['numero_personas'] ?? 0),
             'fecha'         => $ed['fecha_inspeccion'] ?: '—',
             'ente'          => $ed['ente_nombre'] ?: null,
+            'levanto'       => $ed['levanto'] ?: null,
             'miembro'       => $subasig[(int)$ed['inspeccion_id']]['gdc'] ?? null,
             'estado_obra'   => $ed['estado_obra'] ?: null,
             'avance'        => $ed['avance_pct'] !== null ? (int)$ed['avance_pct'] : 0,

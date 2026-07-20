@@ -14,6 +14,12 @@ require_once __DIR__ . '/../includes/seguimiento.php';
 
 requierePermiso('seguimiento', 'ver');
 
+// Solo un administrador puede borrar levantamientos.
+$rolAct = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+$puedeBorrar = usuarioEsMaster()
+            || str_contains($rolAct, 'administrador')
+            || str_contains($rolAct, 'superadmin');
+
 // Filtro por parroquia.
 $parrF = trim($_GET['parroquia'] ?? '');
 $lista = segEnReconstruccion($parrF !== '' ? ['parroquia' => $parrF] : []);
@@ -205,7 +211,9 @@ include __DIR__ . '/../includes/header.php';
             ?>
             <div class="rc-fila" data-estado="<?= $est ?>"
                  data-txt="<?= e(mb_strtolower(($e['nombre_edificio'] ?? '') . ' ' .
-                           ($e['codigo'] ?? '') . ' ' . ($e['parroquia'] ?? ''), 'UTF-8')) ?>">
+                           ($e['codigo'] ?? '') . ' ' . ($e['parroquia'] ?? '') . ' ' .
+                           ($e['cerrado_por_nombre'] ?? '') . ' ' .
+                           ($e['creado_por_nombre'] ?? ''), 'UTF-8')) ?>">
 
                 <span class="clas-letra" style="color:<?= $sim['color'] ?>;
                       border-color:<?= $sim['color'] ?>;" title="<?= e($sim['texto']) ?>">
@@ -223,6 +231,16 @@ include __DIR__ . '/../includes/header.php';
                         <?= (int)$e['n_pisos'] ?> piso<?= (int)$e['n_pisos'] === 1 ? '' : 's' ?>
                         · <?= (int)$e['aptos_hechos'] ?> de <?= (int)$e['n_aptos'] ?> apartamentos
                     </div>
+                    <?php
+                    // Quién lo hizo: se muestra quien lo cerró, y si no,
+                    // quien lo empezó.
+                    $quien = $e['cerrado_por_nombre'] ?: ($e['creado_por_nombre'] ?? '');
+                    ?>
+                    <?php if ($quien): ?>
+                    <div style="font-size:11.5px;color:#2d4488;font-weight:600;margin-top:2px;">
+                        <i class="bi bi-person-fill"></i> <?= e($quien) ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
                 <div style="min-width:170px;">
@@ -264,8 +282,22 @@ include __DIR__ . '/../includes/header.php';
                     <?php endif; ?>
                 </div>
 
-                <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
-                   class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i></a>
+                <div style="display:flex;gap:6px;">
+                    <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
+                       class="btn btn-outline btn-sm" title="Abrir la ficha">
+                        <i class="bi bi-arrow-right"></i>
+                    </a>
+                    <?php if ($puedeBorrar): ?>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#A61C1C33;color:#A61C1C;"
+                            title="Borrar este levantamiento"
+                            onclick="borrarLev(<?= (int)$e['id'] ?>,
+                                     '<?= e(addslashes($e['nombre_edificio'] ?: 'Sin nombre')) ?>',
+                                     <?= (int)$e['n_aptos'] ?>, this)">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                    <?php endif; ?>
+                </div>
             </div>
             <?php endforeach; ?>
         </div>
@@ -277,6 +309,64 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+/**
+ * Borra el levantamiento de una edificación.
+ * Pide doble confirmación porque no se puede deshacer: se pierden
+ * los apartamentos, los metros y las fotos.
+ */
+async function borrarLev(id, nombre, nAptos, btn) {
+    if (!confirm('¿Borrar el levantamiento de "' + nombre + '"?\n\n'
+        + 'Se eliminan ' + nAptos + ' apartamento(s) con sus ambientes, '
+        + 'metros cuadrados y FOTOS.\n\n'
+        + 'La edificación se conserva y podrá levantarse de nuevo.')) return;
+
+    // Segunda confirmación: hay que escribir para estar seguro.
+    const conf = prompt('Esta acción NO se puede deshacer.\n\n'
+        + 'Escriba BORRAR para confirmar:');
+    if (conf === null) return;
+    if (conf.trim().toUpperCase() !== 'BORRAR') {
+        alert('No se borró nada.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+
+    try {
+        const res = await fetch('<?= APP_URL_BASE ?>seguimiento/borrar_levantamiento.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ inspeccion_id: id }),
+            credentials: 'same-origin'
+        });
+        const d = await res.json();
+
+        if (d.sesion_expirada) { alert(d.mensaje); location.reload(); return; }
+        if (!d.ok) {
+            alert(d.mensaje || 'No se pudo borrar.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-trash3"></i>';
+            return;
+        }
+
+        // Quitar la fila y actualizar los conteos.
+        const fila = btn.closest('.rc-fila');
+        if (fila) fila.remove();
+
+        const det = d.detalle || {};
+        alert('Levantamiento eliminado.\n\n'
+            + (det.pisos || 0) + ' piso(s) · '
+            + (det.apartamentos || 0) + ' apartamento(s) · '
+            + (det.fotos || 0) + ' foto(s)');
+
+        filtrarLista();
+
+    } catch (e) {
+        alert('Sin conexión. Intente de nuevo.');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash3"></i>';
+    }
+}
+
 let _filtroEstado = 'todos';
 
 function filtrarEstado(f, btn) {
@@ -307,6 +397,19 @@ function filtrarLista() {
 
     document.getElementById('rc-cont').textContent = n;
     document.getElementById('rc-vacio').style.display = n ? 'none' : '';
+
+    // Recalcular los conteos de los botones: cambian al borrar.
+    const cuenta = { todos: 0, proceso: 0, incompleto: 0, completo: 0 };
+    document.querySelectorAll('.rc-fila').forEach(f => {
+        cuenta.todos++;
+        const e = f.dataset.estado;
+        if (cuenta[e] !== undefined) cuenta[e]++;
+    });
+    document.querySelectorAll('.rc-k').forEach(b => {
+        const num = b.querySelector('.n');
+        const f = b.dataset.f;
+        if (num && cuenta[f] !== undefined) num.textContent = cuenta[f];
+    });
 }
 </script>
 

@@ -65,9 +65,12 @@ try {
                               NULLIF(i.urbanizacion,''))) AS direccion,
                ent.nombre AS ente_nombre,
                re.completado,
+               COALESCE(uf.nombre_completo, uc.nombre_completo) AS levanto,
                fr.numero AS frente_numero, fr.nombre AS frente_nombre
           FROM inspecciones i
           LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+          LEFT JOIN usuarios uc ON uc.id = re.creado_por
+          LEFT JOIN usuarios uf ON uf.id = re.completado_por
           LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
           LEFT JOIN entes ent ON ent.id = so.ente_id
           LEFT JOIN asignacion_frente_obra afo ON afo.inspeccion_id = i.id
@@ -236,6 +239,7 @@ ob_start();
           <th style="width:86px;">Uso</th>
           <th style="width:108px;">Ente</th>
           <th style="width:74px;">Frente</th>
+          <th style="width:96px;">Levantó</th>
           <th style="width:44px;">Fam.</th>
         </tr></thead>
         <tbody>
@@ -256,6 +260,7 @@ ob_start();
             <td style="font-size:9px;">
               <?= !empty($f['frente_numero']) ? 'Frente ' . (int)$f['frente_numero'] : '—' ?>
             </td>
+            <td style="font-size:9px;"><?= esc($f['levanto'] ?: '—') ?></td>
             <td style="text-align:center;"><?= (int)$f['familias'] ?: '—' ?></td>
           </tr>
         <?php endforeach; ?>

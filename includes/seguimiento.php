@@ -2798,6 +2798,8 @@ function segSinEtiqueta(): array
                        AND f.parte = 'etiqueta') AS fotos_etiqueta
               FROM inspecciones i
               JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN usuarios uc ON uc.id = re.creado_por
+              LEFT JOIN usuarios uf ON uf.id = re.completado_por
               LEFT JOIN usuarios u ON u.id = COALESCE(re.completado_por, re.creado_por)
               LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
               LEFT JOIN entes ent ON ent.id = so.ente_id
@@ -3040,6 +3042,8 @@ function segEnReconstruccion(array $filtros = []): array
         $st = db()->prepare("
             SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia, i.decision_final,
                    re.id AS edificio_id, re.completado, re.creado_en,
+                   uc.nombre_completo AS creado_por_nombre,
+                   uf.nombre_completo AS cerrado_por_nombre,
                    (SELECT COUNT(*) FROM rec_piso p2 WHERE p2.edificio_id = re.id) AS n_pisos,
                    (SELECT COUNT(*) FROM rec_apartamento a2
                       JOIN rec_piso p3 ON p3.id = a2.piso_id
