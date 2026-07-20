@@ -3032,7 +3032,9 @@ function segEnReconstruccion(array $filtros = []): array
         $conds[] = '(i.nombre_edificio LIKE :txt OR i.codigo LIKE :txt)';
         $params['txt'] = '%' . $filtros['texto'] . '%';
     }
-    $where = 'WHERE ' . implode(' AND ', $conds);
+    // Si no hay condiciones, el WHERE debe quedar vacío: 'WHERE ' solo
+    // es SQL inválido y hace que la consulta no devuelva nada.
+    $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
 
     try {
         $st = db()->prepare("
