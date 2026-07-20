@@ -1898,22 +1898,40 @@ function pintarAmbientes(ambientes, contenedor) {
                         — indique al menos uno
                     </span>
                 </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${['pared','techo','piso'].map(sup => `
+                        <div style="width:112px;">
+                            <label class="text-sm" style="text-transform:capitalize;">${sup}</label>
+                            <div style="display:flex;align-items:center;gap:5px;">
+                                <input type="text" inputmode="decimal" class="form-control sup-${sup}"
+                                       data-sup="${sup}" value="0" style="flex:1;min-width:0;"
+                                       oninput="normalizarDecimal(this); actualizarTotalM2(this.closest('.amb-row'));"
+                                       onchange="guardarReparacion(${am.id}, this)">
+                                <span style="font-size:12px;color:#8a6d1a;font-weight:600;">m²</span>
+                            </div>
+                        </div>`).join('')}
+                </div>
+
+                <!-- Total de metros del ambiente -->
+                <div class="amb-total-m2" style="margin-top:9px;background:#fff;
+                     border:1px solid #C9A22755;border-radius:8px;padding:9px 13px;
+                     display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:12.5px;color:#8a6d1a;font-weight:600;">
+                        Total de este ambiente
+                    </span>
+                    <span class="amb-suma" style="font-size:18px;font-weight:800;color:#22366F;">
+                        0 m²
+                    </span>
+                </div>
+
                 <div class="amb-partidas"></div>
+
                 <button type="button" class="btn btn-outline btn-sm"
                         style="margin-top:9px;border-color:#2d448855;color:#2d4488;font-size:12px;"
                         onclick="agregarPartida(this, ${am.id})">
                     <i class="bi bi-plus-circle"></i> Agregar otro trabajo aquí
                 </button>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    ${['pared','techo','piso'].map(sup => `
-                        <div style="width:110px;">
-                            <label class="text-sm" style="text-transform:capitalize;">${sup} (m²)</label>
-                            <input type="text" inputmode="decimal" class="form-control sup-${sup}"
-                                   data-sup="${sup}" value="0"
-                                   oninput="normalizarDecimal(this)"
-                                   onchange="guardarReparacion(${am.id}, this)">
-                        </div>`).join('')}
-                </div>
+
                 <div class="amb-materiales text-sm" style="margin-top:8px;color:#55617f;"></div>
             </div>
             <div class="amb-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
@@ -1932,17 +1950,47 @@ function pintarAmbientes(ambientes, contenedor) {
             if (d.ok && d.reparaciones && d.reparaciones.length) {
                 const row = contenedor.querySelector('.amb-row[data-amb="'+am.id+'"]');
                 let trabajoGuardado = '';
+                // Agrupar por tipo de trabajo: cada uno es una partida.
+                const porTrabajo = {};
                 d.reparaciones.forEach(rep => {
-                    const inp = row.querySelector('.sup-'+rep.tipo_superficie);
+                    const t = rep.tipo_trabajo || '';
+                    if (!porTrabajo[t]) porTrabajo[t] = [];
+                    porTrabajo[t].push(rep);
+                });
+
+                const trabajos = Object.keys(porTrabajo);
+                trabajoGuardado = trabajos[0] || '';
+
+                // El primer trabajo va en los campos principales.
+                (porTrabajo[trabajoGuardado] || []).forEach(rep => {
+                    const inp = row.querySelector('.sup-' + rep.tipo_superficie);
                     // Se muestra con coma, como se escribe en Venezuela.
                     if (inp) inp.value = String(rep.metros_cuadrados).replace('.', ',');
-                    if (rep.tipo_trabajo) trabajoGuardado = rep.tipo_trabajo;
                 });
-                // Restaurar el tipo de trabajo elegido antes.
                 if (trabajoGuardado) {
                     const sel = row.querySelector('.amb-trabajo');
                     if (sel) { sel.value = trabajoGuardado; avisoSuperficies(sel); }
                 }
+
+                // Los demás se pintan como trabajos adicionales.
+                trabajos.slice(1).forEach(t => {
+                    if (!t) return;
+                    const btn = row.querySelector('[onclick*="agregarPartida"]');
+                    if (!btn) return;
+                    agregarPartida(btn, am.id);
+
+                    const bloques = row.querySelectorAll('.partida-extra');
+                    const nuevo = bloques[bloques.length - 1];
+                    if (!nuevo) return;
+
+                    const selT = nuevo.querySelector('.part-trabajo');
+                    if (selT) selT.value = t;
+                    porTrabajo[t].forEach(rep => {
+                        const inp = nuevo.querySelector('[data-sup="' + rep.tipo_superficie + '"]');
+                        if (inp) inp.value = String(rep.metros_cuadrados).replace('.', ',');
+                    });
+                });
+                actualizarTotalM2(row);
                 recalcularMateriales(row);
             }
         });
@@ -1982,6 +2030,43 @@ function aNumero(txt) {
     return isNaN(n) ? 0 : n;
 }
 
+/** Quita un trabajo adicional y vuelve a guardar el ambiente. */
+function quitarPartida(btn, ambId) {
+    const bloque = btn.closest('.partida-extra');
+    const row = btn.closest('.amb-row');
+    if (bloque) bloque.remove();
+    actualizarTotalM2(row);
+
+    // Guardar de nuevo: si no, la partida borrada seguiría en la base.
+    const algun = row.querySelector('[data-sup]');
+    if (algun) guardarReparacion(ambId, algun);
+}
+
+/**
+ * Suma los metros del ambiente y los muestra abajo.
+ * Incluye los trabajos adicionales, para que el técnico vea el total
+ * real de lo que hay que reparar ahí.
+ */
+function actualizarTotalM2(row) {
+    if (!row) return;
+    let suma = 0;
+    row.querySelectorAll('[data-sup]').forEach(inp => { suma += aNumero(inp.value); });
+
+    const dest = row.querySelector('.amb-suma');
+    if (!dest) return;
+
+    // Se muestra con coma, como se escribe en Venezuela.
+    const txt = (Math.round(suma * 100) / 100).toString().replace('.', ',');
+    dest.textContent = txt + ' m²';
+    dest.style.color = suma > 0 ? '#22366F' : '#c4c9d6';
+
+    const caja = row.querySelector('.amb-total-m2');
+    if (caja) {
+        caja.style.borderColor = suma > 0 ? '#C9A22755' : '#e5e8f0';
+        caja.style.background  = suma > 0 ? '#fffdf5' : '#fff';
+    }
+}
+
 /**
  * Agrega otro trabajo al mismo ambiente.
  * Sirve cuando en una habitación hay que hacer dos cosas distintas:
@@ -2003,19 +2088,25 @@ function agregarPartida(btn, ambId) {
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">'
         + '<span style="font-size:12px;font-weight:700;color:#8a6d1a;">'
         + '<i class="bi bi-tools"></i> Trabajo ' + n + '</span>'
-        + '<button type="button" onclick="this.closest(\'.partida-extra\').remove()" '
+        + '<button type="button" onclick="quitarPartida(this, ' + ambId + ')" '
         + 'style="background:transparent;border:0;color:#c4c9d6;cursor:pointer;font-size:15px;">'
         + '<i class="bi bi-x-circle"></i></button></div>'
 
-        + '<select class="form-control part-trabajo" style="margin-bottom:9px;">'
+        + '<select class="form-control part-trabajo" style="margin-bottom:9px;" '
+        + 'onchange="guardarReparacion(' + ambId + ', this)">'
         + '<option value="">— ¿Qué trabajo? —</option>' + opciones + '</select>'
 
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
         + ['pared', 'techo', 'piso'].map(sup =>
-            '<div class="field" style="width:104px;margin:0;">'
+            '<div style="width:112px;">'
             + '<label class="text-sm" style="text-transform:capitalize;">' + sup + '</label>'
+            + '<div style="display:flex;align-items:center;gap:5px;">'
             + '<input type="text" inputmode="decimal" class="form-control part-m2" '
-            + 'data-sup="' + sup + '" value="0" oninput="normalizarDecimal(this)"></div>').join('')
+            + 'data-sup="' + sup + '" value="0" style="flex:1;min-width:0;" '
+            + 'oninput="normalizarDecimal(this); actualizarTotalM2(this.closest(\'.amb-row\'));" '
+            + 'onchange="guardarReparacion(' + ambId + ', this)">'
+            + '<span style="font-size:12px;color:#8a6d1a;font-weight:600;">m²</span>'
+            + '</div></div>').join('')
         + '</div>';
 
     cont.appendChild(bloque);
