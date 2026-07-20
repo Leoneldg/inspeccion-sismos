@@ -3057,6 +3057,8 @@ function segEnReconstruccion(array $filtros = []): array
                    COALESCE(ROUND(x.pct), 0) AS avance
               FROM inspecciones i
               JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN usuarios uc ON uc.id = re.creado_por
+              LEFT JOIN usuarios uf ON uf.id = re.completado_por
               LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
               LEFT JOIN entes ent ON ent.id = so.ente_id
               LEFT JOIN rec_plan_edificio pl ON pl.edificio_id = re.id
