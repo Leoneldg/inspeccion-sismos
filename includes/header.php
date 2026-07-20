@@ -102,6 +102,9 @@ $flashes = obtenerFlashes();
                 <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="nav-item <?= $activeModule==='reconstruccion'?'active':'' ?>" title="Edificaciones en obra">
                     <i class="bi bi-hammer"></i> <span>En reconstrucción</span>
                 </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/sin_etiqueta.php" class="nav-item <?= $activeModule==='sin_etiqueta'?'active':'' ?>" title="Levantamientos sin foto de etiqueta">
+                    <i class="bi bi-tag"></i> <span>Sin etiqueta</span>
+                </a>
                 <?php if (puede('seguimiento','editar')): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="nav-item <?= $activeModule==='nueva_edif'?'active':'' ?>" title="Agregar edificación">
                     <i class="bi bi-plus-circle"></i> <span>Agregar edificación</span>

@@ -191,6 +191,16 @@ include __DIR__ . '/../includes/header.php';
         <div class="seg-kpi-ico" style="background:#f1f2f6;color:#767c94;"><i class="bi bi-clipboard-x"></i></div>
         <div><div class="seg-kpi-num"><?= number_format((int)$kpis['sin_seguimiento'], 0, ',', '.') ?></div><div class="seg-kpi-lbl">SIN ASIGNAR</div></div>
     </div>
+    <?php if ((int)($kpis['sin_etiqueta'] ?? 0) > 0): ?>
+    <a href="<?= APP_URL_BASE ?>seguimiento/sin_etiqueta.php" class="seg-kpi"
+       style="text-decoration:none;" title="Edificaciones marcadas sin etiqueta">
+        <div class="seg-kpi-ico" style="background:#fdf6e3;color:#a8871f;"><i class="bi bi-tag-fill"></i></div>
+        <div><div class="seg-kpi-num" style="color:#a8871f;">
+                <?= number_format((int)$kpis['sin_etiqueta'], 0, ',', '.') ?></div>
+             <div class="seg-kpi-lbl">SIN ETIQUETA</div></div>
+    </a>
+    <?php endif; ?>
+
     <?php if ((int)($kpis['aptos_reparar'] ?? 0) > 0): ?>
     <div class="seg-kpi" title="Apartamentos con al menos un ambiente a reparar">
         <div class="seg-kpi-ico" style="background:#fdf6e3;color:#a8871f;"><i class="bi bi-house-gear-fill"></i></div>

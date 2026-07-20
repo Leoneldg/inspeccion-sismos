@@ -416,6 +416,16 @@ function segKpis(): array
     // Edificaciones registradas en campo (no venían en el listado original).
     $r['agregadas'] = segEdificacionesAgregadas(true);
 
+    // Levantamientos cerrados sin la foto de la etiqueta.
+    try {
+        $et = segSinEtiqueta();
+        $r['sin_etiqueta']       = $et['total'];
+        $r['sin_etiqueta_grave'] = count($et['sin_motivo']);
+    } catch (Throwable $e) {
+        $r['sin_etiqueta'] = 0;
+        $r['sin_etiqueta_grave'] = 0;
+    }
+
     // Apartamentos que necesitan reparación: basta un ambiente marcado.
     $ar = segAptosAReparar();
     $r['aptos_reparar']     = $ar['aptos_reparar'];
@@ -2751,6 +2761,83 @@ function recEstadoPlazo(?array $plan, int $avance = 0): ?array
  * Edificaciones EN RECONSTRUCCIÓN, para el buscador rápido.
  * Son las que tienen el levantamiento cerrado y avance menor a 100%.
  */
+/**
+ * Edificaciones que el técnico marcó como SIN ETIQUETA al iniciar el
+ * levantamiento.
+ *
+ * La etiqueta es la que colocó el inspector original con la
+ * clasificación del edificio. Si no está, hay que saberlo: puede que
+ * nunca se colocara, que se desprendiera o que sea ilegible.
+ *
+ * Distingue dos casos:
+ *   · Marcó "sin etiqueta" y dijo por qué
+ *   · Marcó "sin etiqueta" pero no indicó el motivo
+ */
+function segSinEtiqueta(): array
+{
+    recAsegurarColumnasEtiqueta();
+
+    // Los que el técnico marcó como sin etiqueta al empezar.
+    $conds = ['re.sin_etiqueta = 1'];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+    $where = 'WHERE ' . implode(' AND ', $conds);
+
+    try {
+        $st = db()->prepare("
+            SELECT i.id, i.codigo, i.nombre_edificio, i.parroquia,
+                   i.decision_final,
+                   re.id AS edificio_id,
+                   re.sin_etiqueta, re.etiqueta_motivo, re.etiqueta_obs,
+                   re.completado, re.creado_en, re.completado_en,
+                   u.nombre_completo AS quien,
+                   ent.nombre AS ente_nombre,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel = 'edificio' AND f.ref_id = re.id
+                       AND f.parte = 'etiqueta') AS fotos_etiqueta
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN usuarios u ON u.id = COALESCE(re.completado_por, re.creado_por)
+              LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+              LEFT JOIN entes ent ON ent.id = so.ente_id
+              $where
+             ORDER BY i.parroquia, i.nombre_edificio
+        ");
+        $st->execute($params);
+        $filas = $st->fetchAll();
+
+        $out = ['con_motivo' => [], 'sin_motivo' => [], 'total' => 0];
+        foreach ($filas as $f) {
+            $item = [
+                'id'          => (int)$f['id'],
+                'codigo'      => $f['codigo'],
+                'nombre'      => $f['nombre_edificio'] ?: 'Sin nombre',
+                'parroquia'   => $f['parroquia'] ?: '—',
+                'ente'        => $f['ente_nombre'] ?: null,
+                'quien'       => $f['quien'] ?: null,
+                'cuando'      => !empty($f['creado_en'])
+                                 ? date('d/m/Y', strtotime($f['creado_en'])) : null,
+                'cerrado'     => !empty($f['completado']),
+                'motivo'      => $f['etiqueta_motivo'] ?: null,
+                'observacion' => $f['etiqueta_obs'] ?: null,
+            ];
+
+            // Con motivo indicado, o sin él.
+            if (!empty($f['etiqueta_motivo'])) {
+                $out['con_motivo'][] = $item;
+            } else {
+                $out['sin_motivo'][] = $item;
+            }
+        }
+        $out['total'] = count($filas);
+        return $out;
+
+    } catch (Throwable $e) {
+        return ['con_motivo' => [], 'sin_motivo' => [], 'total' => 0];
+    }
+}
+
 function segEnReconstruccion(array $filtros = []): array
 {
     recAsegurarTablasAvance();
@@ -3482,6 +3569,41 @@ function recRevisarLevantamiento(int $edificioId): array
             ];
             $resumen['avisos']++;
         }
+
+        // --- Etiqueta de la edificación ---
+        try {
+            $stE = db()->prepare("
+                SELECT re.sin_etiqueta, re.etiqueta_motivo,
+                       (SELECT COUNT(*) FROM rec_foto f
+                         WHERE f.nivel = 'edificio' AND f.ref_id = re.id
+                           AND f.parte = 'etiqueta') AS fotos
+                  FROM rec_edificio re WHERE re.id = :e
+            ");
+            $stE->execute(['e' => $edificioId]);
+            $et = $stE->fetch();
+
+            if ($et && !empty($et['sin_etiqueta'])) {
+                // Declaró que no hay etiqueta: falta saber por qué.
+                if (empty($et['etiqueta_motivo'])) {
+                    $problemas[] = [
+                        'tipo'  => 'aviso',
+                        'donde' => 'Etiqueta de la edificación',
+                        'que'   => 'Marcada sin etiqueta, pero no dice por qué',
+                        'como'  => 'Indique el motivo en el paso 1 del levantamiento.',
+                    ];
+                    $resumen['avisos']++;
+                }
+            } elseif ($et && (int)$et['fotos'] === 0) {
+                // No marcó "sin etiqueta", así que debería haber foto.
+                $problemas[] = [
+                    'tipo'  => 'aviso',
+                    'donde' => 'Etiqueta de la edificación',
+                    'que'   => 'No hay foto de la etiqueta',
+                    'como'  => 'Súbala, o marque que la edificación no tiene etiqueta.',
+                ];
+                $resumen['avisos']++;
+            }
+        } catch (Throwable $e) {}
 
         // --- Ambientes con foto pero sin marcar reparación ---
         $st5 = db()->prepare("
