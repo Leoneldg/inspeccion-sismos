@@ -1619,9 +1619,67 @@ function respaldarTodo() {
                 num_banos: v('.amb-banos'), num_cocinas: v('.amb-cocinas'),
                 num_balcones: v('.amb-balcones'),
             };
+            // Ambientes: lo que más cuesta rehacer si se pierde.
+            const ambientes = [];
+            cuerpo.querySelectorAll('.amb-row').forEach(row => {
+                const chk = row.querySelector('.amb-reparar');
+                const selT = row.querySelector('.amb-trabajo');
+                const metros = {};
+                row.querySelectorAll('[data-sup]').forEach(inp => {
+                    if (inp.closest('.partida-extra')) return;
+                    if (inp.value && inp.value !== '0') metros[inp.dataset.sup] = inp.value;
+                });
+
+                // Trabajos adicionales del mismo ambiente.
+                const extras = [];
+                row.querySelectorAll('.partida-extra').forEach(bl => {
+                    const st = bl.querySelector('.part-trabajo');
+                    const mm = {};
+                    bl.querySelectorAll('[data-sup]').forEach(inp => {
+                        if (inp.value && inp.value !== '0') mm[inp.dataset.sup] = inp.value;
+                    });
+                    if ((st && st.value) || Object.keys(mm).length) {
+                        extras.push({ trabajo: st ? st.value : '', metros: mm });
+                    }
+                });
+
+                const nom = row.querySelector('.amb-nom');
+                if ((chk && chk.checked) || Object.keys(metros).length || extras.length) {
+                    ambientes.push({
+                        amb: row.dataset.amb || '',
+                        nombre: nom ? nom.textContent.trim() : '',
+                        repara: chk ? chk.checked : false,
+                        trabajo: selT ? selT.value : '',
+                        metros: metros,
+                        extras: extras,
+                    });
+                }
+            });
+            if (ambientes.length) datos.ambientes = ambientes;
+
             // Solo respaldar si tiene algo escrito.
-            if (Object.values(datos).some(x => x && x !== '0')) estado.aptos[id] = datos;
+            const hayAlgo = Object.keys(datos).some(k => {
+                const x = datos[k];
+                if (Array.isArray(x)) return x.length > 0;
+                return x && x !== '0';
+            });
+            if (hayAlgo) estado.aptos[id] = datos;
         });
+
+        // Áreas comunes del edificio.
+        const areas = [];
+        document.querySelectorAll('.area-row').forEach(row => {
+            const chk = row.querySelector('.area-reparar');
+            if (!chk || !chk.checked) return;
+            const selT = row.querySelector('.area-trabajo');
+            const m2 = row.querySelector('.area-m2');
+            areas.push({
+                area: row.dataset.area || '',
+                trabajo: selT ? selT.value : '',
+                m2: m2 ? m2.value : '',
+            });
+        });
+        if (areas.length) estado.areas = areas;
 
         // Cierre, si está llenándolo.
         const form = document.getElementById('form-cierre');
@@ -1675,23 +1733,150 @@ function revisarRespaldoPrevio() {
         const aviso = document.createElement('div');
         aviso.style.cssText = 'background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;'
             + 'padding:12px 14px;margin-bottom:14px;font-size:13px;color:#8a6d1a;';
-        aviso.innerHTML = '<i class="bi bi-clock-history"></i> <strong>Hay un respaldo sin guardar.</strong> '
-            + 'Se encontraron datos de ' + n + ' apartamento(s) escritos el ' + cuando + '. '
-            + 'Al abrir cada apartamento aparecerán para que los revise y guarde.';
+        aviso.innerHTML = '<i class="bi bi-clock-history"></i> '
+            + '<strong>Hay datos sin guardar en este teléfono.</strong><br>'
+            + 'Se encontró información de ' + n + ' apartamento(s), escrita el '
+            + cuando + '.<br>'
+            + '<button onclick="restaurarRespaldo()" class="btn btn-primary btn-sm" '
+            + 'style="margin-top:8px;">'
+            + '<i class="bi bi-arrow-counterclockwise"></i> Recuperar esos datos</button> '
+            + '<button onclick="descartarRespaldo(this)" class="btn btn-outline btn-sm" '
+            + 'style="margin-top:8px;">Descartar</button>';
         const panel = document.getElementById('paso-2');
         if (panel) panel.insertBefore(aviso, panel.firstChild);
     } catch (e) { /* nada */ }
 }
 
+/**
+ * Vuelve a poner en pantalla lo que quedó guardado en el teléfono.
+ * Se usa cuando la aplicación se reinició antes de que el técnico
+ * alcanzara a guardar.
+ */
+function restaurarRespaldo() {
+    let est;
+    try {
+        est = JSON.parse(localStorage.getItem('respaldo_lev_' + INSPECCION_ID) || 'null');
+    } catch (e) { est = null; }
+    if (!est || !est.aptos) { alert('No se encontró el respaldo.'); return; }
+
+    let puestos = 0, pendientes = 0;
+
+    Object.keys(est.aptos).forEach(id => {
+        const d = est.aptos[id];
+        const btn = document.querySelector('button[onclick^="guardarApto(this, ' + id + ')"]');
+        const cuerpo = btn ? btn.closest('.apto-body') : null;
+
+        // Si el apartamento no está en pantalla, se deja para después.
+        if (!cuerpo) { pendientes++; return; }
+
+        const poner = (sel, val) => {
+            const el = cuerpo.querySelector(sel);
+            if (el && val) { el.value = val; }
+        };
+        poner('.jefe-nombre', d.jefe_nombre);
+        poner('.jefe-cedula', d.jefe_cedula);
+        poner('.jefe-telefono', d.jefe_telefono);
+        poner('.amb-habitaciones', d.num_habitaciones);
+        poner('.amb-salas', d.num_salas);
+        poner('.amb-banos', d.num_banos);
+        poner('.amb-cocinas', d.num_cocinas);
+        poner('.amb-balcones', d.num_balcones);
+
+        // Ambientes con sus metros y trabajo.
+        (d.ambientes || []).forEach(amb => {
+            const row = cuerpo.querySelector('.amb-row[data-amb="' + amb.amb + '"]');
+            if (!row) return;
+
+            const chk = row.querySelector('.amb-reparar');
+            if (chk && amb.repara && !chk.checked) {
+                chk.checked = true;
+                const bloque = row.querySelector('.amb-reparacion');
+                if (bloque) bloque.style.display = 'block';
+            }
+            const selT = row.querySelector('.amb-trabajo');
+            if (selT && amb.trabajo) { selT.value = amb.trabajo; avisoSuperficies(selT); }
+
+            Object.keys(amb.metros || {}).forEach(sup => {
+                const inp = row.querySelector('.sup-' + sup);
+                if (inp) inp.value = amb.metros[sup];
+            });
+
+            // Trabajos adicionales.
+            (amb.extras || []).forEach(ex => {
+                const bAdd = row.querySelector('[onclick*="agregarPartida"]');
+                if (!bAdd) return;
+                agregarPartida(bAdd, amb.amb);
+                const bloques = row.querySelectorAll('.partida-extra');
+                const ultimo = bloques[bloques.length - 1];
+                if (!ultimo) return;
+                const st = ultimo.querySelector('.part-trabajo');
+                if (st && ex.trabajo) st.value = ex.trabajo;
+                Object.keys(ex.metros || {}).forEach(sup => {
+                    const inp = ultimo.querySelector('[data-sup="' + sup + '"]');
+                    if (inp) inp.value = ex.metros[sup];
+                });
+            });
+
+            actualizarTotalM2(row);
+        });
+
+        puestos++;
+    });
+
+    // Áreas comunes.
+    (est.areas || []).forEach(a => {
+        const row = document.querySelector('.area-row[data-area="' + a.area + '"]');
+        if (!row) return;
+        const chk = row.querySelector('.area-reparar');
+        if (chk && !chk.checked) {
+            chk.checked = true;
+            const det = row.querySelector('.area-detalle');
+            if (det) det.style.display = 'block';
+        }
+        const selT = row.querySelector('.area-trabajo');
+        if (selT && a.trabajo) selT.value = a.trabajo;
+        const m2 = row.querySelector('.area-m2');
+        if (m2 && a.m2) m2.value = a.m2;
+    });
+
+    let msg = 'Se recuperaron los datos de ' + puestos + ' apartamento(s).';
+    if (pendientes > 0) {
+        msg += '\n\nQuedan ' + pendientes + ' apartamento(s) en otros pisos: '
+             + 'ábralos y vuelva a tocar "Recuperar" para completarlos.';
+    }
+    msg += '\n\nRevise que todo esté bien y guarde cada apartamento.';
+    alert(msg);
+}
+
+/** Descarta el respaldo local tras confirmar. */
+function descartarRespaldo(btn) {
+    if (!confirm('¿Descartar los datos guardados en este teléfono?\n\n'
+        + 'No se podrán recuperar.')) return;
+    localStorage.removeItem('respaldo_lev_' + INSPECCION_ID);
+    const aviso = btn.closest('div');
+    if (aviso) aviso.remove();
+}
+
 // Arranque del respaldo automático.
-document.addEventListener('DOMContentLoaded', function () {
+// El script va al final de la página, así que DOMContentLoaded ya pasó:
+// hay que llamar directamente o el respaldo nunca arranca.
+try {
     revisarRespaldoPrevio();
+} catch (e) {
+    console.error('No se pudo revisar el respaldo previo:', e);
+}
+
+try {
     setInterval(respaldarTodo, 30000);              // cada 30 segundos
     window.addEventListener('beforeunload', respaldarTodo);  // al cerrar
     document.addEventListener('visibilitychange', function () {
         if (document.hidden) respaldarTodo();       // al cambiar de app
     });
-});
+    // Un respaldo inmediato, por si cierran antes de los 30 segundos.
+    setTimeout(respaldarTodo, 3000);
+} catch (e) {
+    console.error('No se pudo activar el respaldo automático:', e);
+}
 
 /** Guarda los datos de un apartamento creado sin conexión. */
 function guardarAptoLocal(aptoId, datos) {
