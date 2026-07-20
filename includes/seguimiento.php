@@ -2899,12 +2899,165 @@ function segSinEtiqueta(): array
  *   construcción  → superficie de pared levantada
  *   revestimiento → superficie frisada y pintada (doble si son dos caras)
  */
+/**
+ * Material separado por etapa: demolición, construcción y revestimiento.
+ *
+ * Cada etapa tiene su propia logística y su cuadrilla, así que el
+ * pedido se organiza por separado:
+ *   demolición    → sacos de escombro y viajes de camión
+ *   construcción  → bloques, cemento de pega, arena
+ *   revestimiento → cemento de friso, arena, pintura
+ *
+ * El escombro se calcula por volumen:
+ *   1 m² demolido = 0,15 m³ · saco de 0,05 m³ · camión de 7 m³
+ */
+function segMaterialPorEtapa(array $trabajos): array
+{
+    // Cuánto aporta cada acción a cada etapa.
+    $reparto = [
+        'demoler_pared_completa_concreto' => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+        'demoler_pared_completa_arcilla'  => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+        'demolicion_parcial_concreto'     => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+        'demolicion_parcial_arcilla'      => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+        'pared_completa_concreto'         => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+        'pared_completa_arcilla'          => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+        'friso_completo_dos_caras'        => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
+        'friso_completo'                  => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'friso_reparacion'                => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'solo_pintura'                    => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'pintura'                         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+    ];
+
+    // Qué bloque usa cada acción, para el pedido de construcción.
+    $bloqueDe = [
+        'demoler_pared_completa_concreto' => 'Bloque de concreto 15x20x40',
+        'demolicion_parcial_concreto'     => 'Bloque de concreto 15x20x40',
+        'pared_completa_concreto'         => 'Bloque de concreto 15x20x40',
+        'demoler_pared_completa_arcilla'  => 'Bloque de arcilla 10x20x30',
+        'demolicion_parcial_arcilla'      => 'Bloque de arcilla 10x20x30',
+        'pared_completa_arcilla'          => 'Bloque de arcilla 10x20x30',
+    ];
+
+    // Rendimientos por etapa, para 1 m² de esa etapa.
+    //   Construcción: bloques según el tipo, más el mortero de pega.
+    //   Revestimiento: friso de una cara más su acabado.
+    $M3_POR_M2  = 0.15;   // escombro que genera un m² demolido
+    $M3_SACO    = 0.05;   // capacidad del saco
+    $M3_CAMION  = 7.0;    // capacidad del camión
+
+    $out = [
+        'demolicion' => ['m2' => 0.0, 'm3' => 0.0, 'sacos' => 0, 'camiones' => 0.0],
+        'construccion' => ['m2' => 0.0, 'materiales' => []],
+        'revestimiento' => ['m2' => 0.0, 'materiales' => []],
+    ];
+
+    $bloques = [];   // material => cantidad
+    $m2Con = 0.0;
+    $m2Rev = 0.0;
+
+    foreach ($trabajos as $clave => $m2) {
+        $m2 = (float)$m2;
+        if ($m2 <= 0 || !isset($reparto[$clave])) continue;
+        $r = $reparto[$clave];
+
+        // --- Demolición ---
+        if ($r['dem'] > 0) {
+            $out['demolicion']['m2'] += $m2 * $r['dem'];
+        }
+
+        // --- Construcción ---
+        if ($r['con'] > 0) {
+            $m2c = $m2 * $r['con'];
+            $m2Con += $m2c;
+            if (isset($bloqueDe[$clave])) {
+                $porM2 = str_contains($bloqueDe[$clave], 'arcilla') ? 15.8 : 12.5;
+                // La parcial consume más por los cortes de ajuste.
+                if (str_contains($clave, 'parcial')) $porM2 *= 1.08;
+                $bloques[$bloqueDe[$clave]] = ($bloques[$bloqueDe[$clave]] ?? 0)
+                                            + $m2c * $porM2;
+            }
+        }
+
+        // --- Revestimiento ---
+        if ($r['rev'] > 0) {
+            $m2Rev += $m2 * $r['rev'];
+        }
+    }
+
+    // --- Demolición: volumen, sacos y camiones ---
+    $m2Dem = $out['demolicion']['m2'];
+    if ($m2Dem > 0) {
+        $m3 = $m2Dem * $M3_POR_M2;
+        $out['demolicion']['m2']       = round($m2Dem, 2);
+        $out['demolicion']['m3']       = round($m3, 2);
+        $out['demolicion']['sacos']    = (int)ceil($m3 / $M3_SACO);
+        $out['demolicion']['camiones'] = round($m3 / $M3_CAMION, 1);
+    }
+
+    // --- Construcción: bloques, cemento de pega y arena ---
+    if ($m2Con > 0) {
+        $out['construccion']['m2'] = round($m2Con, 2);
+        foreach ($bloques as $mat => $cant) {
+            $out['construccion']['materiales'][] = [
+                'material' => $mat,
+                'cantidad' => (float)ceil($cant),
+                'unidad'   => 'unidad',
+            ];
+        }
+        // Mortero de pega: 0,16 sacos y 0,026 m³ por m² de pared.
+        $out['construccion']['materiales'][] = [
+            'material' => 'Cemento gris',
+            'cantidad' => (float)ceil($m2Con * 0.16),
+            'unidad'   => 'saco',
+        ];
+        $out['construccion']['materiales'][] = [
+            'material' => 'Arena lavada',
+            'cantidad' => round($m2Con * 0.026, 2),
+            'unidad'   => 'm3',
+        ];
+    }
+
+    // --- Revestimiento: friso y acabado ---
+    if ($m2Rev > 0) {
+        $out['revestimiento']['m2'] = round($m2Rev, 2);
+        $out['revestimiento']['materiales'] = [
+            ['material' => 'Cemento gris',
+             'cantidad' => (float)ceil($m2Rev * 0.155), 'unidad' => 'saco'],
+            ['material' => 'Arena lavada',
+             'cantidad' => round($m2Rev * 0.023, 2), 'unidad' => 'm3'],
+            ['material' => 'Pintura de caucho',
+             'cantidad' => round($m2Rev * 0.22, 2), 'unidad' => 'litro'],
+            ['material' => 'Fondo antialcalino',
+             'cantidad' => round($m2Rev * 0.10, 2), 'unidad' => 'litro'],
+        ];
+    }
+
+    // Aplicar la holgura del sistema a todas las cantidades.
+    $f = 1 + (MARGEN_MATERIALES / 100);
+    $enteros = ['unidad', 'saco', 'pieza', 'pliego'];
+
+    $out['demolicion']['sacos']    = (int)ceil($out['demolicion']['sacos'] * $f);
+    $out['demolicion']['camiones'] = round($out['demolicion']['camiones'] * $f, 1);
+
+    foreach (['construccion', 'revestimiento'] as $et) {
+        foreach ($out[$et]['materiales'] as $i => $m) {
+            $c = $m['cantidad'] * $f;
+            $out[$et]['materiales'][$i]['cantidad'] =
+                in_array($m['unidad'], $enteros, true) ? ceil($c) : round($c, 2);
+        }
+    }
+
+    return $out;
+}
+
 function segTrabajosPorCategoria(array $trabajos): array
 {
     $reparto = [
         // acción => [demolición, construcción, revestimiento]
         'demoler_pared_completa_concreto' => [1.0, 1.0, 2.0],
         'demoler_pared_completa_arcilla'  => [1.0, 1.0, 2.0],
+        'demolicion_parcial_concreto'     => [1.0, 1.0, 2.0],
+        'demolicion_parcial_arcilla'      => [1.0, 1.0, 2.0],
         'pared_completa_concreto'         => [0.0, 1.0, 2.0],
         'pared_completa_arcilla'          => [0.0, 1.0, 2.0],
         'friso_completo_dos_caras'        => [0.0, 0.0, 2.0],
@@ -3109,11 +3262,14 @@ function segConsolidadoMateriales(float $margen = 0): array
 
         // Repartido en demolición, construcción y revestimiento.
         $out['categorias'] = segTrabajosPorCategoria($trabajos);
+        $out['por_etapa']  = segMaterialPorEtapa($trabajos);
 
         // --- Superficie de friso y pintura ---
         $factores = [
             'demoler_pared_completa_concreto' => [2.0, 2.0],
             'demoler_pared_completa_arcilla'  => [2.0, 2.0],
+            'demolicion_parcial_concreto'     => [2.0, 2.0],
+            'demolicion_parcial_arcilla'      => [2.0, 2.0],
             'pared_completa_concreto'         => [2.0, 2.0],
             'pared_completa_arcilla'          => [2.0, 2.0],
             'friso_completo_dos_caras'        => [2.0, 2.0],

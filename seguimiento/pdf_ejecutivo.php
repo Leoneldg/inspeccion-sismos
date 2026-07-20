@@ -169,15 +169,64 @@ ob_start();
     </div>
   </div>
 
-  <!-- Material -->
-  <?php if ($c['materiales']): ?>
-  <div style="margin-bottom:13px;">
-    <div class="mat-cab">MATERIAL QUE SE REQUIERE</div>
-    <div class="mat-caja">
+  <!-- Material por etapa -->
+  <?php
+  $et = $c['por_etapa'] ?? [];
+  $dem = $et['demolicion'] ?? [];
+  $con = $et['construccion'] ?? [];
+  $rev = $et['revestimiento'] ?? [];
+  ?>
+
+  <div class="mat-cab">MATERIAL QUE SE REQUIERE, POR ETAPA</div>
+  <div class="mat-caja">
+
+    <!-- DEMOLICIÓN -->
+    <?php if (!empty($dem['m2'])): ?>
+    <div style="margin-bottom:11px;">
+      <div style="font-size:10.5px;font-weight:800;color:#A61C1C;
+                  margin-bottom:5px;text-transform:uppercase;">
+        Demolición · <?= num($dem['m2'], 0) ?> m² a tumbar
+      </div>
+      <div style="display:table;width:100%;border-spacing:5px;">
+        <div style="display:table-cell;width:33%;background:#fff;
+                    border:1px solid #A61C1C44;border-radius:7px;
+                    padding:9px 11px;text-align:center;">
+          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+            <?= num($dem['m3'], 1) ?></div>
+          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+            m³ de escombro</div>
+        </div>
+        <div style="display:table-cell;width:33%;background:#fff;
+                    border:1px solid #A61C1C44;border-radius:7px;
+                    padding:9px 11px;text-align:center;">
+          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+            <?= ent($dem['sacos']) ?></div>
+          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+            sacos de 0,05 m³</div>
+        </div>
+        <div style="display:table-cell;width:33%;background:#fff;
+                    border:1px solid #A61C1C44;border-radius:7px;
+                    padding:9px 11px;text-align:center;">
+          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+            <?= num($dem['camiones'], 1) ?></div>
+          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+            viajes de camión (7 m³)</div>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- CONSTRUCCIÓN -->
+    <?php if (!empty($con['materiales'])): ?>
+    <div style="margin-bottom:11px;">
+      <div style="font-size:10.5px;font-weight:800;color:#22366F;
+                  margin-bottom:5px;text-transform:uppercase;">
+        Construcción · <?= num($con['m2'], 0) ?> m² de pared a levantar
+      </div>
       <div class="mat">
-        <?php $i = 0; foreach ($c['materiales'] as $m): ?>
+        <?php $i = 0; foreach ($con['materiales'] as $m): ?>
           <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
-          <div class="m">
+          <div class="m" style="border-color:#22366F44;">
             <div class="c"><?= num($m['cantidad'], 0) ?></div>
             <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
           </div>
@@ -186,14 +235,36 @@ ob_start();
           <div class="m" style="border:0;background:none;"></div>
         <?php $i++; endwhile; ?>
       </div>
-      <div style="font-size:8.5px;color:#8a6d1a;margin-top:7px;">
-        Incluye 10% de holgura por desperdicio y roturas.
-        Calculado sobre <?= ent($c['edificios']) ?> levantamientos completados.
+    </div>
+    <?php endif; ?>
+
+    <!-- REVESTIMIENTO -->
+    <?php if (!empty($rev['materiales'])): ?>
+    <div>
+      <div style="font-size:10.5px;font-weight:800;color:#a8871f;
+                  margin-bottom:5px;text-transform:uppercase;">
+        Revestimiento · <?= num($rev['m2'], 0) ?> m² a frisar y pintar
+      </div>
+      <div class="mat">
+        <?php $i = 0; foreach ($rev['materiales'] as $m): ?>
+          <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
+          <div class="m">
+            <div class="c"><?= num($m['cantidad'], $m['unidad'] === 'saco' ? 0 : 2) ?></div>
+            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
+          </div>
+        <?php $i++; endforeach; ?>
+        <?php while ($i % 4 !== 0): ?>
+          <div class="m" style="border:0;background:none;"></div>
+        <?php $i++; endwhile; ?>
       </div>
     </div>
-  </div>
-  <?php endif; ?>
+    <?php endif; ?>
 
+    <div style="font-size:8px;color:#8a6d1a;margin-top:8px;">
+      Incluye 10% de holgura. Escombro calculado a 0,15 m³ por m² demolido.
+      Sobre <?= ent($c['edificios']) ?> levantamientos completados.
+    </div>
+  </div>
 
   <!-- Tipo de trabajo -->
   <?php
