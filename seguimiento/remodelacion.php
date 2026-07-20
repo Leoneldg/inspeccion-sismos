@@ -629,6 +629,15 @@ function pintarAptosReparar(d) {
     const pct = d.porcentaje || 0;
     cont.innerHTML =
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:11px;">'
+
+        // El total va primero: es la referencia de todo lo demás.
+        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
+        + 'border-radius:10px;border:2px solid #22366F33;background:#22366F0a;">'
+        + '<div style="font-size:28px;font-weight:800;color:#22366F;line-height:1;">'
+        + d.total + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
+        + 'Total de apartamentos</div></div>'
+
         + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
         + 'border-radius:10px;border:2px solid #C9A22755;background:#C9A2270a;">'
         + '<div style="font-size:28px;font-weight:800;color:#a8871f;line-height:1;">'
@@ -642,13 +651,6 @@ function pintarAptosReparar(d) {
         + d.sin_reparacion + '</div>'
         + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
         + 'Sin daños</div></div>'
-
-        + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
-        + 'border-radius:10px;border:1px solid #2d448833;">'
-        + '<div style="font-size:28px;font-weight:800;color:#2d4488;line-height:1;">'
-        + d.total + '</div>'
-        + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;margin-top:4px;">'
-        + 'Total del edificio</div></div>'
 
         + '<div style="flex:1;min-width:130px;text-align:center;padding:13px 10px;'
         + 'border-radius:10px;border:1px solid #97a0b833;">'
