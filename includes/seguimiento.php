@@ -3832,6 +3832,73 @@ function segAptosAReparar(): array
  * ambientes y en qué apartamentos. Sirve para planificar la obra:
  * no es lo mismo 40 m² en un apartamento que repartidos en diez.
  */
+/**
+ * Totales globales de frisado y pintura del edificio.
+ *
+ * Suma los metros de todas las acciones que incluyen friso o pintura,
+ * sin importar de cuál vengan. Sirve para saber cuánta superficie hay
+ * que frisar y pintar en total, que es como se contrata la obra.
+ *
+ * Ojo: una pared de 10 m² frisada por dos caras son 20 m² de friso.
+ */
+function recGlobalFrisoPintura(int $edificioId): array
+{
+    // Cuánta superficie de friso y pintura genera cada m² de trabajo.
+    //   friso  → m² de friso por m² registrado
+    //   pintura → m² de pintura por m² registrado
+    $factores = [
+        'demoler_pared_completa_concreto' => ['friso' => 2.0, 'pintura' => 2.0],
+        'demoler_pared_completa_arcilla'  => ['friso' => 2.0, 'pintura' => 2.0],
+        'pared_completa_concreto'         => ['friso' => 2.0, 'pintura' => 2.0],
+        'pared_completa_arcilla'          => ['friso' => 2.0, 'pintura' => 2.0],
+        'friso_completo_dos_caras'        => ['friso' => 2.0, 'pintura' => 2.0],
+        'friso_completo'                  => ['friso' => 1.0, 'pintura' => 1.0],
+        'friso_reparacion'                => ['friso' => 1.0, 'pintura' => 1.0],
+        'solo_pintura'                    => ['friso' => 0.0, 'pintura' => 1.0],
+        'pintura'                         => ['friso' => 0.0, 'pintura' => 1.0],
+    ];
+
+    $out = ['friso' => 0.0, 'pintura' => 0.0, 'detalle' => []];
+
+    try {
+        $st = db()->prepare("
+            SELECT rr.tipo_trabajo, SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+             WHERE rr.metros_cuadrados > 0
+               AND rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+               AND (
+                   (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                       SELECT am.id FROM rec_ambiente am
+                         JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                         JOIN rec_piso pi ON pi.id = ap.piso_id
+                        WHERE pi.edificio_id = :e))
+                OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                       SELECT ep.id FROM rec_elemento_piso ep
+                         JOIN rec_piso pi2 ON pi2.id = ep.piso_id
+                        WHERE pi2.edificio_id = :e2))
+               )
+             GROUP BY rr.tipo_trabajo
+        ");
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+
+        foreach ($st->fetchAll() as $r) {
+            $clave = $r['tipo_trabajo'];
+            $m2 = (float)$r['m2'];
+            $f = $factores[$clave] ?? null;
+            if (!$f) continue;
+
+            $out['friso']   += $m2 * $f['friso'];
+            $out['pintura'] += $m2 * $f['pintura'];
+        }
+
+        $out['friso']   = round($out['friso'], 2);
+        $out['pintura'] = round($out['pintura'], 2);
+
+    } catch (Throwable $e) { /* sin datos */ }
+
+    return $out;
+}
+
 function recDetalleTrabajos(int $edificioId): array
 {
     recAsegurarTablasTrabajo();
@@ -4378,6 +4445,7 @@ function recArbolAvance(int $edificioId): array
         'materiales'      => $materiales,
         'por_trabajo'     => $porTrabajo,
         'detalle_trabajos'=> recDetalleTrabajos($edificioId),
+        'global_acabados' => recGlobalFrisoPintura($edificioId),
         'revision'        => recRevisarLevantamiento($edificioId),
         'aptos_reparar'   => recAptosConReparacion($edificioId),
         'fotos_edificio'  => $fotosEdificio,

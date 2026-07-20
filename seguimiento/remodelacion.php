@@ -294,6 +294,11 @@ include __DIR__ . '/../includes/header.php';
                 <a href="<?= APP_URL_BASE ?>seguimiento/trazabilidad.php?inspeccion=<?= $inspeccionId ?>" class="btn btn-outline btn-sm" title="Quién hizo cada cosa">
                     <i class="bi bi-shield-check"></i> Trazabilidad
                 </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/pdf_levantamiento.php?inspeccion=<?= (int)$inspeccionId ?>"
+                   target="_blank" class="btn btn-outline btn-sm"
+                   title="Descargar todo el levantamiento en PDF">
+                    <i class="bi bi-file-earmark-pdf-fill"></i> PDF del levantamiento
+                </a>
                 <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Volver al mapa</a>
             </div>
         </div>
@@ -775,6 +780,35 @@ function pintarTrabajos(lista) {
         + '<strong>' + lista.length + '</strong> tipo(s) de trabajo · '
         + '<strong>' + totalM2.toLocaleString('es-VE', {maximumFractionDigits:2})
         + ' m²</strong> en total</div>';
+
+    // Global de frisado y pintura: la superficie real a cubrir.
+    const g = (_arbol && _arbol.global_acabados) || null;
+    if (g && (g.friso > 0 || g.pintura > 0)) {
+        html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:13px;">';
+
+        if (g.friso > 0) {
+            html += '<div style="flex:1;min-width:150px;background:#eef2fb;'
+                + 'border-radius:10px;padding:12px 15px;">'
+                + '<div style="font-size:22px;font-weight:800;color:#22366F;line-height:1;">'
+                + g.friso.toLocaleString('es-VE', {maximumFractionDigits:2}) + ' m²</div>'
+                + '<div style="font-size:11.5px;color:#5b6478;margin-top:3px;">'
+                + '<i class="bi bi-bricks"></i> Total a frisar</div></div>';
+        }
+
+        if (g.pintura > 0) {
+            html += '<div style="flex:1;min-width:150px;background:#fffdf5;'
+                + 'border:1px solid #C9A22744;border-radius:10px;padding:12px 15px;">'
+                + '<div style="font-size:22px;font-weight:800;color:#a8871f;line-height:1;">'
+                + g.pintura.toLocaleString('es-VE', {maximumFractionDigits:2}) + ' m²</div>'
+                + '<div style="font-size:11.5px;color:#5b6478;margin-top:3px;">'
+                + '<i class="bi bi-paint-bucket"></i> Total a pintar</div></div>';
+        }
+
+        html += '</div>'
+            + '<div style="font-size:11.5px;color:#767c94;margin-bottom:13px;">'
+            + 'Superficie real a cubrir: una pared frisada por ambas caras '
+            + 'cuenta el doble de sus metros.</div>';
+    }
 
     lista.forEach((t, i) => {
         const pct = totalM2 > 0 ? Math.round(t.m2 / totalM2 * 100) : 0;
