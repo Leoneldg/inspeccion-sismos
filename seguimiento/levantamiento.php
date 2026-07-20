@@ -183,7 +183,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- ============ PASO 1: DATOS DEL EDIFICIO ============ -->
-<div class="wz-panel" id="paso-1">
+<div class="wz-panel<?= $ed['completado'] ? ' hidden' : '' ?>" id="paso-1">
 
     <?php
     // --- Encabezado con los datos de la inspección (solo lectura) ---
@@ -388,7 +388,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- ============ PASO 2: RECORRIDO PISO POR PISO ============ -->
-<div class="wz-panel hidden" id="paso-2">
+<div class="wz-panel<?= $ed['completado'] ? '' : ' hidden' ?>" id="paso-2">
     <h3>Recorrido piso por piso</h3>
     <p class="sub">Seleccione un piso del listado. En cada uno registre lo común (ascensor, escaleras…) y luego entre a sus apartamentos.</p>
 
