@@ -905,7 +905,8 @@ function pintarResumenPisos(d) {
     const v = (d.aptos_reparar && d.aptos_reparar.visitas) || {};
 
     const inspeccionados = v.inspeccionado || 0;
-    const noRequiere     = v.no_requiere || 0;
+    const cuentaPropia   = v.cuenta_propia || 0;
+    const noRequiere     = (v.no_requiere || 0) + cuentaPropia;
     const noEsta         = v.no_esta || 0;
     const denegado       = v.permiso_denegado || 0;
     const sinVisitar     = v.sin_visitar || 0;
@@ -961,9 +962,11 @@ function pintarResumenPisos(d) {
     // Los que no requieren ayuda no van en el gráfico, pero sí cuentan
     // como resueltos: se mencionan aquí para que el total cuadre.
     if (noRequiere > 0) {
+        const partes = [];
+        if (cuentaPropia) partes.push(cuentaPropia + ' repara(n) por cuenta propia');
+        if (v.no_requiere) partes.push(v.no_requiere + ' no requiere(n) ayuda');
         html += '<div style="font-size:12px;color:#5b6478;margin-top:10px;">'
-            + '<i class="bi bi-hand-thumbs-up"></i> '
-            + '<strong>' + noRequiere + '</strong> apartamento(s) no requieren ayuda.</div>';
+            + '<i class="bi bi-tools"></i> ' + partes.join(' · ') + '.</div>';
     }
 
     // Qué falta por cubrir.
@@ -1014,9 +1017,10 @@ function etiquetaVisita(ap) {
     const nAmb = (ap.ambientes || []).length;
 
     const estilos = {
-        no_requiere:      { c: '#2E7D32', i: 'bi-hand-thumbs-up-fill', t: 'No requiere ayuda' },
+        cuenta_propia:    { c: '#2d4488', i: 'bi-tools',               t: 'Repara por cuenta propia' },
         no_esta:          { c: '#5b6478', i: 'bi-door-closed-fill',    t: 'Ocupante no se encuentra' },
-        permiso_denegado: { c: '#A61C1C', i: 'bi-x-octagon-fill',      t: 'Permiso denegado' },
+        permiso_denegado: { c: '#A61C1C', i: 'bi-x-octagon-fill',      t: 'No dejó entrar' },
+        no_requiere:      { c: '#2E7D32', i: 'bi-hand-thumbs-up-fill', t: 'No requiere ayuda' },
     };
 
     let e = estilos[est];

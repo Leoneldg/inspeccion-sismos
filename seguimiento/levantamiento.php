@@ -1089,6 +1089,36 @@ function pintarApartamento(a, lista) {
             <i class="bi bi-door-open"></i> Apartamento ${a.identificador}
         </div>
         <div class="apto-body hidden">
+            <!-- Primero: ¿se puede hacer el levantamiento? -->
+            <div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;
+                        padding:12px 14px;margin-bottom:14px;">
+                <div class="text-sm" style="color:#8a6d1a;font-weight:600;margin-bottom:9px;">
+                    <i class="bi bi-question-circle-fill"></i>
+                    ¿Se puede hacer el levantamiento en este apartamento?
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#A61C1C55;color:#A61C1C;"
+                            onclick="marcarVisita(${a.id}, 'permiso_denegado', this)">
+                        <i class="bi bi-x-octagon"></i> No dejó entrar
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#97a0b855;color:#5b6478;"
+                            onclick="marcarVisita(${a.id}, 'no_esta', this)">
+                        <i class="bi bi-door-closed"></i> Ocupante no se encuentra
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm"
+                            style="border-color:#2d448855;color:#2d4488;"
+                            onclick="marcarVisita(${a.id}, 'cuenta_propia', this)">
+                        <i class="bi bi-tools"></i> Reparación por cuenta propia
+                    </button>
+                </div>
+                <div class="text-sm" style="color:#8a6d1a;margin-top:8px;font-size:11.5px;">
+                    Si marca alguna, se pasa directo al siguiente apartamento.
+                    Si sí se puede, continúe con los datos de abajo.
+                </div>
+            </div>
+
             <!-- Datos del jefe de familia (obligatorios) -->
             <div style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
                 <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> Jefe de familia</div>
@@ -1120,29 +1150,6 @@ function pintarApartamento(a, lista) {
                 </button>
             </div>
 
-            <!-- Casos en que no se puede levantar el apartamento -->
-            <div style="margin-top:12px;padding-top:11px;border-top:1px solid #f0f2f7;">
-                <div class="text-sm" style="color:#5b6478;margin-bottom:7px;">
-                    Si no se puede hacer el levantamiento:
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-outline btn-sm"
-                            style="border-color:#2E7D3255;color:#2E7D32;"
-                            onclick="marcarVisita(${a.id}, 'no_requiere', this)">
-                        <i class="bi bi-hand-thumbs-up"></i> No requiere ayuda
-                    </button>
-                    <button type="button" class="btn btn-outline btn-sm"
-                            style="border-color:#97a0b855;color:#5b6478;"
-                            onclick="marcarVisita(${a.id}, 'no_esta', this)">
-                        <i class="bi bi-door-closed"></i> Ocupante no se encuentra
-                    </button>
-                    <button type="button" class="btn btn-outline btn-sm"
-                            style="border-color:#A61C1C55;color:#A61C1C;"
-                            onclick="marcarVisita(${a.id}, 'permiso_denegado', this)">
-                        <i class="bi bi-x-octagon"></i> Permiso denegado
-                    </button>
-                </div>
-            </div>
 
             <div class="amb-lista" style="margin-top:14px;"></div>
         </div>`;
@@ -1187,16 +1194,16 @@ function pintarApartamento(a, lista) {
  */
 async function marcarVisita(aptoId, estado, btn) {
     const textos = {
-        no_requiere:       '¿Confirma que este apartamento NO REQUIERE ayuda?',
+        cuenta_propia:     '¿Confirma que la familia REPARA POR CUENTA PROPIA?',
         no_esta:           '¿Confirma que EL OCUPANTE NO SE ENCUENTRA?',
-        permiso_denegado:  '¿Confirma que NO DIERON PERMISO para entrar?',
+        permiso_denegado:  '¿Confirma que NO DEJARON ENTRAR?',
     };
     if (!confirm(textos[estado] || '¿Confirma?')) return;
 
     const ejemplos = {
         no_esta:          'Ej: se visitó dos veces, sin respuesta',
         permiso_denegado: 'Ej: el ocupante no permitió el ingreso',
-        no_requiere:      'Ej: la familia indica que no tiene daños',
+        cuenta_propia:    'Ej: la familia ya contrató a un albañil',
     };
     const obs = prompt('Nota (opcional):\n\n' + (ejemplos[estado] || ''), '');
     if (obs === null) return;   // canceló
@@ -1242,12 +1249,12 @@ async function marcarVisita(aptoId, estado, btn) {
 /** Deja el apartamento marcado visualmente y cierra su detalle. */
 function pintarAptoMarcado(card, cuerpo, estado, obs) {
     const estilos = {
-        no_requiere:      { color: '#2E7D32', icono: 'bi-hand-thumbs-up-fill',
-                            texto: 'No requiere ayuda' },
+        cuenta_propia:    { color: '#2d4488', icono: 'bi-tools',
+                            texto: 'Repara por cuenta propia' },
         no_esta:          { color: '#5b6478', icono: 'bi-door-closed-fill',
                             texto: 'Ocupante no se encuentra' },
         permiso_denegado: { color: '#A61C1C', icono: 'bi-x-octagon-fill',
-                            texto: 'Permiso denegado' },
+                            texto: 'No dejó entrar' },
     };
     const e = estilos[estado] || estilos.no_esta;
     const color = e.color, icono = e.icono, texto = e.texto;

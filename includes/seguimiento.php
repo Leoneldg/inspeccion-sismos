@@ -2113,16 +2113,19 @@ function recAsegurarEstadoVisita(): void
 
 /**
  * Marca un apartamento que no se pudo levantar.
- *   'no_requiere'      → la familia dice que no necesita reparación
+ *   'cuenta_propia'    → la familia repara por su cuenta
  *   'no_esta'          → el ocupante no se encontraba
- *   'permiso_denegado' → no dieron permiso para entrar
+ *   'permiso_denegado' → no dejaron entrar
+ *   'no_requiere'      → (histórico) ya no se ofrece, se conserva para
+ *                        los levantamientos que lo tengan registrado
  *
  * No se piden datos del jefe de familia ni ambientes: solo el motivo.
  */
 function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): void
 {
     recAsegurarEstadoVisita();
-    $validos = ['levantado', 'no_requiere', 'no_esta', 'permiso_denegado'];
+    $validos = ['levantado', 'cuenta_propia', 'no_esta',
+                'permiso_denegado', 'no_requiere'];
     if (!in_array($estado, $validos, true)) $estado = 'no_esta';
 
     db()->prepare('UPDATE rec_apartamento
@@ -2140,9 +2143,10 @@ function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): 
         $st->execute(['id' => $apartamentoId]);
         $ident = $st->fetchColumn() ?: $apartamentoId;
         $textos = [
-            'no_requiere'      => 'No requiere ayuda',
+            'cuenta_propia'    => 'Repara por cuenta propia',
             'no_esta'          => 'Ocupante no se encuentra',
-            'permiso_denegado' => 'Permiso denegado',
+            'permiso_denegado' => 'No dejó entrar',
+            'no_requiere'      => 'No requiere ayuda',
             'levantado'        => 'Levantamiento realizado',
         ];
         $texto = $textos[$estado] ?? $estado;
@@ -3195,7 +3199,7 @@ function recAptosConReparacion(int $edificioId): array
         $con   = (int)($r['con_reparacion'] ?? 0);
 
         // Resultado de la visita en cada apartamento.
-        $visitas = ['inspeccionado' => 0, 'no_requiere' => 0,
+        $visitas = ['inspeccionado' => 0, 'cuenta_propia' => 0, 'no_requiere' => 0,
                     'no_esta' => 0, 'permiso_denegado' => 0, 'sin_visitar' => 0];
         try {
             $stV = db()->prepare("
@@ -3209,7 +3213,8 @@ function recAptosConReparacion(int $edificioId): array
             $stV->execute(['e' => $edificioId]);
             foreach ($stV->fetchAll() as $v) {
                 $est = $v['est'];
-                if (in_array($est, ['no_requiere', 'no_esta', 'permiso_denegado'], true)) {
+                if (in_array($est, ['cuenta_propia', 'no_requiere',
+                                    'no_esta', 'permiso_denegado'], true)) {
                     $visitas[$est]++;
                 } elseif ((int)$v['n_amb'] > 0) {
                     $visitas['inspeccionado']++;
