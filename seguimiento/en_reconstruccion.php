@@ -166,6 +166,16 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
             <input type="text" id="rc-buscar" class="form-control" style="width:200px;"
                    placeholder="Buscar edificación…" oninput="filtrarLista()">
+            <?php
+            $rolAct = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+            if (usuarioEsMaster() || str_contains($rolAct, 'administrador')): ?>
+            <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php?estado=proceso"
+               class="btn btn-outline btn-sm"
+               style="border-color:#A61C1C55;color:#A61C1C;"
+               title="Borrar levantamientos de prueba">
+                <i class="bi bi-trash3"></i> Limpiar
+            </a>
+            <?php endif; ?>
         </div>
     </div>
 

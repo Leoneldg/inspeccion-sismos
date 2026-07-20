@@ -16,9 +16,16 @@ require_once __DIR__ . '/../includes/territorial.php';
 require_once __DIR__ . '/../includes/seguimiento.php';
 
 requireLogin();
-if (!usuarioEsMaster()) {
+
+// Borrar datos es delicado: solo master y administradores.
+$rolActual = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+$puedeLimpiar = usuarioEsMaster()
+             || str_contains($rolActual, 'administrador')
+             || str_contains($rolActual, 'superadmin');
+
+if (!$puedeLimpiar) {
     http_response_code(403);
-    exit('Solo un usuario master puede usar esta herramienta.');
+    exit('Solo un administrador puede usar esta herramienta.');
 }
 
 $pdo = db();
