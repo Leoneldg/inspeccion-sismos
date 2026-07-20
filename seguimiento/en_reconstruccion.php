@@ -283,6 +283,14 @@ include __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div style="display:flex;gap:6px;">
+                    <?php if ($est !== 'proceso'): ?>
+                    <a href="<?= APP_URL_BASE ?>seguimiento/pdf_levantamiento.php?inspeccion=<?= (int)$e['id'] ?>"
+                       target="_blank" class="btn btn-outline btn-sm"
+                       style="border-color:#A61C1C55;color:#A61C1C;"
+                       title="Descargar el levantamiento en PDF">
+                        <i class="bi bi-file-earmark-pdf-fill"></i>
+                    </a>
+                    <?php endif; ?>
                     <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
                        class="btn btn-outline btn-sm" title="Abrir la ficha">
                         <i class="bi bi-arrow-right"></i>

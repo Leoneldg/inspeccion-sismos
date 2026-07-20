@@ -1119,6 +1119,11 @@ function pintarResultados(puntos) {
     cont.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
             <div style="font-weight:700;color:#22366F;"><i class="bi bi-list-ul"></i> ${puntos.length} resultado(s)</div>
             <button class="btn btn-outline btn-sm" onclick="abrirPdfListado()"><i class="bi bi-file-earmark-pdf-fill"></i> Descargar PDF</button>
+            <a href="<?= APP_URL_BASE ?>seguimiento/pdf_materiales.php" target="_blank"
+               class="btn btn-outline btn-sm" style="border-color:#C9A22788;color:#a8871f;"
+               title="Material total de los levantamientos cerrados">
+                <i class="bi bi-box-seam-fill"></i> Materiales
+            </a>
         </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }

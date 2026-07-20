@@ -2858,6 +2858,202 @@ function segSinEtiqueta(): array
  *
  * Sirve para saber quién lleva qué y cuánto material pedir por zona.
  */
+/**
+ * Consolidado de material para todos los levantamientos CERRADOS.
+ *
+ * Solo cuenta los cerrados: los que están en proceso pueden cambiar
+ * y pedir material sobre datos incompletos lleva a comprar de más.
+ *
+ * $margen es el porcentaje de holgura sobre las cantidades. En obra
+ * siempre hay desperdicio, roturas y cortes: pedir la cifra exacta
+ * significa quedarse corto.
+ */
+function segConsolidadoMateriales(float $margen = 10.0): array
+{
+    $conds = ['re.completado = 1'];
+    $params = [];
+    aplicarScopeEstado($conds, $params, 'i');
+    aplicarScopeParroquia($conds, $params, 'i');
+    $where = 'WHERE ' . implode(' AND ', $conds);
+
+    $out = [
+        'margen'       => $margen,
+        'edificios'    => 0,
+        'parroquias'   => [],
+        'apartamentos' => 0,
+        'aptos_reparar'=> 0,
+        'ambientes'    => 0,
+        'familias'     => 0,
+        'personas'     => 0,
+        'm2_total'     => 0.0,
+        'trabajos'     => [],
+        'materiales'   => [],
+        'friso'        => 0.0,
+        'pintura'      => 0.0,
+    ];
+
+    try {
+        // --- Totales generales ---
+        $st = db()->prepare("
+            SELECT COUNT(DISTINCT i.id) AS edificios,
+                   SUM(COALESCE(i.familias, 0)) AS familias,
+                   SUM(COALESCE(i.numero_personas, 0)) AS personas
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+        ");
+        $st->execute($params);
+        $t = $st->fetch() ?: [];
+        $out['edificios'] = (int)($t['edificios'] ?? 0);
+        $out['familias']  = (int)($t['familias'] ?? 0);
+        $out['personas']  = (int)($t['personas'] ?? 0);
+
+        // --- Apartamentos y ambientes ---
+        $stA = db()->prepare("
+            SELECT COUNT(DISTINCT ap.id) AS aptos,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN ap.id END) AS aptos_reparar,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN am.id END) AS ambientes
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+              $where
+        ");
+        $stA->execute($params);
+        $a = $stA->fetch() ?: [];
+        $out['apartamentos']  = (int)($a['aptos'] ?? 0);
+        $out['aptos_reparar'] = (int)($a['aptos_reparar'] ?? 0);
+        $out['ambientes']     = (int)($a['ambientes'] ?? 0);
+
+        // --- Por parroquia ---
+        $stP = db()->prepare("
+            SELECT i.parroquia,
+                   COUNT(DISTINCT i.id) AS edificios,
+                   SUM(COALESCE(i.familias, 0)) AS familias
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              $where
+             GROUP BY i.parroquia
+             ORDER BY edificios DESC
+        ");
+        $stP->execute($params);
+        foreach ($stP->fetchAll() as $r) {
+            $out['parroquias'][$r['parroquia'] ?: 'Sin parroquia'] = [
+                'edificios'     => (int)$r['edificios'],
+                'familias'      => (int)$r['familias'],
+                'apartamentos'  => 0,
+                'aptos_reparar' => 0,
+                'm2'            => 0.0,
+            ];
+        }
+
+        // Apartamentos por parroquia.
+        $stPA = db()->prepare("
+            SELECT i.parroquia,
+                   COUNT(DISTINCT ap.id) AS aptos,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN ap.id END) AS aptos_reparar
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+              $where
+             GROUP BY i.parroquia
+        ");
+        $stPA->execute($params);
+        foreach ($stPA->fetchAll() as $r) {
+            $pn = $r['parroquia'] ?: 'Sin parroquia';
+            if (!isset($out['parroquias'][$pn])) continue;
+            $out['parroquias'][$pn]['apartamentos']  = (int)$r['aptos'];
+            $out['parroquias'][$pn]['aptos_reparar'] = (int)$r['aptos_reparar'];
+        }
+
+        // --- Trabajos: por parroquia y en total ---
+        $stT = db()->prepare("
+            SELECT i.parroquia, rr.tipo_trabajo,
+                   SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+              JOIN rec_ambiente am ON am.id = rr.ref_id AND rr.nivel = 'ambiente'
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+              JOIN rec_edificio re ON re.id = pi.edificio_id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+              $where
+               AND rr.metros_cuadrados > 0
+               AND rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+             GROUP BY i.parroquia, rr.tipo_trabajo
+        ");
+        $stT->execute($params);
+
+        $trabajos = [];
+        foreach ($stT->fetchAll() as $r) {
+            $m2 = (float)$r['m2'];
+            $trabajos[$r['tipo_trabajo']] = ($trabajos[$r['tipo_trabajo']] ?? 0) + $m2;
+            $pn = $r['parroquia'] ?: 'Sin parroquia';
+            if (isset($out['parroquias'][$pn])) {
+                $out['parroquias'][$pn]['m2'] += $m2;
+            }
+            $out['m2_total'] += $m2;
+        }
+        $out['m2_total'] = round($out['m2_total'], 2);
+
+        // Nombres legibles.
+        $nombres = [];
+        try {
+            foreach (recTiposTrabajo() as $tt) $nombres[$tt['clave']] = $tt['nombre'];
+        } catch (Throwable $e) {}
+        foreach ($trabajos as $k => $m2) {
+            $out['trabajos'][] = ['nombre' => $nombres[$k] ?? $k, 'm2' => round($m2, 2)];
+        }
+
+        // --- Superficie de friso y pintura ---
+        $factores = [
+            'demoler_pared_completa_concreto' => [2.0, 2.0],
+            'demoler_pared_completa_arcilla'  => [2.0, 2.0],
+            'pared_completa_concreto'         => [2.0, 2.0],
+            'pared_completa_arcilla'          => [2.0, 2.0],
+            'friso_completo_dos_caras'        => [2.0, 2.0],
+            'friso_completo'                  => [1.0, 1.0],
+            'friso_reparacion'                => [1.0, 1.0],
+            'solo_pintura'                    => [0.0, 1.0],
+            'pintura'                         => [0.0, 1.0],
+        ];
+        foreach ($trabajos as $k => $m2) {
+            if (!isset($factores[$k])) continue;
+            $out['friso']   += $m2 * $factores[$k][0];
+            $out['pintura'] += $m2 * $factores[$k][1];
+        }
+        $out['friso']   = round($out['friso'], 2);
+        $out['pintura'] = round($out['pintura'], 2);
+
+        // --- Materiales, con el margen aplicado ---
+        if ($trabajos) {
+            $factor = 1 + ($margen / 100);
+            $enteros = ['unidad', 'saco', 'pieza', 'pliego'];
+            try {
+                foreach (recMaterialesPorTrabajo($trabajos) as $mat => $d) {
+                    $cant = $d['cantidad'] * $factor;
+                    // Lo que se compra entero se redondea hacia arriba.
+                    $cant = in_array($d['unidad'], $enteros, true)
+                          ? ceil($cant) : round($cant, 2);
+                    $out['materiales'][] = [
+                        'material' => $mat,
+                        'cantidad' => $cant,
+                        'unidad'   => $d['unidad'],
+                    ];
+                }
+            } catch (Throwable $e) {}
+        }
+
+    } catch (Throwable $e) { /* devolver lo reunido */ }
+
+    return $out;
+}
+
 function segConsolidadoResponsables(): array
 {
     $out = ['responsables' => [], 'sin_responsable' => null, 'totales' => []];
