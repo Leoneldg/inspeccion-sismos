@@ -45,6 +45,23 @@ try {
         resp(true, 'Registrado.', ['edificio_id' => $edificioId]);
     }
 
+    // --- Área común con nombre libre ---
+    if (($b['accion'] ?? '') === 'area_libre') {
+        recAsegurarAreasPartidas();
+        $clave  = trim($b['clave'] ?? '');
+        $nombre = trim($b['nombre'] ?? '');
+        if ($clave === '' || $nombre === '') resp(false, 'Indique el nombre del área.');
+
+        db()->prepare(
+            'INSERT INTO rec_area_comun (edificio_id, tipo, nombre_libre, presente)
+             VALUES (:e, :t, :n, 1)
+             ON DUPLICATE KEY UPDATE nombre_libre = VALUES(nombre_libre)'
+        )->execute(['e' => $edificioId, 't' => $clave, 'n' => $nombre]);
+
+        recAuditar('area_agregada', $inspeccionId, $edificioId, 'Área común: ' . $nombre);
+        resp(true, 'Área agregada.', ['clave' => $clave, 'nombre' => $nombre]);
+    }
+
     // --- Fechas de inicio y entrega de la obra ---
     if (($b['accion'] ?? '') === 'plazo') {
         recGuardarPlan($edificioId, [

@@ -307,6 +307,22 @@ include __DIR__ . '/../includes/header.php';
             <?php
             $areasCat = recAreasComunesTipicas();
             $areasGuardadas = recAreasComunes((int)$ed['id']);
+
+            // Áreas que el técnico agregó con nombre libre ("Otros").
+            recAsegurarAreasPartidas();
+            $areasPropias = [];
+            try {
+                $stAP = db()->prepare("SELECT * FROM rec_area_comun
+                                        WHERE edificio_id = :e
+                                          AND nombre_libre IS NOT NULL AND nombre_libre <> ''
+                                        ORDER BY id");
+                $stAP->execute(['e' => (int)$ed['id']]);
+                foreach ($stAP->fetchAll() as $ap) {
+                    $areasPropias[$ap['tipo']] = $ap;
+                    $areasCat[$ap['tipo']] = $ap['nombre_libre'];
+                    $areasGuardadas[$ap['tipo']] = $ap;
+                }
+            } catch (Throwable $e) {}
             $tiposTrabajo = ['mamposteria' => 'Mampostería', 'derrumbar' => 'Derrumbar / demoler', 'reconstruccion' => 'Reconstrucción'];
             ?>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
@@ -343,6 +359,24 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 <?php endforeach; ?>
             </div>
+
+            <!-- Agregar un área que no está en la lista -->
+            <?php if ($puedeEditar): ?>
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+                        background:#f7f9fd;border-radius:9px;padding:11px 13px;">
+                <span class="text-sm" style="color:#5b6478;font-weight:600;">
+                    <i class="bi bi-plus-circle"></i> ¿Falta un área?
+                </span>
+                <input type="text" id="area-otra-nombre" class="form-control"
+                       style="flex:1;min-width:190px;font-size:12.5px;"
+                       placeholder="Escriba el nombre. Ej: Cuarto de medidores"
+                       maxlength="120"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();agregarAreaOtra();}">
+                <button type="button" class="btn btn-outline btn-sm" onclick="agregarAreaOtra()">
+                    <i class="bi bi-plus-lg"></i> Agregar
+                </button>
+            </div>
+            <?php endif; ?>
         </div>
 
         <?php if ($puedeEditar): ?>
@@ -665,6 +699,95 @@ let _areaFotoDestino = null;
 // Destino de la próxima foto. Se declara aquí porque varias funciones
 // de más arriba la usan antes de que el script llegue a su definición.
 var _fotoDestino = null;
+
+/**
+ * Agrega un área común que no está en la lista.
+ * El técnico escribe el nombre y queda con su botón de reparación,
+ * foto, trabajo y metros, igual que las demás.
+ */
+async function agregarAreaOtra() {
+    const inp = document.getElementById('area-otra-nombre');
+    const nombre = (inp.value || '').trim();
+    if (nombre.length < 3) {
+        alert('Escriba el nombre del área (al menos 3 letras).');
+        inp.focus();
+        return;
+    }
+
+    // Clave interna: "otra_" + el nombre sin espacios ni acentos.
+    const clave = 'otra_' + nombre.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+
+    if (document.querySelector('.area-row[data-area="' + clave + '"]')) {
+        alert('Ya existe un área con ese nombre.');
+        return;
+    }
+
+    const payload = { accion: 'area_libre', edificio_id: EDIFICIO_ID,
+                      clave: clave, nombre: nombre };
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            'Área común: ' + nombre);
+    } else {
+        try {
+            const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(payload), credentials:'same-origin'
+            });
+            const d = await res.json();
+            if (!d.ok) { alert(d.mensaje || 'No se pudo agregar.'); return; }
+        } catch (e) {
+            alert('Sin conexión. Intente de nuevo.');
+            return;
+        }
+    }
+
+    inp.value = '';
+    pintarAreaNueva(clave, nombre);
+}
+
+/** Dibuja el área recién agregada, sin recargar la página. */
+function pintarAreaNueva(clave, nombre) {
+    const grid = document.querySelector('.area-row')?.parentNode;
+    if (!grid) { location.reload(); return; }
+
+    const opciones = (Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : [])
+        .map(t => '<option value="' + t.clave + '">' + t.nombre + '</option>').join('');
+
+    const div = document.createElement('div');
+    div.className = 'area-row';
+    div.dataset.area = clave;
+    div.style.cssText = 'border:1px solid #2d448855;border-radius:8px;overflow:hidden;';
+    div.innerHTML =
+        '<label class="area-chk-lbl" style="display:flex;align-items:center;'
+        + 'justify-content:space-between;gap:7px;padding:9px 11px;cursor:pointer;font-size:13px;">'
+        + '<span>' + nombre + '</span>'
+        + '<span class="seg-radio" style="font-size:12px;white-space:nowrap;">'
+        + '<input type="checkbox" class="area-reparar"> <i class="bi bi-tools"></i> Reparar'
+        + '</span></label>'
+        + '<div class="area-detalle" style="padding:10px 11px;background:#f9fafd;display:none;">'
+        + '<button type="button" class="btn btn-outline btn-sm" '
+        + 'onclick="subirFotoArea(\'' + clave + '\', this)" style="margin-bottom:8px;">'
+        + '<i class="bi bi-camera"></i> Foto del área a reparar</button>'
+        + '<div class="area-fotos" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+        + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'
+        + '¿Qué trabajo necesita?</label>'
+        + '<select class="form-control area-trabajo" '
+        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;">'
+        + '<option value="">Seleccione…</option>' + opciones + '</select>'
+        + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'
+        + 'Metros cuadrados (m²)</label>'
+        + '<input type="text" inputmode="decimal" class="form-control area-m2" '
+        + 'placeholder="Ej: 12" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;" '
+        + 'oninput="normalizarDecimal(this); calcularMatArea(this);">'
+        + '<div class="area-materiales" style="font-size:12px;color:#22366F;background:#eef2fb;'
+        + 'border-radius:6px;padding:8px 10px;display:none;"></div></div>';
+
+    grid.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 /** Foto de un área común del edificio. */
 function subirFotoArea(areaKey, btn) {
