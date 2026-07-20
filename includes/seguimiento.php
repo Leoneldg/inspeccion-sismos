@@ -3065,7 +3065,7 @@ function segEnReconstruccion(array $filtros = []): array
                    GROUP BY re2.inspeccion_id
               ) x ON x.inspeccion_id = i.id
               $where
-             ORDER BY re.completado, i.parroquia, i.nombre_edificio
+             ORDER BY re.creado_en DESC, i.nombre_edificio
         ");
         $st->execute($params);
         $lista = $st->fetchAll();
@@ -3076,12 +3076,26 @@ function segEnReconstruccion(array $filtros = []): array
                 'fecha_fin_estimada'    => $e['fecha_fin_estimada'],
             ], (int)$e['avance']);
 
-            // Estado del levantamiento: en proceso o completado.
+            // Estado del levantamiento, en tres niveles:
+            //   proceso    → todavía lo están llenando
+            //   incompleto → lo cerraron pero le faltan datos
+            //   completo   → cerrado y sin nada pendiente
             $nAptos = (int)$e['n_aptos'];
             $hechos = (int)$e['aptos_hechos'];
-            $e['lev_completado'] = !empty($e['completado']);
             $e['lev_pct'] = $nAptos > 0 ? (int)round($hechos / $nAptos * 100) : 0;
-            $e['lev_estado'] = $e['lev_completado'] ? 'completado' : 'proceso';
+
+            if (empty($e['completado'])) {
+                $e['lev_estado'] = 'proceso';
+                $e['lev_fallas'] = 0;
+            } else {
+                // Revisar si le falta algo obligatorio.
+                $rev = recRevisarLevantamiento((int)$e['edificio_id']);
+                $criticos = (int)($rev['resumen']['criticos'] ?? 0);
+                $e['lev_fallas']   = $criticos;
+                $e['lev_detalle']  = array_slice($rev['problemas'] ?? [], 0, 5);
+                $e['lev_estado']   = $criticos > 0 ? 'incompleto' : 'completo';
+            }
+            $e['lev_completado'] = ($e['lev_estado'] === 'completo');
         }
         unset($e);
         return $lista;

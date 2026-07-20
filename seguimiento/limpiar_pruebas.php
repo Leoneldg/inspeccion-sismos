@@ -118,13 +118,20 @@ function borrarLevantamiento(PDO $pdo, int $inspeccionId): array
     $pdo->exec("DELETE FROM rec_edificio WHERE id = $edificioId");
     $res['edificio'] = 1;
 
-    // 3) La INSPECCIÓN se conserva. Solo se limpia su seguimiento de obra
-    //    para que vuelva a contarse como "sin asignar".
+    // 3) Limpiar el seguimiento de obra.
     try {
         $pdo->prepare('DELETE FROM seguimiento_obras WHERE inspeccion_id = :i')->execute(['i' => $inspeccionId]);
     } catch (Throwable $e) {}
 
-    // 4) Dejar constancia en la bitácora.
+    // Quitar asignaciones a frentes y brigadas.
+    foreach (['asignacion_frente_obra', 'obra_brigada', 'asignacion_frente'] as $t) {
+        try { $pdo->prepare("DELETE FROM `$t` WHERE inspeccion_id = :i")->execute(['i' => $inspeccionId]); }
+        catch (Throwable $e) { /* la tabla puede no existir */ }
+    }
+
+    // 4) La inspección se conserva: solo se borró su levantamiento.
+    //    Para eliminarla por completo hay que marcar "Eliminar del todo",
+    //    que llama a borrarEdificacionCompleta().
     recAuditar('levantamiento_eliminado', $inspeccionId, null,
         'Levantamiento borrado: ' . $res['pisos'] . ' piso(s), ' . $res['apartamentos']
         . ' apto(s), ' . $res['ambientes'] . ' ambiente(s), ' . $res['fotos'] . ' foto(s)');
@@ -251,7 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'borra
 // --- Listar SOLO las que tienen levantamiento técnico ---
 //     Las cerradas (completado=1) van primero: son las que suman a RECONSTRUCCIÓN.
 $soloCerrados = ($_GET['f'] ?? 'cerrados') === 'cerrados';
-$condCompletado = $soloCerrados ? 'AND re.completado = 1' : '';
+// Filtro por estado del levantamiento.
+$estadoF = trim($_GET['estado'] ?? '');
+$condCompletado = '';
+if ($estadoF === 'proceso')      $condCompletado = 'AND re.completado = 0';
+elseif ($estadoF === 'cerrado')  $condCompletado = 'AND re.completado = 1';
+elseif ($soloCerrados)           $condCompletado = 'AND re.completado = 1';
 $limite = max(10, min(200, (int)($_GET['n'] ?? 40)));
 
 $st = $pdo->prepare("
@@ -313,19 +325,43 @@ include __DIR__ . '/../includes/header.php';
         <input type="hidden" name="accion" value="borrar">
 
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+            <?php
+            // Cuántos hay de cada estado, para mostrarlo en los botones.
+            $nProceso = 0; $nCerrado = 0;
+            try {
+                $stC = $pdo->query("SELECT re.completado, COUNT(*) AS n
+                                      FROM rec_edificio re GROUP BY re.completado");
+                foreach ($stC->fetchAll() as $c) {
+                    if ((int)$c['completado'] === 1) $nCerrado = (int)$c['n'];
+                    else                             $nProceso = (int)$c['n'];
+                }
+            } catch (Throwable $e) {}
+
+            $titulos = [
+                'proceso' => 'Levantamientos EN PROCESO',
+                'cerrado' => 'Levantamientos CERRADOS',
+            ];
+            ?>
             <div style="font-weight:700;color:#22366F;">
                 <i class="bi bi-list-check"></i>
-                <?= $soloCerrados ? 'Levantamientos CERRADOS' : 'Todos los levantamientos' ?>
+                <?= $titulos[$estadoF] ?? ($soloCerrados ? 'Levantamientos CERRADOS'
+                                                         : 'Todos los levantamientos') ?>
                 (<?= count($filas) ?>)
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <a href="?f=cerrados&n=<?= $limite ?>" class="btn btn-outline btn-sm"
-                   style="<?= $soloCerrados ? 'background:#eef2fb;font-weight:700;' : '' ?>">Solo cerrados</a>
+                <a href="?estado=proceso&n=<?= $limite ?>" class="btn btn-outline btn-sm"
+                   style="<?= $estadoF === 'proceso' ? 'background:#fffbf0;font-weight:700;border-color:#C9A227;' : '' ?>">
+                    En proceso (<?= $nProceso ?>)
+                </a>
+                <a href="?estado=cerrado&n=<?= $limite ?>" class="btn btn-outline btn-sm"
+                   style="<?= $estadoF === 'cerrado' ? 'background:#eff8f1;font-weight:700;border-color:#2E7D32;' : '' ?>">
+                    Cerrados (<?= $nCerrado ?>)
+                </a>
                 <a href="?f=todos&n=<?= $limite ?>" class="btn btn-outline btn-sm"
-                   style="<?= !$soloCerrados ? 'background:#eef2fb;font-weight:700;' : '' ?>">Todos</a>
+                   style="<?= (!$estadoF && !$soloCerrados) ? 'background:#eef2fb;font-weight:700;' : '' ?>">Todos</a>
                 <span class="text-sm text-muted" style="margin-left:6px;">Mostrar:</span>
                 <?php foreach ([20, 40, 100, 200] as $n): ?>
-                <a href="?f=<?= $soloCerrados ? 'cerrados' : 'todos' ?>&n=<?= $n ?>"
+                <a href="?<?= $estadoF ? 'estado=' . $estadoF : ('f=' . ($soloCerrados ? 'cerrados' : 'todos')) ?>&n=<?= $n ?>"
                    class="btn btn-outline btn-sm" style="<?= $limite === $n ? 'background:#eef2fb;' : '' ?>"><?= $n ?></a>
                 <?php endforeach; ?>
             </div>

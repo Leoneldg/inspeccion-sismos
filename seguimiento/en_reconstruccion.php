@@ -14,23 +14,57 @@ require_once __DIR__ . '/../includes/seguimiento.php';
 
 requierePermiso('seguimiento', 'ver');
 
-$lista = segEnReconstruccion();
+// Filtro por parroquia.
+$parrF = trim($_GET['parroquia'] ?? '');
+$lista = segEnReconstruccion($parrF !== '' ? ['parroquia' => $parrF] : []);
+
+// Parroquias que tienen levantamientos, para el selector.
+$parroquiasDisp = [];
+try {
+    $cond = []; $par = [];
+    aplicarScopeEstado($cond, $par, 'i');
+    aplicarScopeParroquia($cond, $par, 'i');
+    $cond[] = "i.parroquia IS NOT NULL AND i.parroquia <> ''";
+    $stPD = db()->prepare('SELECT DISTINCT i.parroquia
+                             FROM inspecciones i
+                             JOIN rec_edificio re ON re.inspeccion_id = i.id
+                            WHERE ' . implode(' AND ', $cond) . '
+                            ORDER BY i.parroquia');
+    $stPD->execute($par);
+    $parroquiasDisp = $stPD->fetchAll(PDO::FETCH_COLUMN) ?: [];
+} catch (Throwable $e) {}
 $cat   = catalogoDecisionFinal();
 
-// Separar por estado del levantamiento.
-$enProceso  = [];
-$completados = [];
+// Contar por estado.
+$cuenta = ['proceso' => 0, 'incompleto' => 0, 'completo' => 0];
 foreach ($lista as $e) {
-    if (!empty($e['lev_completado'])) $completados[] = $e;
-    else                             $enProceso[] = $e;
+    $est = $e['lev_estado'] ?? 'proceso';
+    if (isset($cuenta[$est])) $cuenta[$est]++;
 }
 
-// Agrupar por parroquia, que es como se reparte el trabajo.
-$porParroquia = [];
+// Agrupar por día: lo más reciente primero, que es lo que se revisa.
+$porDia = [];
 foreach ($lista as $e) {
-    $porParroquia[$e['parroquia'] ?: 'Sin parroquia'][] = $e;
+    $f = !empty($e['creado_en']) ? substr($e['creado_en'], 0, 10) : 'sin-fecha';
+    $porDia[$f][] = $e;
 }
-ksort($porParroquia);
+krsort($porDia);
+
+/** Escribe la fecha de forma legible: Hoy, Ayer o la fecha. */
+function diaLegible(string $f): string
+{
+    if ($f === 'sin-fecha') return 'Sin fecha';
+    $hoy = date('Y-m-d');
+    $ayer = date('Y-m-d', strtotime('-1 day'));
+    if ($f === $hoy)  return 'Hoy';
+    if ($f === $ayer) return 'Ayer';
+
+    $meses = [1=>'enero','febrero','marzo','abril','mayo','junio','julio',
+              'agosto','septiembre','octubre','noviembre','diciembre'];
+    $t = strtotime($f);
+    return (int)date('d', $t) . ' de ' . $meses[(int)date('n', $t)]
+         . ' de ' . date('Y', $t);
+}
 
 $pageTitle    = 'En reconstrucción';
 $pageSubtitle = count($lista) . ' edificaciones en obra';
@@ -84,59 +118,84 @@ include __DIR__ . '/../includes/header.php';
         </button>
         <button class="rc-k" data-f="proceso" onclick="filtrarEstado('proceso', this)"
                 style="border-color:#C9A22755;">
-            <div class="n" style="color:#a8871f;"><?= count($enProceso) ?></div>
-            <div class="l">En proceso de carga</div>
+            <div class="n" style="color:#a8871f;"><?= $cuenta['proceso'] ?></div>
+            <div class="l">En proceso</div>
         </button>
-        <button class="rc-k" data-f="completado" onclick="filtrarEstado('completado', this)"
+        <button class="rc-k" data-f="incompleto" onclick="filtrarEstado('incompleto', this)"
+                style="border-color:#A61C1C55;">
+            <div class="n" style="color:#A61C1C;"><?= $cuenta['incompleto'] ?></div>
+            <div class="l">Levantamiento incompleto</div>
+        </button>
+        <button class="rc-k" data-f="completo" onclick="filtrarEstado('completo', this)"
                 style="border-color:#2E7D3255;">
-            <div class="n" style="color:#2E7D32;"><?= count($completados) ?></div>
+            <div class="n" style="color:#2E7D32;"><?= $cuenta['completo'] ?></div>
             <div class="l">Levantamiento completo</div>
         </button>
     </div>
 
-    <?php if (count($enProceso) > 0): ?>
-    <div style="background:#fffbf0;border:1px solid #C9A22755;border-radius:9px;
-                padding:10px 13px;margin-top:12px;font-size:12.5px;color:#8a6d1a;">
-        <i class="bi bi-hourglass-split"></i>
-        <strong><?= count($enProceso) ?></strong> levantamiento(s) sin cerrar.
-        Revise si el equipo los dejó a medias.
+    <?php if ($cuenta['incompleto'] > 0): ?>
+    <div style="background:#fdf0f0;border:1px solid #A61C1C33;border-radius:9px;
+                padding:10px 13px;margin-top:12px;font-size:12.5px;color:#A61C1C;">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <strong><?= $cuenta['incompleto'] ?></strong> levantamiento(s) se cerraron
+        con datos faltantes: ambientes sin foto, sin metros o sin tipo de trabajo.
     </div>
     <?php endif; ?>
 </div>
 
-<!-- Listado -->
+<!-- Listado por día -->
 <div class="rc-card">
     <div style="display:flex;justify-content:space-between;align-items:center;
                 flex-wrap:wrap;gap:10px;margin-bottom:12px;">
         <div style="font-weight:700;color:#22366F;">
-            <i class="bi bi-list-ul"></i> Detalle
+            <i class="bi bi-calendar3"></i> Por día
             <span id="rc-cont" style="background:#eef2fb;color:#22366F;border-radius:12px;
                   padding:2px 9px;font-size:12px;font-weight:700;"><?= count($lista) ?></span>
         </div>
-        <input type="text" id="rc-buscar" class="form-control" style="width:210px;"
-               placeholder="Buscar edificación…" oninput="filtrarLista()">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <?php if (count($parroquiasDisp) > 1): ?>
+            <select class="form-control" style="width:180px;"
+                    onchange="location.href='?parroquia=' + encodeURIComponent(this.value)">
+                <option value="">Todas las parroquias</option>
+                <?php foreach ($parroquiasDisp as $pd): ?>
+                <option value="<?= e($pd) ?>" <?= $parrF === $pd ? 'selected' : '' ?>>
+                    <?= e($pd) ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <?php endif; ?>
+            <input type="text" id="rc-buscar" class="form-control" style="width:200px;"
+                   placeholder="Buscar edificación…" oninput="filtrarLista()">
+        </div>
     </div>
 
     <div id="rc-lista">
-    <?php foreach ($porParroquia as $parr => $items): ?>
-        <div class="rc-parr" data-parr="<?= e($parr) ?>">
-            <div style="background:#f7f9fd;padding:8px 13px;border-radius:8px;
-                        font-weight:700;color:#22366F;font-size:13px;margin:12px 0 6px;">
-                <?= e(mb_strtoupper($parr, 'UTF-8')) ?>
-                <span style="float:right;font-weight:600;font-size:11.5px;color:#5b6478;">
+    <?php foreach ($porDia as $dia => $items): ?>
+        <div class="rc-dia" data-dia="<?= e($dia) ?>">
+            <div style="background:#22366F;color:#fff;padding:8px 14px;border-radius:8px;
+                        font-weight:700;font-size:13px;margin:14px 0 7px;">
+                <i class="bi bi-calendar-event"></i> <?= e(diaLegible($dia)) ?>
+                <span style="float:right;font-weight:600;font-size:11.5px;opacity:.9;">
                     <?= count($items) ?>
                 </span>
             </div>
 
             <?php foreach ($items as $e):
-                $comp = !empty($e['lev_completado']);
+                $est = $e['lev_estado'] ?? 'proceso';
                 $pctLev = (int)($e['lev_pct'] ?? 0);
                 $sim = recSimboloDecision($e['decision_final'] ?? null);
-                $col = $comp ? '#2E7D32' : '#C9A227';
+
+                $meta = [
+                    'proceso'    => ['#C9A227', 'hourglass-split',  'En proceso'],
+                    'incompleto' => ['#A61C1C', 'exclamation-triangle-fill',
+                                     'Levantamiento incompleto'],
+                    'completo'   => ['#2E7D32', 'check-circle-fill',
+                                     'Levantamiento completo'],
+                ][$est];
             ?>
-            <div class="rc-fila" data-estado="<?= $comp ? 'completado' : 'proceso' ?>"
+            <div class="rc-fila" data-estado="<?= $est ?>"
                  data-txt="<?= e(mb_strtolower(($e['nombre_edificio'] ?? '') . ' ' .
-                           ($e['codigo'] ?? '') . ' ' . ($e['ente_nombre'] ?? ''), 'UTF-8')) ?>">
+                           ($e['codigo'] ?? '') . ' ' . ($e['parroquia'] ?? ''), 'UTF-8')) ?>">
 
                 <span class="clas-letra" style="color:<?= $sim['color'] ?>;
                       border-color:<?= $sim['color'] ?>;" title="<?= e($sim['texto']) ?>">
@@ -148,10 +207,7 @@ include __DIR__ . '/../includes/header.php';
                         <?= e($e['nombre_edificio'] ?: 'Sin nombre') ?>
                     </div>
                     <div style="font-size:11.5px;color:#5b6478;">
-                        <?= e($e['codigo']) ?>
-                        <?php if (!empty($e['ente_nombre'])): ?>
-                            · <?= e($e['ente_nombre']) ?>
-                        <?php endif; ?>
+                        <?= e($e['codigo']) ?> · <?= e($e['parroquia'] ?: '—') ?>
                     </div>
                     <div style="font-size:11px;color:#767c94;">
                         <?= (int)$e['n_pisos'] ?> piso<?= (int)$e['n_pisos'] === 1 ? '' : 's' ?>
@@ -159,22 +215,42 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Estado del levantamiento -->
-                <div style="min-width:150px;">
-                    <div style="font-size:12px;font-weight:700;color:<?= $col ?>;
+                <div style="min-width:170px;">
+                    <div style="font-size:12px;font-weight:700;color:<?= $meta[0] ?>;
                                 margin-bottom:3px;">
-                        <i class="bi bi-<?= $comp ? 'check-circle-fill' : 'hourglass-split' ?>"></i>
-                        <?= $comp ? 'Levantamiento completo' : 'En proceso' ?>
+                        <i class="bi bi-<?= $meta[1] ?>"></i> <?= $meta[2] ?>
                     </div>
-                    <?php if (!$comp): ?>
+
+                    <?php if ($est === 'proceso'): ?>
                     <div style="display:flex;align-items:center;gap:6px;">
                         <span style="flex:1;background:#eef0f6;border-radius:20px;height:9px;
                               overflow:hidden;min-width:60px;">
                             <span style="display:block;width:<?= $pctLev ?>%;height:100%;
-                                  background:<?= $col ?>;"></span>
+                                  background:<?= $meta[0] ?>;"></span>
                         </span>
                         <span style="font-size:11px;color:#767c94;"><?= $pctLev ?>%</span>
                     </div>
+
+                    <?php elseif ($est === 'incompleto'): ?>
+                    <div style="font-size:11px;color:#A61C1C;">
+                        <?= (int)$e['lev_fallas'] ?> dato(s) sin completar
+                    </div>
+                    <?php if (!empty($e['lev_detalle'])): ?>
+                    <details style="margin-top:3px;">
+                        <summary style="font-size:11px;color:#767c94;cursor:pointer;">
+                            Ver qué falta
+                        </summary>
+                        <div style="font-size:10.5px;color:#5b6478;margin-top:4px;
+                                    max-width:230px;">
+                            <?php foreach ($e['lev_detalle'] as $d): ?>
+                            <div style="padding:2px 0;">
+                                · <?= e($d['que']) ?><br>
+                                <span style="color:#97a0b8;"><?= e($d['donde']) ?></span>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </details>
+                    <?php endif; ?>
                     <?php endif; ?>
                 </div>
 
@@ -212,8 +288,8 @@ function filtrarLista() {
         if (ver) n++;
     });
 
-    // Ocultar la parroquia si no le queda ninguna visible.
-    document.querySelectorAll('.rc-parr').forEach(g => {
+    // Ocultar el día si no le queda ninguna visible.
+    document.querySelectorAll('.rc-dia').forEach(g => {
         const vis = Array.from(g.querySelectorAll('.rc-fila'))
                          .filter(x => x.style.display !== 'none').length;
         g.style.display = vis ? '' : 'none';
