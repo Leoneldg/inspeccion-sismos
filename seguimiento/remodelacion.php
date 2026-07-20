@@ -1564,13 +1564,15 @@ async function verFotosApto(aptoId, ident) {
         let antes = '';
         (ap.fotos_antes || []).forEach(f => { antes += fotoHTML(f.ruta, 'Apartamento', f.parte_detalle || '', f.fecha || '', f.id); });
         (ap.ambientes || []).forEach(am => (am.fotos_antes || []).forEach(f => {
-            antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || '', f.id); }));
+            antes += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '',
+                              f.fecha || '', f.id, m2DeParte(am, f.parte_detalle)); }));
         if (!antes) antes = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos del levantamiento</div>';
 
         let durante = '';
         (ap.fotos_durante || []).forEach(f => { durante += fotoHTML(f.ruta, 'Durante', f.parte_detalle || '', f.fecha || '', f.id); });
         (ap.ambientes || []).forEach(am => (am.fotos_durante || []).forEach(f => {
-            durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '', f.fecha || '', f.id); }));
+            durante += fotoHTML(f.ruta, am.tipo + ' ' + am.numero, f.parte_detalle || '',
+                                f.fecha || '', f.id); }));
         if (!durante) durante = '<div style="color:#9aa1b4;font-size:12px;">Sin fotos aún</div>';
 
         const btnFoto = PUEDE_CARGAR
@@ -1594,25 +1596,45 @@ function cerrarModalFotos() {
  * Miniatura de una foto. Muestra qué parte se fotografió y permite
  * ampliarla: antes no se veía el detalle ni qué lado era.
  */
-function fotoHTML(ruta, cap, parte, fecha, idFoto) {
+function fotoHTML(ruta, cap, parte, fecha, idFoto, m2) {
     const etiqueta = parte
         ? `<span style="background:#22366F;color:#fff;font-size:10px;font-weight:700;
              padding:2px 7px;border-radius:9px;position:absolute;top:6px;left:6px;">${parte}</span>`
         : '';
+
+    // Metros de esta parte, si están registrados.
+    const medida = (m2 && m2 > 0)
+        ? `<span style="background:#C9A227;color:#22366F;font-size:10.5px;font-weight:800;
+             padding:2px 8px;border-radius:9px;position:absolute;top:6px;right:6px;">
+             ${Number(m2).toLocaleString('es-VE')} m²</span>`
+        : '';
+
     const cuando = fecha
         ? `<div style="font-size:10px;color:#767c94;">${fecha}</div>` : '';
     const alt = (cap || 'Foto').replace(/"/g, '&quot;');
     return `<div class="foto-item" style="position:relative;">
         <img src="${ruta}" alt="${alt}" style="cursor:zoom-in;"
-             onclick="ampliarFoto('${ruta}', '${alt}', '${(parte||'').replace(/'/g,"")}', ${idFoto || 0})">
+             onclick="ampliarFoto('${ruta}', '${alt}', '${(parte||'').replace(/'/g,"")}', ${idFoto || 0}, ${m2 || 0})">
         ${etiqueta}
+        ${medida}
         <div class="cap">${cap || ''}</div>
         ${cuando}
     </div>`;
 }
 
+/**
+ * Metros de la parte que muestra la foto.
+ * Las fotos guardan qué parte retratan (pared, techo, piso) y los
+ * metros están registrados por esa misma superficie: se cruzan.
+ */
+function m2DeParte(amb, parte) {
+    if (!amb || !amb.m2_por_parte || !parte) return 0;
+    const p = String(parte).toLowerCase().trim();
+    return amb.m2_por_parte[p] || 0;
+}
+
 /** Visor a pantalla completa, con zoom y desplazamiento. */
-function ampliarFoto(ruta, titulo, parte, idFoto) {
+function ampliarFoto(ruta, titulo, parte, idFoto, m2) {
     const capa = document.createElement('div');
     capa.id = 'visor-foto';
     capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'

@@ -2849,6 +2849,249 @@ function segSinEtiqueta(): array
  *
  * $filtros acepta: parroquia, uso, color.
  */
+/**
+ * Consolidado por responsable de parroquia.
+ *
+ * Para cada responsable: sus parroquias, cuántas edificaciones tiene,
+ * cuántas levantó, apartamentos a reparar y el material que necesita.
+ * Al final, los totales del programa.
+ *
+ * Sirve para saber quién lleva qué y cuánto material pedir por zona.
+ */
+function segConsolidadoResponsables(): array
+{
+    $out = ['responsables' => [], 'sin_responsable' => null, 'totales' => []];
+
+    try {
+        // --- Responsables con parroquias asignadas ---
+        $st = db()->prepare("
+            SELECT u.id, u.nombre_completo, u.parroquias_asignadas, r.nombre AS rol
+              FROM usuarios u
+              LEFT JOIN roles r ON r.id = u.rol_id
+             WHERE u.activo = 1
+               AND u.parroquias_asignadas IS NOT NULL
+               AND u.parroquias_asignadas <> ''
+             ORDER BY u.nombre_completo
+        ");
+        $st->execute();
+        $usuarios = $st->fetchAll();
+
+        // Qué parroquia atiende cada quién. Si dos comparten una,
+        // se cuenta en ambos: la responsabilidad es compartida.
+        $asignadas = [];
+        foreach ($usuarios as $u) {
+            $ps = array_filter(array_map('trim', explode(',', $u['parroquias_asignadas'])));
+            if (!$ps) continue;
+            $asignadas[(int)$u['id']] = [
+                'id'         => (int)$u['id'],
+                'nombre'     => $u['nombre_completo'],
+                'rol'        => $u['rol'] ?: '—',
+                'parroquias' => $ps,
+            ];
+        }
+
+        // --- Cifras por parroquia, una sola consulta ---
+        $porParroquia = [];
+        $stP = db()->query("
+            SELECT i.parroquia,
+                   COUNT(DISTINCT i.id) AS edificaciones,
+                   COUNT(DISTINCT CASE WHEN re.completado = 1
+                                       THEN i.id END) AS levantadas,
+                   COUNT(DISTINCT CASE WHEN re.id IS NOT NULL
+                                       THEN i.id END) AS con_levantamiento,
+                   SUM(COALESCE(i.familias, 0)) AS familias,
+                   SUM(COALESCE(i.numero_personas, 0)) AS personas
+              FROM inspecciones i
+              LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+             WHERE i.parroquia IS NOT NULL AND i.parroquia <> ''
+             GROUP BY i.parroquia
+        ");
+        foreach ($stP->fetchAll() as $r) {
+            $porParroquia[$r['parroquia']] = [
+                'edificaciones'     => (int)$r['edificaciones'],
+                'levantadas'        => (int)$r['levantadas'],
+                'con_levantamiento' => (int)$r['con_levantamiento'],
+                'familias'          => (int)$r['familias'],
+                'personas'          => (int)$r['personas'],
+                'aptos'             => 0,
+                'aptos_reparar'     => 0,
+                'trabajos'          => [],
+            ];
+        }
+
+        // --- Apartamentos por parroquia ---
+        $stA = db()->query("
+            SELECT i.parroquia,
+                   COUNT(DISTINCT ap.id) AS aptos,
+                   COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                       THEN ap.id END) AS aptos_reparar
+              FROM inspecciones i
+              JOIN rec_edificio re ON re.inspeccion_id = i.id
+              JOIN rec_piso pi ON pi.edificio_id = re.id
+              JOIN rec_apartamento ap ON ap.piso_id = pi.id
+              LEFT JOIN rec_ambiente am ON am.apartamento_id = ap.id
+             WHERE i.parroquia IS NOT NULL AND i.parroquia <> ''
+             GROUP BY i.parroquia
+        ");
+        foreach ($stA->fetchAll() as $r) {
+            if (!isset($porParroquia[$r['parroquia']])) continue;
+            $porParroquia[$r['parroquia']]['aptos'] = (int)$r['aptos'];
+            $porParroquia[$r['parroquia']]['aptos_reparar'] = (int)$r['aptos_reparar'];
+        }
+
+        // --- Trabajos y metros por parroquia ---
+        $stT = db()->query("
+            SELECT i.parroquia, rr.tipo_trabajo,
+                   SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+              JOIN rec_ambiente am ON am.id = rr.ref_id AND rr.nivel = 'ambiente'
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+              JOIN rec_edificio re ON re.id = pi.edificio_id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+             WHERE rr.metros_cuadrados > 0
+               AND rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+             GROUP BY i.parroquia, rr.tipo_trabajo
+        ");
+        foreach ($stT->fetchAll() as $r) {
+            if (!isset($porParroquia[$r['parroquia']])) continue;
+            $porParroquia[$r['parroquia']]['trabajos'][$r['tipo_trabajo']]
+                = (float)$r['m2'];
+        }
+
+        // --- Sumar por responsable ---
+        $usadas = [];
+        foreach ($asignadas as $u) {
+            $acum = ['edificaciones' => 0, 'levantadas' => 0, 'con_levantamiento' => 0,
+                     'familias' => 0, 'personas' => 0, 'aptos' => 0,
+                     'aptos_reparar' => 0];
+            $trabajos = [];
+            $detalleParr = [];
+
+            foreach ($u['parroquias'] as $pn) {
+                if (!isset($porParroquia[$pn])) {
+                    $detalleParr[] = ['nombre' => $pn, 'edificaciones' => 0,
+                                      'levantadas' => 0, 'aptos_reparar' => 0];
+                    continue;
+                }
+                $d = $porParroquia[$pn];
+                foreach ($acum as $k => $v) $acum[$k] += $d[$k];
+                foreach ($d['trabajos'] as $tk => $m2) {
+                    $trabajos[$tk] = ($trabajos[$tk] ?? 0) + $m2;
+                }
+                $detalleParr[] = [
+                    'nombre'        => $pn,
+                    'edificaciones' => $d['edificaciones'],
+                    'levantadas'    => $d['levantadas'],
+                    'aptos_reparar' => $d['aptos_reparar'],
+                ];
+                $usadas[$pn] = true;
+            }
+
+            // Material que le corresponde.
+            $materiales = [];
+            if ($trabajos) {
+                try {
+                    foreach (recMaterialesPorTrabajo($trabajos) as $mat => $md) {
+                        $materiales[] = [
+                            'material' => $mat,
+                            'cantidad' => $md['cantidad'],
+                            'unidad'   => $md['unidad'],
+                        ];
+                    }
+                } catch (Throwable $e) {}
+            }
+
+            $out['responsables'][] = [
+                'id'          => $u['id'],
+                'nombre'      => $u['nombre'],
+                'rol'         => $u['rol'],
+                'parroquias'  => $detalleParr,
+                'n_parroquias'=> count($u['parroquias']),
+                'cifras'      => $acum,
+                'm2_total'    => round(array_sum($trabajos), 2),
+                'materiales'  => $materiales,
+            ];
+        }
+
+        // --- Parroquias sin responsable asignado ---
+        $huerfanas = [];
+        $acumH = ['edificaciones' => 0, 'levantadas' => 0, 'con_levantamiento' => 0,
+                  'familias' => 0, 'personas' => 0, 'aptos' => 0, 'aptos_reparar' => 0];
+        $trabH = [];
+        foreach ($porParroquia as $pn => $d) {
+            if (isset($usadas[$pn])) continue;
+            $huerfanas[] = ['nombre' => $pn, 'edificaciones' => $d['edificaciones'],
+                            'levantadas' => $d['levantadas'],
+                            'aptos_reparar' => $d['aptos_reparar']];
+            foreach ($acumH as $k => $v) $acumH[$k] += $d[$k];
+            foreach ($d['trabajos'] as $tk => $m2) {
+                $trabH[$tk] = ($trabH[$tk] ?? 0) + $m2;
+            }
+        }
+        if ($huerfanas) {
+            $matH = [];
+            if ($trabH) {
+                try {
+                    foreach (recMaterialesPorTrabajo($trabH) as $mat => $md) {
+                        $matH[] = ['material' => $mat, 'cantidad' => $md['cantidad'],
+                                   'unidad' => $md['unidad']];
+                    }
+                } catch (Throwable $e) {}
+            }
+            $out['sin_responsable'] = [
+                'parroquias'  => $huerfanas,
+                'n_parroquias'=> count($huerfanas),
+                'cifras'      => $acumH,
+                'm2_total'    => round(array_sum($trabH), 2),
+                'materiales'  => $matH,
+            ];
+        }
+
+        // --- Totales del programa ---
+        $tot = ['edificaciones' => 0, 'levantadas' => 0, 'con_levantamiento' => 0,
+                'familias' => 0, 'personas' => 0, 'aptos' => 0, 'aptos_reparar' => 0];
+        $trabTot = [];
+        foreach ($porParroquia as $d) {
+            foreach ($tot as $k => $v) $tot[$k] += $d[$k];
+            foreach ($d['trabajos'] as $tk => $m2) {
+                $trabTot[$tk] = ($trabTot[$tk] ?? 0) + $m2;
+            }
+        }
+        $matTot = [];
+        if ($trabTot) {
+            try {
+                foreach (recMaterialesPorTrabajo($trabTot) as $mat => $md) {
+                    $matTot[] = ['material' => $mat, 'cantidad' => $md['cantidad'],
+                                 'unidad' => $md['unidad']];
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // Nombres legibles de los trabajos.
+        $nombresT = [];
+        try {
+            foreach (recTiposTrabajo() as $t) $nombresT[$t['clave']] = $t['nombre'];
+        } catch (Throwable $e) {}
+        $trabajosLegibles = [];
+        foreach ($trabTot as $tk => $m2) {
+            $trabajosLegibles[] = ['nombre' => $nombresT[$tk] ?? $tk,
+                                   'm2' => round($m2, 2)];
+        }
+
+        $out['totales'] = [
+            'cifras'      => $tot,
+            'm2_total'    => round(array_sum($trabTot), 2),
+            'materiales'  => $matTot,
+            'trabajos'    => $trabajosLegibles,
+            'parroquias'  => count($porParroquia),
+        ];
+
+    } catch (Throwable $e) { /* devolver lo que se haya podido reunir */ }
+
+    return $out;
+}
+
 function segReporteEjecutivo(array $filtros = []): array
 {
     $conds = [];
@@ -3921,6 +4164,7 @@ function recArbolAvance(int $edificioId): array
                 'fotos_antes'   => (int)$r['amb_fotos_antes'],
                 'fotos_durante' => (int)$r['amb_fotos_durante'],
                 'tiene_foto_durante' => ((int)$r['amb_fotos_durante']) > 0,
+                'm2_por_parte'  => [],   // se llena más abajo
             ];
         }
     }
@@ -4037,6 +4281,41 @@ function recArbolAvance(int $edificioId): array
         try { $materiales = recCalcularMateriales($m2['por_tipo']); }
         catch (Throwable $e) { $materiales = []; }
     }
+
+    // Metros de cada superficie por ambiente. Sirven para mostrar,
+    // junto a cada foto, cuántos metros hay que reparar de esa parte.
+    try {
+        $stM2 = db()->prepare("
+            SELECT rr.ref_id, rr.tipo_superficie,
+                   SUM(rr.metros_cuadrados) AS m2
+              FROM rec_reparacion rr
+              JOIN rec_ambiente am ON am.id = rr.ref_id
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND rr.nivel = 'ambiente'
+               AND rr.metros_cuadrados > 0
+             GROUP BY rr.ref_id, rr.tipo_superficie
+        ");
+        $stM2->execute(['e' => $edificioId]);
+
+        $m2Amb = [];
+        foreach ($stM2->fetchAll() as $r) {
+            $m2Amb[(int)$r['ref_id']][$r['tipo_superficie']] = round((float)$r['m2'], 2);
+        }
+
+        foreach ($pisos as $pid => $pp) {
+            foreach ($pp['apartamentos'] as $aid => $aa) {
+                foreach ($aa['ambientes'] as $k => $amb) {
+                    $id = (int)$amb['id'];
+                    if (isset($m2Amb[$id])) {
+                        $pisos[$pid]['apartamentos'][$aid]['ambientes'][$k]['m2_por_parte']
+                            = $m2Amb[$id];
+                    }
+                }
+            }
+        }
+    } catch (Throwable $e) { /* sin metros por parte */ }
 
     // Fotos que no cuelgan de un ambiente: elementos del piso y del
     // edificio (etiqueta, azotea, tanques). Antes no se mostraban.
