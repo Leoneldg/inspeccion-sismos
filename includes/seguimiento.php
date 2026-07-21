@@ -3051,6 +3051,45 @@ function segMaterialPorEtapa(array $trabajos): array
         }
     }
 
+    // --- Total global ---
+    // El cemento, la arena y el agua salen en construcción y en
+    // revestimiento: aquí se suman para tener el pedido completo.
+    $total = [];
+    foreach (['construccion', 'revestimiento'] as $et) {
+        foreach ($out[$et]['materiales'] as $m) {
+            $k = $m['material'];
+            if (!isset($total[$k])) {
+                $total[$k] = ['cantidad' => 0.0, 'unidad' => $m['unidad']];
+            }
+            $total[$k]['cantidad'] += $m['cantidad'];
+        }
+    }
+
+    // Los sacos de escombro también son material a pedir.
+    if ($out['demolicion']['sacos'] > 0) {
+        $total['Saco para escombros'] = [
+            'cantidad' => (float)$out['demolicion']['sacos'],
+            'unidad'   => 'unidad',
+        ];
+    }
+
+    // Se redondea después de sumar, no antes.
+    foreach ($total as $k => $d) {
+        $total[$k]['cantidad'] = in_array($d['unidad'], $enteros, true)
+            ? (float)ceil($d['cantidad'])
+            : round($d['cantidad'], 2);
+    }
+    ksort($total);
+
+    $out['total'] = [];
+    foreach ($total as $mat => $d) {
+        $out['total'][] = [
+            'material' => $mat,
+            'cantidad' => $d['cantidad'],
+            'unidad'   => $d['unidad'],
+        ];
+    }
+
     if ($sinEtapa) {
         $out['avisos'] = ['materiales_sin_etapa' => array_keys($sinEtapa)];
     }

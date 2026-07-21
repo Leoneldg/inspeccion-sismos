@@ -201,6 +201,48 @@ ob_start();
     </div>
   </div>
 
+  <!-- Desglose de los metros por etapa -->
+  <?php
+  $etD = $c['por_etapa'] ?? [];
+  $mDem = $etD['demolicion']['m2'] ?? 0;
+  $mCon = $etD['construccion']['m2'] ?? 0;
+  $mRev = $etD['revestimiento']['m2'] ?? 0;
+  ?>
+  <?php if ($mDem > 0 || $mCon > 0 || $mRev > 0): ?>
+  <div style="border:1px solid #e0e4ee;border-radius:8px;padding:10px 14px;
+              margin-bottom:13px;background:#fafbfe;">
+    <div style="font-size:10px;text-transform:uppercase;color:#55617f;
+                font-weight:700;margin-bottom:7px;letter-spacing:.3px;">
+      Los <?= num($m2Real, 0) ?> m² de pared se traducen en:
+    </div>
+    <div style="display:table;width:100%;border-spacing:6px 0;">
+      <div style="display:table-cell;width:33%;text-align:center;
+                  border-right:1px solid #e5e8f0;">
+        <div style="font-size:20px;font-weight:800;color:#A61C1C;line-height:1;">
+          <?= num($mDem, 0) ?></div>
+        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
+          m² a demoler</div>
+      </div>
+      <div style="display:table-cell;width:33%;text-align:center;
+                  border-right:1px solid #e5e8f0;">
+        <div style="font-size:20px;font-weight:800;color:#22366F;line-height:1;">
+          <?= num($mCon, 0) ?></div>
+        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
+          m² a levantar</div>
+      </div>
+      <div style="display:table-cell;width:33%;text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:#a8871f;line-height:1;">
+          <?= num($mRev, 0) ?></div>
+        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
+          m² a frisar y pintar</div>
+      </div>
+    </div>
+    <div style="font-size:8.5px;color:#767c94;margin-top:7px;">
+      El revestimiento es mayor porque cada pared se cubre por las dos caras.
+    </div>
+  </div>
+  <?php endif; ?>
+
   <!-- Material por etapa -->
   <?php
   $et = $c['por_etapa'] ?? [];
@@ -288,6 +330,34 @@ ob_start();
         <?php while ($i % 4 !== 0): ?>
           <div class="m" style="border:0;background:none;"></div>
         <?php $i++; endwhile; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- TOTAL CONSOLIDADO -->
+    <?php $tot = $et['total'] ?? []; ?>
+    <?php if ($tot): ?>
+    <div style="margin-top:13px;padding-top:12px;border-top:2px solid #C9A227;">
+      <div style="font-size:14px;font-weight:800;color:#22366F;
+                  margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px;">
+        Total a pedir
+      </div>
+      <div class="mat">
+        <?php $i = 0; foreach ($tot as $m): ?>
+          <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
+          <div class="m" style="border-color:#22366F55;background:#f7f9fd;">
+            <div class="c" style="font-size:24px;">
+              <?= num($m['cantidad'], $m['unidad'] === 'm3' ? 2 : 0) ?></div>
+            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
+          </div>
+        <?php $i++; endforeach; ?>
+        <?php while ($i % 4 !== 0): ?>
+          <div class="m" style="border:0;background:none;"></div>
+        <?php $i++; endwhile; ?>
+      </div>
+      <div style="font-size:8.5px;color:#767c94;margin-top:6px;">
+        Suma de las tres etapas. El cemento y la arena aparecen en varias,
+        aquí van consolidados.
       </div>
     </div>
     <?php endif; ?>
