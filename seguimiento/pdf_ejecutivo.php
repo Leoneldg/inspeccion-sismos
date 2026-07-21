@@ -105,8 +105,8 @@ ob_start();
   .fila .col { display: table-cell; vertical-align: top; }
 
   .caja { border: 1px solid #e0e4ee; border-radius: 8px; padding: 8px 11px; }
-  .caja h3 { margin: 0 0 8px; font-size: 11px; color: #22366F;
-             text-transform: uppercase; letter-spacing: .3px; }
+  .caja h3 { margin: 0 0 9px; font-size: 13px; color: #22366F;
+             text-transform: uppercase; letter-spacing: .4px; font-weight: 800; }
 
   .leyenda { font-size: 9.5px; }
   .leyenda .li { padding: 3px 0; }
@@ -115,9 +115,10 @@ ob_start();
   .leyenda .v { float: right; font-weight: 700; }
 
   table.t { width: 100%; border-collapse: collapse; }
-  table.t th { font-size: 8px; color: #767c94; text-transform: uppercase;
-               text-align: left; padding: 3px 4px; border-bottom: 1px solid #e0e4ee; }
-  table.t td { font-size: 9.5px; padding: 4px; border-bottom: 1px solid #f2f4f8; }
+  table.t th { font-size: 10px; color: #55617f; text-transform: uppercase;
+               text-align: left; padding: 5px 6px; font-weight: 700;
+               border-bottom: 1px solid #dde2ec; letter-spacing: .3px; }
+  table.t td { font-size: 12px; padding: 6px; border-bottom: 1px solid #f2f4f8; }
 
   .mat-cab { background: #C9A227; color: #22366F; padding: 11px 16px;
              border-radius: 8px 8px 0 0; font-size: 16px; font-weight: 800;
@@ -173,10 +174,12 @@ ob_start();
 
   <!-- Las dos cifras de trabajo -->
   <?php
-  // El metraje registrado es la superficie de PARED. El revestimiento
-  // sale mayor porque cada pared se frisa por las dos caras: son
-  // magnitudes distintas y no deben confundirse.
-  $m2Real = $c['m2_total'];
+  // Total de trabajo a ejecutar: la suma de las tres fases. Una misma
+  // pared se cuenta en varias porque pasa por varias etapas.
+  $etK  = $c['por_etapa'] ?? [];
+  $m2Real = ($etK['demolicion']['m2'] ?? 0)
+          + ($etK['construccion']['m2'] ?? 0)
+          + ($etK['revestimiento']['m2'] ?? 0);
   ?>
   <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:10px;">
     <div style="display:table-cell;width:50%;background:#C9A227;
@@ -196,7 +199,7 @@ ob_start();
       </div>
       <div style="font-size:9.5px;color:#ffffffcc;text-transform:uppercase;
                   margin-top:5px;letter-spacing:.3px;">
-        m² de pared a reparar
+        m² totales a intervenir
       </div>
     </div>
   </div>
@@ -331,7 +334,7 @@ ob_start();
 
   <!-- Torta y parroquias, lado a lado -->
   <div class="fila">
-    <div class="col" style="width:38%;">
+    <div class="col" style="width:32%;">
       <div class="caja">
         <h3>Apartamentos</h3>
         <?php
@@ -344,7 +347,7 @@ ob_start();
             $svg .= sectorTorta(75, 75, 68, $angRep, 360, '#2E7D32');
         ?>
         <div style="text-align:center;margin-bottom:9px;">
-          <svg width="152" height="152" viewBox="0 0 150 150">
+          <svg width="126" height="126" viewBox="0 0 150 150">
             <?= $svg ?>
             <circle cx="75" cy="75" r="36" fill="#fff"/>
             <text x="75" y="71" text-anchor="middle" font-size="21"
@@ -354,8 +357,8 @@ ob_start();
           </svg>
         </div>
 
-        <div style="font-size:11.5px;">
-          <div style="padding:5px 0;border-bottom:1px solid #f2f4f8;">
+        <div style="font-size:12.5px;">
+          <div style="padding:6px 0;border-bottom:1px solid #f2f4f8;">
             <span style="display:inline-block;width:11px;height:11px;
                   border-radius:2px;background:#C9A227;margin-right:6px;"></span>
             <strong style="color:#a8871f;">A reparar</strong>
@@ -378,16 +381,16 @@ ob_start();
       </div>
     </div>
 
-    <div class="col" style="width:62%;">
+    <div class="col" style="width:68%;">
       <div class="caja">
         <h3>Dónde está el trabajo</h3>
         <table class="t">
           <thead><tr>
             <th>Parroquia</th>
-            <th style="width:52px;text-align:center;">Edif.</th>
-            <th style="width:60px;text-align:center;">Aptos.</th>
-            <th style="width:62px;text-align:center;">A reparar</th>
-            <th style="width:58px;text-align:right;">m²</th>
+            <th style="width:60px;text-align:center;">Edif.</th>
+            <th style="width:68px;text-align:center;">Aptos.</th>
+            <th style="width:72px;text-align:center;">A reparar</th>
+            <th style="width:66px;text-align:right;">m²</th>
           </tr></thead>
           <tbody>
           <?php foreach ($topParr as $pn => $p): ?>
