@@ -258,19 +258,12 @@ include __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="field" style="margin:0;">
-                <label class="text-sm">Estado</label>
-                <select id="f-estado" class="form-control" style="width:160px;" onchange="filtrarParroquias(); ejecutarBusqueda();">
-                    <?php
-                    $estadosLista = catalogoEstados();
-                    foreach ($estadosLista as $est):
-                        // Predeterminado siempre en Distrito Capital.
-                        $sel = ($est === 'Distrito Capital') ? 'selected' : '';
-                    ?>
-                    <option value="<?= e($est) ?>" <?= $sel ?>><?= e($est) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+            <?php
+            // El programa opera solo en Distrito Capital: el selector de
+            // estado se mantiene oculto para no ocupar espacio, pero el
+            // campo sigue existiendo porque el buscador lo lee.
+            ?>
+            <input type="hidden" id="f-estado" value="<?= e(ESTADO_UNICO) ?>">
             <div class="field" style="margin:0;">
                 <label class="text-sm">Uso</label>
                 <select id="f-uso" class="form-control" style="width:180px;" onchange="ejecutarBusqueda()">
@@ -1024,30 +1017,9 @@ async /**
  * Antes salían todas mezcladas, lo que confundía al buscar.
  */
 function filtrarParroquias() {
-    const estado = document.getElementById('f-estado').value;
-    const sel = document.getElementById('f-parroquia');
-    if (!sel) return;
-
-    let visibles = 0;
-    Array.from(sel.options).forEach(op => {
-        if (!op.value) { op.hidden = false; return; }   // "Todas las parroquias"
-        const suyo = op.dataset.estado || '';
-        const mostrar = !estado || suyo === estado;
-        op.hidden = !mostrar;
-        if (mostrar) visibles++;
-    });
-
-    // Si la parroquia elegida no pertenece al estado, se limpia.
-    const actual = sel.selectedOptions[0];
-    if (actual && actual.hidden) sel.value = '';
-
-    // Avisar si el estado no tiene parroquias con inspecciones.
-    const op0 = sel.options[0];
-    if (op0) {
-        op0.textContent = visibles > 0
-            ? 'Todas las parroquias'
-            : 'Sin parroquias en este estado';
-    }
+    // Todas las parroquias son de Distrito Capital: ya no hace falta
+    // filtrarlas por estado. Se conserva la función porque otras
+    // partes la invocan.
 }
 
 // Busca mientras se escribe, esperando a que la persona termine de

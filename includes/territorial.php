@@ -19,6 +19,19 @@
 
 require_once __DIR__ . '/db.php';
 
+/**
+ * Estado único del programa.
+ *
+ * Todo el sistema opera en Distrito Capital: listados, reportes,
+ * cálculos y filtros se limitan a ese estado.
+ *
+ * Para operar en otro estado, cambie el valor. Para volver al modo
+ * multi-estado, ponga cadena vacía.
+ */
+if (!defined('ESTADO_UNICO')) {
+    define('ESTADO_UNICO', 'DISTRITO CAPITAL');
+}
+
 /** Carga (cacheada) la jerarquía territorial completa del país. */
 function territorio(): array
 {
@@ -103,6 +116,18 @@ function estadoDelUsuario(): ?string
  */
 function scopeEstadoSql(string $alias = ''): array
 {
+    // El programa opera únicamente en Distrito Capital. Todo listado,
+    // reporte y cálculo se limita a ese estado, sin importar el rol.
+    // Si algún día se amplía a otro estado, cambie o quite esta línea.
+    if (defined('ESTADO_UNICO') && ESTADO_UNICO !== '') {
+        $col = ($alias !== '') ? ($alias . '.estado') : 'estado';
+        // Se compara sin distinguir mayúsculas ni espacios sobrantes:
+        // en los datos aparece tanto "DISTRITO CAPITAL" como
+        // "Distrito Capital", y ambos deben entrar.
+        return ['UPPER(TRIM(' . $col . ')) = :scope_estado',
+                ['scope_estado' => mb_strtoupper(trim(ESTADO_UNICO), 'UTF-8')]];
+    }
+
     if (usuarioEsMaster()) {
         return ['', []];
     }
