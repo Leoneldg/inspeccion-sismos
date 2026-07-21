@@ -49,7 +49,13 @@ foreach ($lista as $pa) {
     $dd = recPanelParroquia($estado, $pa);
     $dd['progreso'] = asigProgresoPorMiembro($estado, $pa, 'gdc');
     $dd['asigs']    = asigDeParroquia($estado, $pa);
-    $ee = $dd['edificaciones'] ?? [];
+    // Este informe es de RECONSTRUCCIÓN: solo cuentan los edificios cuyo
+    // levantamiento técnico ya fue CERRADO (completado = 1). Los que
+    // todavía están en proceso de levantamiento no se contabilizan aquí.
+    $ee = array_values(array_filter(
+        $dd['edificaciones'] ?? [],
+        fn($x) => (int)($x['completado'] ?? 0) === 1
+    ));
     recOrdenarPorColor($ee);
     $dd['edificaciones'] = $ee;
     $n  = count($ee);

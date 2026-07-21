@@ -147,6 +147,7 @@ ob_start();
         <?php if ($i > 0 && $i % 3 === 0): ?></div><div class="mat"><?php endif; ?>
         <div class="m">
           <div class="c"><?= num($m['cantidad']) ?></div>
+          <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#8a6d1a', '8.5px') ?>
           <div class="u"><?= esc($m['unidad']) ?> · <?= esc($m['material']) ?></div>
         </div>
       <?php $i++; endforeach; ?>

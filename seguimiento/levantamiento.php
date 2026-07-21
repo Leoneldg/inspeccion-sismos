@@ -1047,6 +1047,39 @@ function subirFotoArea(areaKey, btn) {
 }
 
 // Calcular materiales de un área según m² y tipo de trabajo.
+/* ===================================================================
+ * CEMENTO GRIS · BADGE DE SACOS DE 45 KG (lado cliente)
+ * Espejo de badgeSacosCementoGris() de includes/seguimiento.php.
+ * Si la receta ya viene en 'saco', esa cifra YA cuenta sacos de 45 kg
+ * y no se vuelve a dividir. En kg se divide entre 45.
+ * =================================================================== */
+const KG_POR_SACO_CEMENTO = 45;
+
+function esCementoGrisJS(material) {
+    const m = String(material || '').toLowerCase();
+    return m.indexOf('cemento') !== -1 && m.indexOf('gris') !== -1;
+}
+
+function sacosCementoGrisJS(cantidad, unidad) {
+    const c = parseFloat(cantidad) || 0;
+    if (c <= 0) return 0;
+    const u = String(unidad || 'kg').toLowerCase().trim();
+    if (u === 'saco' || u === 'sacos') return Math.ceil(c);
+    return Math.ceil(c / KG_POR_SACO_CEMENTO);
+}
+
+/** Badge listo para insertar debajo del indicador. '' si no aplica. */
+function badgeSacosCementoGrisJS(material, cantidad, unidad) {
+    if (!esCementoGrisJS(material)) return '';
+    const s = sacosCementoGrisJS(cantidad, unidad);
+    if (s <= 0) return '';
+    return '<div style="display:inline-block;background:#8a6d1a14;'
+         + 'border:1px solid #8a6d1a3a;border-radius:20px;padding:2px 8px;'
+         + 'margin-top:3px;font-size:11px;color:#8a6d1a;font-weight:700;'
+         + 'line-height:1.3;">Cantidad de sacos de 45 kg: '
+         + s.toLocaleString('es-VE') + '</div>';
+}
+
 async function calcularMatArea(inp) {
     const row = inp.closest('.area-row');
 
@@ -1097,8 +1130,7 @@ async function calcularMatArea(inp) {
         const claves = Object.keys(total).sort();
         if (!claves.length) { cont.style.display = 'none'; return; }
 
-        // El cemento se compra en sacos: se muestra la equivalencia.
-        const KG_SACO = 45;
+        // El cemento gris se compra en sacos de 45 kg: se muestra el badge.
         cont.innerHTML = '<b><i class="bi bi-box-seam"></i> Materiales estimados</b>'
             + (partidas.length > 1
                 ? ' <span style="color:#767c94;font-weight:400;">('
@@ -1108,11 +1140,7 @@ async function calcularMatArea(inp) {
                 const d = total[k];
                 const n = d.cant.toLocaleString('es-VE',
                     { maximumFractionDigits: d.uni === 'm3' ? 2 : 0 });
-                let extra = '';
-                if (d.uni === 'kg' && /cemento/i.test(k)) {
-                    extra = ' <span style="color:#8a6d1a;">('
-                          + Math.ceil(d.cant / KG_SACO) + ' sacos)</span>';
-                }
+                const extra = badgeSacosCementoGrisJS(k, d.cant, d.uni);
                 return '• ' + k + ': <b>' + n + '</b> ' + d.uni + extra;
             }).join('<br>');
         cont.style.display = 'block';
@@ -3085,7 +3113,8 @@ function recalcularMateriales(row) {
         c = enteros.includes(r.unidad) ? Math.ceil(c) : Math.round(c * 100) / 100;
         return '<span style="display:inline-block;background:#eef2fb;border-radius:14px;'
              + 'padding:2px 9px;margin:2px;font-size:11.5px;">'
-             + r.material + ': <b>' + c.toLocaleString('es-VE') + '</b> ' + r.unidad + '</span>';
+             + r.material + ': <b>' + c.toLocaleString('es-VE') + '</b> ' + r.unidad
+             + badgeSacosCementoGrisJS(r.material, c, r.unidad) + '</span>';
     }).join('');
 
     cont.innerHTML = '<div style="margin-top:5px;"><i class="bi bi-box-seam"></i> '
@@ -3876,10 +3905,14 @@ async function cargarResumen() {
             + '<th style="text-align:left;padding:9px 12px;font-size:12px;text-transform:uppercase;">Material</th>'
             + '<th style="text-align:right;padding:9px 12px;font-size:12px;text-transform:uppercase;">Cantidad</th></tr>';
         mats.forEach(([m, c], i) => {
+            // La clave trae la unidad entre parentesis: "Cemento gris (saco)".
+            const uniM = (m.match(/\(([^)]+)\)\s*$/) || [,'kg'])[1].trim();
+            const badgeM = badgeSacosCementoGrisJS(m, c, uniM);
             html += '<tr style="background:' + (i % 2 ? '#f7f9fd' : '#fff') + ';">'
                 + '<td style="padding:8px 12px;font-size:13.5px;">' + m + '</td>'
                 + '<td style="padding:8px 12px;text-align:right;font-weight:700;color:#22366F;font-size:14px;">'
-                + Number(c).toLocaleString('es-VE') + '</td></tr>';
+                + Number(c).toLocaleString('es-VE')
+                + (badgeM ? '<br>' + badgeM : '') + '</td></tr>';
         });
         html += '</table>'
             + '<div style="font-size:11.5px;color:#8a6d1a;margin-top:9px;">'

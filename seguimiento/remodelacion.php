@@ -373,6 +373,37 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+/* ===================================================================
+ * CEMENTO GRIS · BADGE DE SACOS DE 45 KG (lado cliente)
+ * Espejo de badgeSacosCementoGris() de includes/seguimiento.php.
+ * =================================================================== */
+const KG_POR_SACO_CEMENTO = 45;
+
+function esCementoGrisJS(material) {
+    const m = String(material || '').toLowerCase();
+    return m.indexOf('cemento') !== -1 && m.indexOf('gris') !== -1;
+}
+
+function sacosCementoGrisJS(cantidad, unidad) {
+    const c = parseFloat(cantidad) || 0;
+    if (c <= 0) return 0;
+    const u = String(unidad || 'kg').toLowerCase().trim();
+    if (u === 'saco' || u === 'sacos') return Math.ceil(c);
+    return Math.ceil(c / KG_POR_SACO_CEMENTO);
+}
+
+function badgeSacosCementoGrisJS(material, cantidad, unidad) {
+    if (!esCementoGrisJS(material)) return '';
+    const s = sacosCementoGrisJS(cantidad, unidad);
+    if (s <= 0) return '';
+    return '<div style="display:inline-block;background:#8a6d1a14;'
+         + 'border:1px solid #8a6d1a3a;border-radius:20px;padding:2px 8px;'
+         + 'margin-top:3px;font-size:11px;color:#8a6d1a;font-weight:700;'
+         + 'line-height:1.3;">Cantidad de sacos de 45 kg: '
+         + s.toLocaleString('es-VE') + '</div>';
+}
+</script>
+<script>
 const INSPECCION_ID = <?= $inspeccionId ?>;
 const EDIFICIO_ID = <?= $edificioId ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
@@ -928,11 +959,13 @@ function pintarTrabajos(lista) {
                 + 'font-weight:700;margin-bottom:6px;">Material que necesita</div>'
                 + '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
             t.materiales.forEach(m => {
+                const badgeCem = badgeSacosCementoGrisJS(m.material, m.cantidad, m.unidad);
                 html += '<span style="background:#f7f9fd;border:1px solid #e5e8f0;'
                     + 'border-radius:7px;padding:5px 10px;font-size:11.5px;">'
                     + '<strong style="color:#22366F;">'
                     + m.cantidad.toLocaleString('es-VE') + '</strong> '
-                    + m.unidad + ' · ' + m.material + '</span>';
+                    + m.unidad + ' · ' + m.material
+                    + (badgeCem ? '<br>' + badgeCem : '') + '</span>';
             });
             html += '</div></div>';
         }

@@ -5857,3 +5857,103 @@ function segPuntosDeParroquia(string $estado, string $parroquia, string $fase = 
     $st->execute($params);
     return $st->fetchAll();
 }
+
+/* ===================================================================
+ * CEMENTO GRIS · EQUIVALENCIA EN SACOS DE 45 KG
+ * ===================================================================
+ * El cemento gris se calcula internamente en dos unidades distintas
+ * segun la receta: en 'kg' (recetas por peso) y en 'saco' (recetas de
+ * pared/friso, donde el "saco" de la receta es la unidad de obra).
+ *
+ * En obra el material se compra SIEMPRE en sacos de 45 kg, asi que
+ * cada indicador de Cemento gris muestra debajo un badge con la
+ * cantidad de sacos de 45 kg que hay que pedir.
+ *
+ * Se redondea hacia arriba: no se puede pedir medio saco.
+ * =================================================================== */
+
+/** Kilos que trae un saco comercial de cemento gris. */
+if (!defined('KG_POR_SACO_CEMENTO')) {
+    define('KG_POR_SACO_CEMENTO', 45);
+}
+
+/**
+ * ¿Este renglon es Cemento gris?
+ *
+ * Se compara de forma tolerante (sin distinguir mayusculas ni acentos)
+ * porque el nombre viaja como texto libre desde la tabla de recetas y
+ * en algunas vistas llega como "Cemento gris (saco)".
+ */
+function esCementoGris(?string $material): bool
+{
+    if ($material === null || $material === '') return false;
+    $m = mb_strtolower($material, 'UTF-8');
+    return (strpos($m, 'cemento') !== false) && (strpos($m, 'gris') !== false);
+}
+
+/**
+ * Sacos de 45 kg que hacen falta para una cantidad dada de cemento gris.
+ *
+ * $unidad indica en que viene $cantidad:
+ *   'kg'   → se divide entre 45 para pasar a sacos.
+ *   'saco' → la receta ya cuenta sacos de 45 kg: se usa tal cual.
+ *
+ * Siempre redondea hacia arriba (no se compra fraccion de saco).
+ */
+function sacosCementoGris(float $cantidad, string $unidad = 'kg'): int
+{
+    if ($cantidad <= 0) return 0;
+    $u = mb_strtolower(trim($unidad), 'UTF-8');
+
+    // La receta ya viene expresada en sacos: no se vuelve a dividir.
+    if ($u === 'saco' || $u === 'sacos') {
+        return (int)ceil($cantidad);
+    }
+
+    // Cualquier otra unidad de peso se convierte desde kilos.
+    return (int)ceil($cantidad / KG_POR_SACO_CEMENTO);
+}
+
+/**
+ * Texto del badge, ya formateado al estilo venezolano (punto de miles).
+ * Devuelve '' cuando no aplica, para poder ocultar el badge sin logica extra.
+ */
+function textoSacosCementoGris(float $cantidad, string $unidad = 'kg'): string
+{
+    $sacos = sacosCementoGris($cantidad, $unidad);
+    if ($sacos <= 0) return '';
+    return 'Cantidad de sacos de 45 kg: ' . number_format($sacos, 0, ',', '.');
+}
+
+/**
+ * Badge HTML listo para pintar debajo de un indicador de Cemento gris.
+ *
+ * $color permite adaptarlo a la seccion donde se muestra (azul, dorado…).
+ * Los estilos van en linea porque varias de estas vistas se imprimen con
+ * wkhtmltopdf, que no carga la hoja de estilos del sistema.
+ *
+ * Devuelve '' si el renglon no es cemento gris o si no hay cantidad,
+ * de modo que se puede llamar sin condicionales en la vista.
+ */
+function badgeSacosCementoGris(
+    ?string $material,
+    float $cantidad,
+    string $unidad = 'kg',
+    string $color = '#8a6d1a',
+    string $fontSize = '9px'
+): string {
+    if (!esCementoGris($material)) return '';
+
+    $texto = textoSacosCementoGris($cantidad, $unidad);
+    if ($texto === '') return '';
+
+    $c = htmlspecialchars($color, ENT_QUOTES, 'UTF-8');
+    $f = htmlspecialchars($fontSize, ENT_QUOTES, 'UTF-8');
+
+    return '<div style="display:inline-block;background:' . $c . '14;'
+         . 'border:1px solid ' . $c . '3a;border-radius:20px;'
+         . 'padding:2px 8px;margin-top:3px;font-size:' . $f . ';'
+         . 'color:' . $c . ';font-weight:700;line-height:1.3;">'
+         . htmlspecialchars($texto, ENT_QUOTES, 'UTF-8')
+         . '</div>';
+}

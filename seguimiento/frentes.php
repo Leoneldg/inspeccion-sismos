@@ -161,9 +161,16 @@ include __DIR__ . '/../includes/header.php';
 <!-- TOTALES -->
 <div class="fr-card">
   <div class="fr-body">
-    <div style="font-weight:700;color:#22366F;margin-bottom:12px;">
-      <i class="bi bi-diagram-3-fill"></i>
-      <?= $esResponsable ? 'Mis frentes de trabajo' : 'Frentes de trabajo' ?>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div style="font-weight:700;color:#22366F;">
+        <i class="bi bi-diagram-3-fill"></i>
+        <?= $esResponsable ? 'Mis frentes de trabajo' : 'Frentes de trabajo' ?>
+      </div>
+      <?php if ($frentes): ?>
+      <a href="<?= APP_URL_BASE ?>seguimiento/pdf_frentes.php" target="_blank" class="btn btn-outline btn-sm">
+        <i class="bi bi-file-earmark-pdf-fill"></i> Imprimir PDF
+      </a>
+      <?php endif; ?>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
       <div style="flex:1;min-width:120px;text-align:center;padding:15px 10px;border-radius:11px;
