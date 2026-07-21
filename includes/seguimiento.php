@@ -4681,10 +4681,10 @@ function recAsegurarIngeniero(): void
 function recIngenierosActivos(): array
 {
     try {
-        $st = db()->query("SELECT id, nombre, cedula
+        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula
                              FROM ingenieros
                             WHERE activo = 1
-                            ORDER BY nombre");
+                            ORDER BY nombre_completo");
         return $st->fetchAll() ?: [];
     } catch (Throwable $e) { return []; }
 }
@@ -4694,7 +4694,10 @@ function recIngenieroDe(int $edificioId): ?array
 {
     recAsegurarIngeniero();
     try {
-        $st = db()->prepare("SELECT ing.id, ing.nombre, ing.cedula, ing.telefono
+        $st = db()->prepare("SELECT ing.id,
+                                    ing.nombre_completo AS nombre,
+                                    ing.cedula,
+                                    ing.telefono
                                FROM rec_edificio re
                                JOIN ingenieros ing ON ing.id = re.ingeniero_id
                               WHERE re.id = :e");
