@@ -16,14 +16,14 @@ define('DB_PASS',   getenv('DB_PASS')   ?: 'root');
 // ---------------------------------------------------------------------
 // Aplicación
 // ---------------------------------------------------------------------
-define('APP_NAME', 'Inspección de Edificaciones Post-Sismo');
+define('APP_NAME', 'Gestión de Obras Avanzadas');
 // Ruta base donde se sirve la aplicación. Se puede fijar con la variable de
 // entorno APP_URL_BASE (recomendado en producción, para no tener que tocar
 // código si el despliegue cambia de subcarpeta o pasa a la raíz del
 // dominio); si no está definida, usa '/inspecciones-sismos/' por defecto.
 // IMPORTANTE: debe terminar en '/', y si se sirve desde la raíz del
 // dominio debe ser exactamente '/'.
-define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/inspeccion-sismos/');
+define('APP_URL_BASE', getenv('APP_URL_BASE') ?: '/');
 define('APP_TIMEZONE', 'America/Caracas');
 
 // Clave para firmar el enlace público del PDF que se codifica en el QR de
