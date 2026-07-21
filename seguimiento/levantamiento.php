@@ -2276,7 +2276,7 @@ function pintarAmbientesLocales(cont, datos, aptoId) {
             + '<button type="button" class="btn btn-outline btn-sm" '
             + 'onclick="fotoAmbienteLocal(' + am.id + ', \'' + am.etiqueta + '\', ' + aptoId + ')">'
             + '<i class="bi bi-camera"></i> Foto</button>'
-            + '<span class="amb-fotos-local" id="amb-fotos-' + am.id + '" '
+            + '<span class="amb-fotos amb-fotos-local" id="amb-fotos-' + am.id + '" '
             + 'style="display:flex;gap:5px;flex-wrap:wrap;"></span>'
             + '</div>';
     });
@@ -2623,7 +2623,11 @@ function queFaltaEnApto(cuerpo) {
         row.querySelectorAll('[data-sup]').forEach(i => { m2 += aNumero(i.value); });
         if (m2 <= 0) faltan.push('· ' + et + ': los metros cuadrados');
 
-        if (row.querySelectorAll('.amb-fotos img').length === 0) {
+        // Se cuentan las fotos subidas y las que esperan señal.
+        const nFotos = row.querySelectorAll('.amb-fotos img').length
+                     + row.querySelectorAll('.amb-fotos-local img').length
+                     + row.querySelectorAll('.foto-pendiente').length;
+        if (nFotos === 0) {
             faltan.push('· ' + et + ': la foto del daño');
         }
     });
@@ -3274,9 +3278,9 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
             { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
               foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
             'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
-        if (cont) cont.insertAdjacentHTML('beforeend',
-            '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
-            + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
+        // La foto se muestra igual que si se hubiera subido: la
+        // validación cuenta imágenes, no textos.
+        if (cont) miniFotoPendiente(cont, archivo, parte);
         return;
     }
 
@@ -3299,6 +3303,7 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
                     { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
                       foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
                     'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
+                if (cont) miniFotoPendiente(cont, archivo, parte);
                 alert('El servidor no respondió bien.\n\nLa foto quedó guardada en el teléfono y se subirá después.');
             } else {
                 alert('El servidor respondió algo inesperado. La foto está guardada en el teléfono.');
@@ -3321,13 +3326,37 @@ async function enviarFoto(archivo, destino, parte, desdeCamara) {
                 { nivel: destino.nivel, ref_id: destino.refId, parte: parte || '',
                   foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
                 'Foto ' + (parte || '') + ' · ' + destino.nivel + ' #' + destino.refId);
-            if (cont) cont.insertAdjacentHTML('beforeend',
-                '<div style="text-align:center;font-size:11px;color:#8a6d1a;padding:4px 8px;">'
-                + '<i class="bi bi-phone-fill"></i><br>En el teléfono</div>');
+            // Se muestra la foto real, no un texto: la validación
+            // cuenta imágenes para saber si el ambiente está completo.
+            if (cont) miniFotoPendiente(cont, archivo, parte);
         } else {
             alert('Se perdió la conexión.\n\nLa foto está guardada en el teléfono.');
         }
     }
+}
+
+/**
+ * Muestra la foto que quedó en el teléfono esperando señal.
+ *
+ * Es importante que sea un <img> real: la validación cuenta las
+ * imágenes para saber si el ambiente tiene foto. Antes se ponía un
+ * texto y el sistema decía que faltaba la foto aunque estuviera.
+ */
+function miniFotoPendiente(cont, archivo, parte) {
+    if (!cont) return;
+    const url = URL.createObjectURL(archivo);
+    const et = parte
+        ? '<div style="font-size:10px;color:#8a6d1a;text-align:center;">' + parte + '</div>'
+        : '';
+    cont.insertAdjacentHTML('beforeend',
+        '<div style="text-align:center;position:relative;" class="foto-pendiente">'
+        + '<img src="' + url + '" alt="Foto guardada en el teléfono" '
+        + 'style="width:86px;height:86px;object-fit:cover;border-radius:7px;'
+        + 'border:2px solid #C9A227;">'
+        + '<span style="position:absolute;top:3px;right:3px;background:#C9A227;'
+        + 'color:#22366F;font-size:9px;font-weight:700;padding:1px 5px;'
+        + 'border-radius:8px;">En el teléfono</span>'
+        + et + '</div>');
 }
 
 function agregarMiniFoto(cont, f) {
