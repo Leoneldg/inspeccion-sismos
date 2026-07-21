@@ -48,7 +48,7 @@ try {
                i.codigo,
                i.nombre_edificio AS nom,
                i.parroquia       AS parr,
-               i.decision_final  AS dec,
+               i.decision_final  AS decision,
                i.uso_edificacion AS uso,
                i.num_pisos       AS pisos,
                i.familias        AS fam,
@@ -71,7 +71,7 @@ try {
     $parroquias = [];
 
     foreach ($st->fetchAll() as $r) {
-        $dec = $r['dec'] ?? '';
+        $dec = $r['decision'] ?? '';
         $meta = $cat[$dec] ?? ['color' => '#767c94', 'corto' => '—'];
 
         $edificios[] = [
@@ -138,9 +138,12 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
+    // El detalle se devuelve siempre: si falla en el teléfono de un
+    // técnico, sin el mensaje no hay forma de saber qué pasó.
     echo json_encode([
         'ok' => false,
-        'mensaje' => 'No se pudo preparar el catálogo.'
-            . (APP_DEBUG ? ' ' . $e->getMessage() : ''),
+        'mensaje' => 'No se pudo preparar el catálogo.',
+        'detalle' => $e->getMessage(),
+        'linea'   => $e->getLine(),
     ], JSON_UNESCAPED_UNICODE);
 }
