@@ -860,12 +860,26 @@ async function agregarAreaOtra() {
         return;
     }
 
-    const payload = { accion: 'area_libre', edificio_id: EDIFICIO_ID,
+    // Se manda también la inspección: el endpoint la necesita para
+    // ubicar el edificio, y sin ella el envío diferido se rechaza.
+    const payload = { accion: 'area_libre',
+                      inspeccion_id: INSPECCION_ID,
+                      edificio_id: EDIFICIO_ID,
                       clave: clave, nombre: nombre };
 
     if (window.ObrasOffline && !navigator.onLine) {
         await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
             'Área común: ' + nombre);
+        // Queda anotada en el teléfono: si se recarga la página antes
+        // de recuperar señal, el área sigue ahí.
+        try {
+            const k = 'areas_libres_' + INSPECCION_ID;
+            const prev = JSON.parse(localStorage.getItem(k) || '[]');
+            if (!prev.some(a => a.clave === clave)) {
+                prev.push({ clave: clave, nombre: nombre });
+                localStorage.setItem(k, JSON.stringify(prev));
+            }
+        } catch (e) { /* sin espacio: seguir igual */ }
     } else {
         try {
             const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
@@ -882,6 +896,25 @@ async function agregarAreaOtra() {
 
     inp.value = '';
     pintarAreaNueva(clave, nombre);
+}
+
+/**
+ * Vuelve a dibujar las áreas que se agregaron sin señal.
+ * Se llama al cargar: si el técnico recargó la página antes de
+ * recuperar conexión, sus áreas siguen ahí.
+ */
+function restaurarAreasLibres() {
+    try {
+        const k = 'areas_libres_' + INSPECCION_ID;
+        const guardadas = JSON.parse(localStorage.getItem(k) || '[]');
+        if (!guardadas.length) return;
+
+        guardadas.forEach(a => {
+            // Si ya está en pantalla, no se duplica.
+            if (document.querySelector('.area-row[data-area="' + a.clave + '"]')) return;
+            pintarAreaNueva(a.clave, a.nombre);
+        });
+    } catch (e) { /* no interrumpir */ }
 }
 
 /** Dibuja el área recién agregada, sin recargar la página. */
@@ -1793,7 +1826,11 @@ async function guardarApto(btn, aptoId) {
     // servidor. Se guarda en la estructura local y se enviará al sincronizar.
     if (aptoId < 0) {
         guardarAptoLocal(aptoId, payload);
-        pintarAmbientesLocales(cont, payload);
+        // Hay que generar los ambientes antes de pintarlos, y pasar el
+        // id: sin él la función no encuentra lo guardado y la lista
+        // sale vacía.
+        guardarAmbientesLocales(aptoId, payload);
+        pintarAmbientesLocales(cont, payload, aptoId);
         marcarAptoPendiente(cont, 'Guardado en el teléfono');
         return;
     }
@@ -2155,6 +2192,9 @@ function avisoSinSenal() {
         + 'y se envía al recuperar la conexión.';
     document.body.appendChild(barra);
 }
+
+// Áreas comunes agregadas sin señal: se vuelven a dibujar.
+try { restaurarAreasLibres(); } catch (e) { /* seguir */ }
 
 try {
     avisoSinSenal();
