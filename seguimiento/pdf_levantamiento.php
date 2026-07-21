@@ -2,8 +2,8 @@
 /**
  * PDF COMPLETO DEL LEVANTAMIENTO.
  *
- * Todo lo registrado de una edificación: datos, resumen de visitas,
- * trabajos, materiales y el detalle piso por piso con cada ambiente.
+ * Todo lo registrado de una edificación: datos, trabajos, materiales
+ * y el detalle piso por piso con cada ambiente.
  *
  * Uso: pdf_levantamiento.php?inspeccion=4449
  */
@@ -37,7 +37,6 @@ if ($edificioId <= 0) exit('Esta edificación no tiene levantamiento.');
 $arbol   = recArbolAvance($edificioId);
 $pisos   = $arbol['pisos'] ?? [];
 $aptosR  = $arbol['aptos_reparar'] ?? [];
-$visitas = $aptosR['visitas'] ?? [];
 $trabajos = $arbol['detalle_trabajos'] ?? [];
 $materiales = $arbol['materiales'] ?? [];
 $global  = $arbol['global_acabados'] ?? [];
@@ -71,7 +70,7 @@ ob_start();
   .franja .n { font-size: 17px; font-weight: 800; }
   .franja .c { font-size: 10.5px; opacity: .92; }
 
-  h2 { font-size: 13px; color: #22366F; margin: 16px 0 8px;
+  h2 { font-size: 15px; color: #22366F; margin: 18px 0 9px;
        border-bottom: 1px solid #e0e4ee; padding-bottom: 4px; }
 
   .datos { display: table; width: 100%; }
@@ -95,13 +94,14 @@ ob_start();
   tr { page-break-inside: avoid; }
 
   .piso { page-break-inside: avoid; margin-bottom: 12px; }
-  .piso-cab { background: #22366F; color: #fff; padding: 6px 12px;
-              border-radius: 6px 6px 0 0; font-size: 11.5px; font-weight: 700; }
-  .apto { border: 1px solid #e5e8f0; border-top: 0; padding: 7px 12px; }
-  .apto-nom { font-size: 11px; font-weight: 700; color: #2a3140; }
-  .etq { display: inline-block; font-size: 8px; font-weight: 700; border-radius: 8px;
-         padding: 1px 7px; margin-left: 5px; }
-  .amb { font-size: 9.5px; padding: 2px 0 2px 12px; color: #2a3140; }
+  .piso-cab { background: #22366F; color: #fff; padding: 9px 14px;
+              border-radius: 7px 7px 0 0; font-size: 15px; font-weight: 800;
+              letter-spacing: .3px; }
+  .apto { border: 1px solid #e5e8f0; border-top: 0; padding: 9px 14px; }
+  .apto-nom { font-size: 13.5px; font-weight: 800; color: #2a3140; }
+  .etq { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 9px;
+         padding: 2px 9px; margin-left: 6px; }
+  .amb { font-size: 11.5px; padding: 3px 0 3px 14px; color: #2a3140; }
   .amb .m { color: #22366F; font-weight: 700; }
 
   .mat { display: table; width: 100%; border-spacing: 5px; }
@@ -198,34 +198,6 @@ ob_start();
       <div class="l">m² a reparar</div>
     </div>
   </div>
-
-  <!-- Resultado de las visitas -->
-  <?php
-  $vis = [
-      'inspeccionado'    => ['Inspeccionados', '#2E7D32'],
-      'sin_dano'         => ['Sin daño', '#2E7D32'],
-      'cuenta_propia'    => ['Reparan por cuenta propia', '#2d4488'],
-      'permiso_denegado' => ['No dejó entrar', '#A61C1C'],
-      'no_esta'          => ['Ocupante ausente', '#5b6478'],
-      'sin_visitar'      => ['Sin visitar', '#a8871f'],
-  ];
-  $hayVis = false;
-  foreach ($vis as $k => $v) if (!empty($visitas[$k])) $hayVis = true;
-  ?>
-  <?php if ($hayVis): ?>
-  <table class="t">
-    <thead><tr><th>Resultado de las visitas</th><th style="width:70px;text-align:center;">Cantidad</th></tr></thead>
-    <tbody>
-    <?php foreach ($vis as $k => $v):
-        if (empty($visitas[$k])) continue; ?>
-      <tr>
-        <td style="color:<?= $v[1] ?>;font-weight:600;"><?= $v[0] ?></td>
-        <td style="text-align:center;font-weight:700;"><?= (int)$visitas[$k] ?></td>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
-  <?php endif; ?>
 
   <!-- Trabajos -->
   <?php if ($trabajos): ?>
@@ -349,7 +321,7 @@ ob_start();
       </div>
 
       <?php if (!empty($ap['jefe_nombre'])): ?>
-      <div style="font-size:9px;color:#5b6478;">
+      <div style="font-size:11px;color:#5b6478;">
         <?= esc($ap['jefe_nombre']) ?>
         <?php if (!empty($ap['jefe_cedula'])): ?> · <?= esc($ap['jefe_cedula']) ?><?php endif; ?>
         <?php if (!empty($ap['jefe_telefono'])): ?> · <?= esc($ap['jefe_telefono']) ?><?php endif; ?>
