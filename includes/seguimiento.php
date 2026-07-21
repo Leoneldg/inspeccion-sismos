@@ -2562,10 +2562,13 @@ function recTrabajosDeEdificio(int $edificioId): array
                        SELECT ep.id FROM rec_elemento_piso ep
                          JOIN rec_piso pi2 ON pi2.id = ep.piso_id
                         WHERE pi2.edificio_id = :e2))
+                OR (rr.nivel = 'area_comun' AND rr.ref_id IN (
+                       SELECT ac.id FROM rec_area_comun ac
+                        WHERE ac.edificio_id = :e3))
                )
              GROUP BY rr.tipo_trabajo
         ");
-        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId, 'e3' => $edificioId]);
         $out = [];
         foreach ($st->fetchAll() as $r) {
             $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
@@ -3993,6 +3996,65 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
             'tt' => $tt,
             'm2' => isset($a['metros_cuadrados']) ? (float)$a['metros_cuadrados'] : null,
         ]);
+
+        // Registrar el trabajo en rec_reparacion: es de ahí que sale el
+        // cálculo de materiales. Sin esto, las áreas comunes quedaban
+        // guardadas pero su material nunca se pedía.
+        try {
+            $idArea = (int)db()->lastInsertId();
+            if ($idArea <= 0) {
+                $stB = db()->prepare('SELECT id FROM rec_area_comun
+                                       WHERE edificio_id = :e AND tipo = :t');
+                $stB->execute(['e' => $edificioId, 't' => $tipo]);
+                $idArea = (int)$stB->fetchColumn();
+            }
+
+            if ($idArea > 0) {
+                // Se reemplaza lo anterior de esta área.
+                db()->prepare('DELETE FROM rec_reparacion
+                                WHERE nivel = :n AND ref_id = :r')
+                    ->execute(['n' => 'area_comun', 'r' => $idArea]);
+
+                if (!empty($a['necesita_reparacion']) && $tt) {
+                    $ins = db()->prepare(
+                        'INSERT INTO rec_reparacion
+                            (nivel, ref_id, tipo_superficie, metros_cuadrados,
+                             tipo_trabajo, partida)
+                         VALUES (:n, :r, :s, :m, :tt, :p)'
+                    );
+
+                    // Trabajo principal, por superficie.
+                    $sups = $a['superficies'] ?? [];
+                    if (!$sups && !empty($a['metros_cuadrados'])) {
+                        // Sin desglose: todo va a pared.
+                        $sups = ['pared' => (float)$a['metros_cuadrados']];
+                    }
+                    $part = 0;
+                    foreach ($sups as $sup => $m2v) {
+                        if ((float)$m2v <= 0) continue;
+                        $ins->execute([
+                            'n' => 'area_comun', 'r' => $idArea,
+                            's' => $sup, 'm' => (float)$m2v,
+                            'tt' => $tt, 'p' => ++$part,
+                        ]);
+                    }
+
+                    // Trabajos adicionales de la misma área.
+                    foreach (($a['extras'] ?? []) as $ex) {
+                        $exT = $ex['tipo_trabajo'] ?? '';
+                        if (!in_array($exT, $trabajos, true)) continue;
+                        foreach (($ex['superficies'] ?? []) as $sup => $m2v) {
+                            if ((float)$m2v <= 0) continue;
+                            $ins->execute([
+                                'n' => 'area_comun', 'r' => $idArea,
+                                's' => $sup, 'm' => (float)$m2v,
+                                'tt' => $exT, 'p' => ++$part,
+                            ]);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) { /* el área ya quedó guardada */ }
     }
     // Quitar las que se deseleccionaron.
     $marcados = array_column($areas, 'tipo');
@@ -4373,10 +4435,13 @@ function recGlobalFrisoPintura(int $edificioId): array
                        SELECT ep.id FROM rec_elemento_piso ep
                          JOIN rec_piso pi2 ON pi2.id = ep.piso_id
                         WHERE pi2.edificio_id = :e2))
+                OR (rr.nivel = 'area_comun' AND rr.ref_id IN (
+                       SELECT ac.id FROM rec_area_comun ac
+                        WHERE ac.edificio_id = :e3))
                )
              GROUP BY rr.tipo_trabajo
         ");
-        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId, 'e3' => $edificioId]);
 
         foreach ($st->fetchAll() as $r) {
             $clave = $r['tipo_trabajo'];

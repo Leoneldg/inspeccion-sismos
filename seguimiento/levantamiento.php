@@ -362,7 +362,13 @@ include __DIR__ . '/../includes/header.php';
                     $areasGuardadas[$ap['tipo']] = $ap;
                 }
             } catch (Throwable $e) {}
-            $tiposTrabajo = ['mamposteria' => 'Mampostería', 'derrumbar' => 'Derrumbar / demoler', 'reconstruccion' => 'Reconstrucción'];
+            // Las áreas comunes usan el MISMO catálogo que los ambientes:
+            // antes tenían tres opciones inventadas que no existían en
+            // rec_tipo_trabajo, así que su material nunca se calculaba.
+            $tiposTrabajo = [];
+            foreach (recTiposTrabajo() as $tt) {
+                $tiposTrabajo[$tt['clave']] = $tt['nombre'];
+            }
             ?>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                 <?php foreach ($areasCat as $ak => $albl):
@@ -389,10 +395,40 @@ include __DIR__ . '/../includes/header.php';
                             <option value="<?= $tk ?>" <?= ($ac && ($ac['tipo_trabajo'] ?? '') === $tk) ? 'selected' : '' ?>><?= $tl ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Metros cuadrados (m²)</label>
-                        <input type="number" class="form-control area-m2" min="0" step="0.5" value="<?= $ac['metros_cuadrados'] ?? '' ?>"
-                               placeholder="Ej: 12" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;"
-                               oninput="calcularMatArea(this)">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
+                            Metros cuadrados a reparar
+                        </label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                            <?php foreach (['pared','techo','piso'] as $sup):
+                                $valSup = ($ac && ($ac['tipo_superficie'] ?? '') === $sup)
+                                        ? ($ac['metros_cuadrados'] ?? '') : ''; ?>
+                            <div style="width:104px;">
+                                <label class="text-sm" style="text-transform:capitalize;
+                                       font-size:11px;"><?= $sup ?></label>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <input type="text" inputmode="decimal"
+                                           class="form-control area-sup"
+                                           data-sup="<?= $sup ?>"
+                                           value="<?= e((string)$valSup) ?>"
+                                           style="flex:1;min-width:0;padding:6px 8px;font-size:12.5px;"
+                                           oninput="normalizarDecimal(this); calcularMatArea(this);">
+                                    <span style="font-size:11px;color:#8a6d1a;font-weight:600;">m²</span>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <!-- Campo oculto: conserva el total para el guardado -->
+                        <input type="hidden" class="area-m2"
+                               value="<?= e((string)($ac['metros_cuadrados'] ?? '')) ?>">
+
+                        <button type="button" class="btn btn-outline btn-sm"
+                                style="margin-bottom:8px;border-color:#2d448855;color:#2d4488;
+                                       font-size:11.5px;"
+                                onclick="agregarPartidaArea(this, '<?= $ak ?>')">
+                            <i class="bi bi-plus-circle"></i> Agregar otro trabajo aquí
+                        </button>
+                        <div class="area-partidas"></div>
                         <div class="area-materiales" style="font-size:12px;color:#22366F;background:#eef2fb;border-radius:6px;padding:8px 10px;display:none;"></div>
                     </div>
                 </div>
@@ -828,6 +864,54 @@ function pintarAreaNueva(clave, nombre) {
     div.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/**
+ * Agrega otro trabajo a la misma área común.
+ * Funciona igual que en los ambientes: un área puede necesitar
+ * demolición y además friso, por ejemplo.
+ */
+function agregarPartidaArea(btn, clave) {
+    const row = btn.closest('.area-row');
+    const cont = row ? row.querySelector('.area-partidas') : null;
+    if (!cont) return;
+
+    const n = cont.querySelectorAll('.partida-area').length + 2;
+    const opciones = (Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : [])
+        .map(t => '<option value="' + t.clave + '">' + t.nombre + '</option>').join('');
+
+    const bloque = document.createElement('div');
+    bloque.className = 'partida-area';
+    bloque.style.cssText = 'border-top:1px dashed #C9A22766;margin-top:9px;padding-top:9px;';
+    bloque.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;'
+        + 'margin-bottom:6px;">'
+        + '<span style="font-size:11.5px;font-weight:700;color:#8a6d1a;">'
+        + '<i class="bi bi-tools"></i> Trabajo ' + n + '</span>'
+        + '<button type="button" onclick="this.closest(\'.partida-area\').remove()" '
+        + 'style="background:transparent;border:0;color:#c4c9d6;cursor:pointer;">'
+        + '<i class="bi bi-x-circle"></i></button></div>'
+
+        + '<select class="form-control part-area-trabajo" '
+        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:7px;">'
+        + '<option value="">— ¿Qué trabajo? —</option>' + opciones + '</select>'
+
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + ['pared','techo','piso'].map(sup =>
+            '<div style="width:104px;">'
+            + '<label class="text-sm" style="text-transform:capitalize;font-size:11px;">'
+            + sup + '</label>'
+            + '<div style="display:flex;align-items:center;gap:4px;">'
+            + '<input type="text" inputmode="decimal" class="form-control part-area-m2" '
+            + 'data-sup="' + sup + '" value="" style="flex:1;min-width:0;'
+            + 'padding:6px 8px;font-size:12.5px;" oninput="normalizarDecimal(this)">'
+            + '<span style="font-size:11px;color:#8a6d1a;font-weight:600;">m²</span>'
+            + '</div></div>').join('')
+        + '</div>';
+
+    cont.appendChild(bloque);
+    const sel = bloque.querySelector('.part-area-trabajo');
+    if (sel) sel.focus();
+}
+
 /** Foto de un área común del edificio. */
 function subirFotoArea(areaKey, btn) {
     const cont = btn.closest('.area-row').querySelector('.area-fotos');
@@ -845,7 +929,15 @@ function subirFotoArea(areaKey, btn) {
 // Calcular materiales de un área según m² y tipo de trabajo.
 async function calcularMatArea(inp) {
     const row = inp.closest('.area-row');
-    const m2 = aNumero(inp.value);
+
+    // Se suman las tres superficies, igual que en los ambientes.
+    let m2 = 0;
+    row.querySelectorAll('.area-sup').forEach(i => { m2 += aNumero(i.value); });
+
+    // El campo oculto conserva el total para el guardado.
+    const oculto = row.querySelector('.area-m2');
+    if (oculto) oculto.value = m2 > 0 ? String(m2).replace('.', ',') : '';
+
     const trabajo = row.querySelector('.area-trabajo').value;
     const cont = row.querySelector('.area-materiales');
     if (m2 <= 0 || !trabajo) { cont.style.display = 'none'; return; }
@@ -886,14 +978,40 @@ async function guardarEdificio(ev) {
     };
     // Recolectar las áreas marcadas para reparar, con su trabajo y m².
     document.querySelectorAll('.area-row').forEach(row => {
-        if (row.querySelector('.area-reparar').checked) {
-            payload.areas_comunes.push({
-                tipo: row.dataset.area,
-                necesita_reparacion: 1,
-                tipo_trabajo: row.querySelector('.area-trabajo').value,
-                metros_cuadrados: aNumero(row.querySelector('.area-m2').value),
+        if (!row.querySelector('.area-reparar').checked) return;
+
+        // Metros por superficie, igual que en los ambientes.
+        const sups = {};
+        let total = 0;
+        row.querySelectorAll('.area-sup').forEach(i => {
+            const v = aNumero(i.value);
+            if (v > 0) { sups[i.dataset.sup] = v; total += v; }
+        });
+
+        // Trabajos adicionales de la misma área.
+        const extras = [];
+        row.querySelectorAll('.partida-area').forEach(bl => {
+            const st = bl.querySelector('.part-area-trabajo');
+            const mm = {};
+            let sub = 0;
+            bl.querySelectorAll('.part-area-m2').forEach(i => {
+                const v = aNumero(i.value);
+                if (v > 0) { mm[i.dataset.sup] = v; sub += v; }
             });
-        }
+            if (st && st.value && sub > 0) {
+                extras.push({ tipo_trabajo: st.value, superficies: mm,
+                              metros_cuadrados: sub });
+            }
+        });
+
+        payload.areas_comunes.push({
+            tipo: row.dataset.area,
+            necesita_reparacion: 1,
+            tipo_trabajo: row.querySelector('.area-trabajo').value,
+            metros_cuadrados: total,
+            superficies: sups,
+            extras: extras,
+        });
     });
     // Copia local siempre, antes de intentar enviar.
     guardarBorrador('paso1_' + INSPECCION_ID, payload);
