@@ -19,6 +19,17 @@ try {
     if (!is_array($b)) resp(false, 'Datos inválidos.');
 
     $inspeccionId = (int)($b['inspeccion_id'] ?? 0);
+
+    // Algunas acciones llegan con el id del edificio en vez del de la
+    // inspección (por ejemplo, asignar ingeniero desde el listado).
+    if ($inspeccionId <= 0 && !empty($b['edificio_id'])) {
+        try {
+            $stI = db()->prepare('SELECT inspeccion_id FROM rec_edificio WHERE id = :e');
+            $stI->execute(['e' => (int)$b['edificio_id']]);
+            $inspeccionId = (int)($stI->fetchColumn() ?: 0);
+        } catch (Throwable $e) { /* cae en la validación de abajo */ }
+    }
+
     if ($inspeccionId <= 0) resp(false, 'Edificio no válido.');
     if (!segInspeccion($inspeccionId)) resp(false, 'El edificio no existe.');
 
@@ -43,6 +54,23 @@ try {
             $sin ? ('Sin etiqueta: ' . (trim($b['etiqueta_motivo'] ?? '') ?: 'sin motivo indicado'))
                  : 'Tiene etiqueta');
         resp(true, 'Registrado.', ['edificio_id' => $edificioId]);
+    }
+
+    // --- Ingeniero responsable del levantamiento ---
+    if (($b['accion'] ?? '') === 'ingeniero') {
+        recAsegurarIngeniero();
+        $ingId = !empty($b['ingeniero_id']) ? (int)$b['ingeniero_id'] : null;
+
+        // Puede venir por inspección (desde el levantamiento) o por
+        // edificio (al asignarlo desde la lista de reconstrucción).
+        $destino = !empty($b['edificio_id']) ? (int)$b['edificio_id'] : $edificioId;
+
+        db()->prepare('UPDATE rec_edificio SET ingeniero_id = :i WHERE id = :e')
+            ->execute(['i' => $ingId, 'e' => $destino]);
+
+        recAuditar('ingeniero_asignado', $inspeccionId, $edificioId,
+                   'Ingeniero responsable: ' . ($ingId ?: 'ninguno'));
+        resp(true, 'Ingeniero registrado.');
     }
 
     // --- Área común con nombre libre ---

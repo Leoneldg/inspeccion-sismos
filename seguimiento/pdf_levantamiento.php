@@ -23,6 +23,18 @@ function num($v, $dec = 2) {
     return number_format((float)$v, $dec, ',', '.');
 }
 
+/**
+ * El cemento se calcula en kilos, pero se compra en sacos de 45 kg.
+ * Se muestran los sacos entre paréntesis para facilitar el pedido.
+ */
+const KG_POR_SACO = 45;
+
+function sacosDe(float $kg): string
+{
+    if ($kg <= 0) return '';
+    return ' (' . number_format(ceil($kg / KG_POR_SACO), 0, ',', '.') . ' sacos)';
+}
+
 $inspeccionId = (int)($_GET['inspeccion'] ?? 0);
 if ($inspeccionId <= 0) exit('Indique la inspección.');
 
@@ -41,6 +53,7 @@ $trabajos = $arbol['detalle_trabajos'] ?? [];
 $materiales = $arbol['materiales'] ?? [];
 $global  = $arbol['global_acabados'] ?? [];
 $autor   = recAutorLevantamiento($edificioId);
+$ing     = recIngenieroDe($edificioId);
 
 // Áreas comunes.
 $areas = [];
@@ -157,6 +170,17 @@ ob_start();
       <div class="c"><div class="e">Personas</div>
         <div class="v"><?= (int)($insp['numero_personas'] ?? 0) ?></div></div>
     </div>
+    <?php if ($ing): ?>
+    <div class="f">
+      <div class="c" style="width:50%;"><div class="e">Ingeniero responsable</div>
+        <div class="v" style="font-size:11px;"><?= esc($ing['nombre']) ?></div></div>
+      <div class="c"><div class="e">Cédula</div>
+        <div class="v" style="font-size:10px;"><?= esc($ing['cedula'] ?: '—') ?></div></div>
+      <div class="c"><div class="e">Teléfono</div>
+        <div class="v" style="font-size:10px;"><?= esc($ing['telefono'] ?? '—') ?></div></div>
+    </div>
+    <?php endif; ?>
+
     <?php if (!empty($autor['creado_nombre'])): ?>
     <div class="f">
       <div class="c" style="width:50%;"><div class="e">Levantamiento realizado por</div>
@@ -246,7 +270,10 @@ ob_start();
       <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
       <div class="m">
         <div class="c"><?= num($cant) ?></div>
-        <div class="n"><?= esc($mat) ?></div>
+        <div class="n"><?= esc($mat) ?><?php
+          if (stripos($mat, 'Cemento') !== false):
+            ?><span style="color:#8a6d1a;font-weight:700;"><?= sacosDe((float)$cant) ?></span><?php
+          endif; ?></div>
       </div>
     <?php $i++; endforeach; ?>
     <?php // Rellenar la última fila para que no se estire
@@ -368,8 +395,18 @@ ob_start();
 
   <!-- Firmas -->
   <div class="firma">
-    <div class="f"><div class="l">Firma del técnico</div></div>
-    <div class="f"><div class="l">Firma del supervisor</div></div>
+    <div class="f"><div class="l">
+      Firma del técnico
+      <?php if (!empty($autor['creado_nombre'])): ?>
+      <div style="font-size:8px;color:#767c94;"><?= esc($autor['creado_nombre']) ?></div>
+      <?php endif; ?>
+    </div></div>
+    <div class="f"><div class="l">
+      Ingeniero responsable
+      <?php if ($ing): ?>
+      <div style="font-size:8px;color:#767c94;"><?= esc($ing['nombre']) ?></div>
+      <?php endif; ?>
+    </div></div>
   </div>
 
   <div class="pie">

@@ -237,6 +237,45 @@ include __DIR__ . '/../includes/header.php';
         <div id="etiqueta-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
     </div>
 
+    <!-- Ingeniero responsable: se registra antes de empezar -->
+    <?php
+    recAsegurarIngeniero();
+    $ingenieros = recIngenierosActivos();
+    $ingActual  = $ed['ingeniero_id'] ?? null;
+    ?>
+    <div style="background:#f7f9fd;border:1px solid #22366F22;border-radius:9px;
+                padding:12px 14px;margin-bottom:14px;">
+        <label class="text-sm" style="font-weight:700;color:#22366F;display:block;
+               margin-bottom:6px;">
+            <i class="bi bi-person-vcard"></i> Ingeniero responsable
+            <span style="color:#A61C1C;">*</span>
+        </label>
+
+        <?php if ($ingenieros): ?>
+        <select id="ingeniero-id" class="form-control" style="width:100%;max-width:420px;"
+                onchange="guardarIngeniero(this)">
+            <option value="">— Seleccione el ingeniero a cargo —</option>
+            <?php foreach ($ingenieros as $ing): ?>
+            <option value="<?= (int)$ing['id'] ?>"
+                    <?= ((int)$ingActual === (int)$ing['id']) ? 'selected' : '' ?>>
+                <?= e($ing['nombre']) ?><?= !empty($ing['cedula']) ? ' · ' . e($ing['cedula']) : '' ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+        <div class="text-sm" style="color:#5b6478;margin-top:5px;font-size:11.5px;">
+            Queda registrado en el informe de la edificación.
+        </div>
+        <?php else: ?>
+        <div style="font-size:12.5px;color:#8a6d1a;">
+            No hay ingenieros registrados.
+            <?php if (usuarioEsMaster() || puede('configuracion','ver')): ?>
+            <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" target="_blank"
+               style="color:#22366F;font-weight:600;">Agréguelos aquí</a>.
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+    </div>
+
     <!-- Algunas edificaciones no tienen etiqueta: hay que poder dejarlo asentado -->
     <label class="check-row" style="display:flex;align-items:flex-start;gap:9px;
            background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:8px;cursor:pointer;">

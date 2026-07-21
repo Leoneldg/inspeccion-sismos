@@ -20,6 +20,10 @@ $puedeBorrar = usuarioEsMaster()
             || str_contains($rolAct, 'administrador')
             || str_contains($rolAct, 'superadmin');
 
+// Ingenieros activos, para poder asignarlos desde la lista.
+recAsegurarIngeniero();
+$ingenieros = recIngenierosActivos();
+
 // Filtro por parroquia.
 $parrF = trim($_GET['parroquia'] ?? '');
 $lista = segEnReconstruccion($parrF !== '' ? ['parroquia' => $parrF] : []);
@@ -290,6 +294,30 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                     </details>
                     <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+
+                <?php
+                // Ingeniero asignado, para mostrarlo o pedirlo.
+                $ingAsig = null;
+                if (!empty($e['edificio_id'])) {
+                    $ingAsig = recIngenieroDe((int)$e['edificio_id']);
+                }
+                ?>
+                <div style="min-width:150px;">
+                    <?php if ($ingAsig): ?>
+                    <div style="font-size:11px;color:#2d4488;font-weight:600;">
+                        <i class="bi bi-person-vcard"></i> <?= e($ingAsig['nombre']) ?>
+                    </div>
+                    <?php elseif ($ingenieros && !empty($e['edificio_id'])): ?>
+                    <select class="form-control" style="font-size:11px;padding:4px 6px;"
+                            onchange="asignarIngeniero(<?= (int)$e['edificio_id'] ?>, this)"
+                            title="Asignar ingeniero responsable">
+                        <option value="">— Sin ingeniero —</option>
+                        <?php foreach ($ingenieros as $ig): ?>
+                        <option value="<?= (int)$ig['id'] ?>"><?= e($ig['nombre']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
                     <?php endif; ?>
                 </div>
 

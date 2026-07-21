@@ -4656,6 +4656,53 @@ function recRevisarLevantamiento(int $edificioId): array
     return ['resumen' => $resumen, 'problemas' => $problemas];
 }
 
+/**
+ * Ingeniero responsable del levantamiento.
+ *
+ * Se registra al iniciar y queda en el PDF de la ficha: es quien
+ * responde técnicamente por lo que se midió.
+ */
+function recAsegurarIngeniero(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM rec_edificio")
+                    ->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('ingeniero_id', $cols, true)) {
+            db()->exec("ALTER TABLE rec_edificio
+                        ADD COLUMN ingeniero_id INT UNSIGNED DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/** Ingenieros activos, para el selector del levantamiento. */
+function recIngenierosActivos(): array
+{
+    try {
+        $st = db()->query("SELECT id, nombre, cedula
+                             FROM ingenieros
+                            WHERE activo = 1
+                            ORDER BY nombre");
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+/** Datos del ingeniero asignado a un levantamiento. */
+function recIngenieroDe(int $edificioId): ?array
+{
+    recAsegurarIngeniero();
+    try {
+        $st = db()->prepare("SELECT ing.id, ing.nombre, ing.cedula, ing.telefono
+                               FROM rec_edificio re
+                               JOIN ingenieros ing ON ing.id = re.ingeniero_id
+                              WHERE re.id = :e");
+        $st->execute(['e' => $edificioId]);
+        return $st->fetch() ?: null;
+    } catch (Throwable $e) { return null; }
+}
+
 function recArbolAvance(int $edificioId): array
 {
     recAsegurarTablasAvance();
@@ -4943,6 +4990,7 @@ function recArbolAvance(int $edificioId): array
         'por_trabajo'     => $porTrabajo,
         'detalle_trabajos'=> recDetalleTrabajos($edificioId),
         'global_acabados' => recGlobalFrisoPintura($edificioId),
+        'ingeniero'       => recIngenieroDe($edificioId),
         'areas_comunes'   => (function() use ($edificioId) {
             try {
                 $out = [];
