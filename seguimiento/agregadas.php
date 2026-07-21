@@ -52,9 +52,53 @@ include __DIR__ . '/../includes/header.php';
               width:24px; height:24px; border:2px solid; border-radius:5px;
               font-weight:800; font-size:12px; flex-shrink:0; }
 .ag-chip { font-size:10.5px; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.ag-chips { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 @media (max-width: 640px) {
     .ag-fila { flex-wrap:wrap; }
     .ag-fila > div:nth-child(2) { flex:1 1 100%; }
+}
+
+/* Pantallas angostas: la fila se arma en bloques verticales.
+   Antes el texto se apilaba a la izquierda mientras los chips
+   quedaban comprimidos a la derecha, y quedaba ilegible. */
+@media (max-width: 420px) {
+    .ag-fila {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+            "letra datos"
+            "chips chips"
+            "accion accion";
+        gap: 4px 10px;
+        align-items: start;
+        padding: 14px 10px;
+    }
+
+    .ag-fila > .clas-letra { grid-area: letra; margin-top: 2px; }
+
+    /* El bloque de textos ocupa todo el ancho disponible */
+    .ag-fila > div:nth-child(2) {
+        grid-area: datos;
+        min-width: 0;
+    }
+    .ag-fila > div:nth-child(2) > div { word-break: break-word; }
+
+    /* Los chips, uno debajo del otro y alineados a la izquierda */
+    .ag-fila > .ag-chips {
+        grid-area: chips;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+        margin-top: 4px;
+    }
+
+    /* El botón, ancho completo al final */
+    .ag-fila > a.btn {
+        grid-area: accion;
+        width: 100%;
+        justify-content: center;
+        margin-top: 6px;
+    }
 }
 </style>
 
@@ -211,6 +255,7 @@ try {
             </div>
         </div>
 
+        <div class="ag-chips">
         <!-- Estado de la etiqueta -->
         <?php if ($tieneFoto): ?>
             <span class="ag-chip" style="background:#2E7D3218;color:#2E7D32;">
@@ -233,6 +278,7 @@ try {
         <?php else: ?>
             <span class="ag-chip" style="background:#f1f2f6;color:#5b6478;">Sin levantamiento</span>
         <?php endif; ?>
+        </div>
 
         <a href="<?= APP_URL_BASE ?>seguimiento/index.php?abrir=<?= (int)$e['id'] ?>"
            class="btn btn-outline btn-sm"><i class="bi bi-arrow-right"></i></a>

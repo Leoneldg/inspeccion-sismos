@@ -116,6 +116,28 @@ include __DIR__ . '/../includes/header.php';
         .area-row .form-control, .area-row .btn { width:100% !important; }
         .area-row .area-m2, .area-row .area-trabajo { width:100% !important; }
 
+        /* El grid de áreas pasa a una sola columna: en dos, los
+           nombres largos como "Depósito de basura" se parten en
+           tres líneas y el texto "Reparar" queda cortado. */
+        .areas-grid { grid-template-columns:1fr !important; }
+
+        /* El nombre del área ocupa su línea y "Reparar" va debajo,
+           alineado a la izquierda. */
+        .area-chk-lbl {
+            flex-direction:column !important;
+            align-items:flex-start !important;
+            gap:6px !important;
+        }
+        .area-chk-lbl > span:first-child {
+            font-weight:600;
+            line-height:1.3;
+        }
+        .area-chk-lbl .seg-radio {
+            width:100%;
+            padding:5px 0 0;
+            border-top:1px solid #eef0f5;
+        }
+
         /* --- Cierre: los radios de estado no se aprietan --- */
         .campo-estado { flex-wrap:wrap !important; }
         .campo-estado .seg-radio { flex:1 1 46%; }
@@ -319,13 +341,30 @@ include __DIR__ . '/../includes/header.php';
     <h3>Datos del edificio</h3>
     <p class="sub">Corrobore la información básica. Esto genera los pisos que va a recorrer.</p>
     <form id="form-edificio" onsubmit="return guardarEdificio(event)">
+        <?php
+        // Una casa no se divide en apartamentos: sus ambientes cuelgan
+        // directo del piso. Se detecta por el uso de la edificación.
+        $usoEd = mb_strtolower(trim($insp['uso_edificacion'] ?? ''), 'UTF-8');
+        $esCasa = (strpos($usoEd, 'casa') !== false)
+               || (strpos($usoEd, 'unifamiliar') !== false);
+        ?>
+
         <div class="flex gap-8" style="flex-wrap:wrap;">
             <div class="field" style="flex:1;min-width:160px;">
-                <label class="text-sm">Cantidad de pisos *</label>
+                <label class="text-sm">
+                    <?= $esCasa ? 'Cantidad de niveles *' : 'Cantidad de pisos *' ?>
+                </label>
                 <input type="number" id="num_pisos" class="form-control" min="1" max="200"
                        value="<?= $ed['num_pisos'] !== null ? (int)$ed['num_pisos'] : '' ?>" required
                        oninput="calcularTotalAptos()">
+                <?php if ($esCasa): ?>
+                <div class="text-sm" style="color:#5b6478;font-size:11.5px;margin-top:3px;">
+                    Planta baja incluida. Si es de un solo nivel, escriba 1.
+                </div>
+                <?php endif; ?>
             </div>
+
+            <?php if (!$esCasa): ?>
             <div class="field" style="flex:1;min-width:160px;">
                 <label class="text-sm">Apartamentos por piso</label>
                 <input type="number" id="aptos_por_piso" class="form-control" min="0" max="100"
@@ -338,6 +377,20 @@ include __DIR__ . '/../includes/header.php';
                        style="background:#f2f5fc;font-weight:700;color:#22366F;"
                        value="<?= (int)($ed['num_pisos'] ?? 0) * (int)($ed['aptos_por_piso'] ?? 0) ?>">
             </div>
+            <?php else: ?>
+            <?php // En casas hay un solo "espacio" por nivel: la vivienda misma. ?>
+            <input type="hidden" id="aptos_por_piso" value="1">
+            <input type="hidden" id="total_apartamentos" value="<?= (int)($ed['num_pisos'] ?? 1) ?>">
+            <div class="field" style="flex:2;min-width:220px;">
+                <div style="background:#eef2fb;border-radius:9px;padding:11px 13px;
+                            font-size:12.5px;color:#22366F;">
+                    <i class="bi bi-house-door-fill"></i>
+                    <strong>Es una casa.</strong> No se piden apartamentos:
+                    en cada nivel registrará directamente sus ambientes
+                    —habitaciones, baños, cocina— en el paso siguiente.
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
 
         <div style="margin-top:8px;">
@@ -370,7 +423,7 @@ include __DIR__ . '/../includes/header.php';
                 $tiposTrabajo[$tt['clave']] = $tt['nombre'];
             }
             ?>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <div class="areas-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                 <?php foreach ($areasCat as $ak => $albl):
                     $ac = $areasGuardadas[$ak] ?? null;
                     $reparar = $ac && $ac['necesita_reparacion'];
@@ -389,7 +442,8 @@ include __DIR__ . '/../includes/header.php';
                         </button>
                         <div class="area-fotos" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;"></div>
                         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">¿Qué trabajo necesita?</label>
-                        <select class="form-control area-trabajo" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;">
+                        <select class="form-control area-trabajo" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;"
+                                onchange="calcularMatArea(this)">
                             <option value="">Seleccione…</option>
                             <?php foreach ($tiposTrabajo as $tk => $tl): ?>
                             <option value="<?= $tk ?>" <?= ($ac && ($ac['tipo_trabajo'] ?? '') === $tk) ? 'selected' : '' ?>><?= $tl ?></option>
@@ -666,6 +720,13 @@ const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const SOLO_LECTURA = <?= $soloLectura ? 'true' : 'false' ?>;
 
+// En casas no hay apartamentos: cada nivel lleva sus ambientes directo.
+const ES_CASA = <?php
+    $u = mb_strtolower(trim($insp['uso_edificacion'] ?? ''), 'UTF-8');
+    echo (strpos($u, 'casa') !== false || strpos($u, 'unifamiliar') !== false)
+         ? 'true' : 'false';
+?>;
+
 /**
  * En modo consulta se desactivan los campos y botones de edición,
  * pero las fotos siguen siendo ampliables y todo queda visible.
@@ -850,7 +911,8 @@ function pintarAreaNueva(clave, nombre) {
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'
         + '¿Qué trabajo necesita?</label>'
         + '<select class="form-control area-trabajo" '
-        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;">'
+        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;" '
+        + 'onchange="calcularMatArea(this)">'
         + '<option value="">Seleccione…</option>' + opciones + '</select>'
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'
         + 'Metros cuadrados (m²)</label>'
@@ -891,7 +953,8 @@ function agregarPartidaArea(btn, clave) {
         + '<i class="bi bi-x-circle"></i></button></div>'
 
         + '<select class="form-control part-area-trabajo" '
-        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:7px;">'
+        + 'style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:7px;" '
+        + 'onchange="calcularMatArea(this)">'
         + '<option value="">— ¿Qué trabajo? —</option>' + opciones + '</select>'
 
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
@@ -902,7 +965,8 @@ function agregarPartidaArea(btn, clave) {
             + '<div style="display:flex;align-items:center;gap:4px;">'
             + '<input type="text" inputmode="decimal" class="form-control part-area-m2" '
             + 'data-sup="' + sup + '" value="" style="flex:1;min-width:0;'
-            + 'padding:6px 8px;font-size:12.5px;" oninput="normalizarDecimal(this)">'
+            + 'padding:6px 8px;font-size:12.5px;" '
+            + 'oninput="normalizarDecimal(this); calcularMatArea(this);">'
             + '<span style="font-size:11px;color:#8a6d1a;font-weight:600;">m²</span>'
             + '</div></div>').join('')
         + '</div>';
@@ -938,18 +1002,69 @@ async function calcularMatArea(inp) {
     const oculto = row.querySelector('.area-m2');
     if (oculto) oculto.value = m2 > 0 ? String(m2).replace('.', ',') : '';
 
-    const trabajo = row.querySelector('.area-trabajo').value;
+    // Se suman también los trabajos adicionales del área.
+    const partidas = [];
+    const selPrin = row.querySelector('.area-trabajo');
+    if (selPrin && selPrin.value && m2 > 0) {
+        partidas.push({ trabajo: selPrin.value, m2: m2 });
+    }
+    row.querySelectorAll('.partida-area').forEach(bl => {
+        const st = bl.querySelector('.part-area-trabajo');
+        let sub = 0;
+        bl.querySelectorAll('.part-area-m2').forEach(i => { sub += aNumero(i.value); });
+        if (st && st.value && sub > 0) partidas.push({ trabajo: st.value, m2: sub });
+    });
+
     const cont = row.querySelector('.area-materiales');
-    if (m2 <= 0 || !trabajo) { cont.style.display = 'none'; return; }
+    if (!cont) return;
+
+    if (!partidas.length) { cont.style.display = 'none'; return; }
+
+    cont.innerHTML = '<span style="color:#767c94;">Calculando materiales…</span>';
+    cont.style.display = 'block';
+
     try {
-        const res = await fetch(URL_BASE + 'calcular_materiales.php?tipo=' + encodeURIComponent(trabajo) + '&m2=' + m2);
-        const d = await res.json();
-        if (d.ok && d.materiales && d.materiales.length) {
-            cont.innerHTML = '<b><i class="bi bi-box-seam"></i> Materiales estimados:</b><br>' +
-                d.materiales.map(m => `• ${m.material}: <b>${m.cantidad}</b> ${m.unidad}`).join('<br>');
-            cont.style.display = 'block';
-        } else { cont.style.display = 'none'; }
-    } catch(e) { cont.style.display = 'none'; }
+        // Se pide el material de cada trabajo y se suman los repetidos.
+        const total = {};
+        for (const p of partidas) {
+            const res = await fetch(URL_BASE + 'calcular_materiales.php?tipo='
+                + encodeURIComponent(p.trabajo) + '&m2=' + p.m2);
+            const d = await res.json();
+            if (!d.ok || !d.materiales) continue;
+            d.materiales.forEach(m => {
+                const k = m.material;
+                if (!total[k]) total[k] = { cant: 0, uni: m.unidad };
+                total[k].cant += parseFloat(String(m.cantidad).replace(',', '.')) || 0;
+            });
+        }
+
+        const claves = Object.keys(total).sort();
+        if (!claves.length) { cont.style.display = 'none'; return; }
+
+        // El cemento se compra en sacos: se muestra la equivalencia.
+        const KG_SACO = 45;
+        cont.innerHTML = '<b><i class="bi bi-box-seam"></i> Materiales estimados</b>'
+            + (partidas.length > 1
+                ? ' <span style="color:#767c94;font-weight:400;">('
+                  + partidas.length + ' trabajos)</span>' : '')
+            + '<br>'
+            + claves.map(k => {
+                const d = total[k];
+                const n = d.cant.toLocaleString('es-VE',
+                    { maximumFractionDigits: d.uni === 'm3' ? 2 : 0 });
+                let extra = '';
+                if (d.uni === 'kg' && /cemento/i.test(k)) {
+                    extra = ' <span style="color:#8a6d1a;">('
+                          + Math.ceil(d.cant / KG_SACO) + ' sacos)</span>';
+                }
+                return '• ' + k + ': <b>' + n + '</b> ' + d.uni + extra;
+            }).join('<br>');
+        cont.style.display = 'block';
+
+    } catch (e) {
+        cont.innerHTML = '<span style="color:#767c94;">'
+            + 'No se pudo calcular. Se guardará igual.</span>';
+    }
 }
 // Recalcular también al cambiar el tipo de trabajo.
 document.querySelectorAll('.area-trabajo').forEach(sel => {
@@ -1366,7 +1481,7 @@ function pintarApartamento(a, lista) {
     card.className = 'apto-card';
     card.innerHTML = `
         <div class="apto-head" onclick="abrirApto(this)">
-            <i class="bi bi-door-open"></i> Apartamento ${a.identificador}
+            <i class="bi bi-door-open"></i> ${ES_CASA ? 'Nivel ' + a.identificador : 'Apartamento ' + a.identificador}
         </div>
         <div class="apto-body hidden">
             <!-- Primero: ¿se puede hacer el levantamiento? -->
@@ -1405,7 +1520,8 @@ function pintarApartamento(a, lista) {
             </div>
 
             <!-- Datos del jefe de familia (obligatorios) -->
-            <div style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
+            <?php // En casas se piden una sola vez, en el primer nivel. ?>
+            <div class="bloque-jefe" style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
                 <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> Jefe de familia</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <div class="field jefe-field" style="flex:2;min-width:180px;">
@@ -1469,6 +1585,7 @@ function pintarApartamento(a, lista) {
     }
 
     try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
+    try { ajustarCasaJefeFamilia(); } catch (e) { /* seguir */ }
 }
 
 /**
@@ -2413,6 +2530,20 @@ function aNumero(txt) {
 }
 
 /**
+ * En casas, los datos del jefe de familia se piden una sola vez:
+ * es la misma familia en todos los niveles.
+ */
+function ajustarCasaJefeFamilia() {
+    if (!ES_CASA) return;
+    const cuerpos = document.querySelectorAll('.apto-card .apto-body');
+    cuerpos.forEach((c, i) => {
+        if (i === 0) return;   // el primero conserva el bloque
+        const b = c.querySelector('.bloque-jefe');
+        if (b) b.style.display = 'none';
+    });
+}
+
+/**
  * Abre un apartamento, pero antes revisa que el que estaba abierto
  * esté completo.
  *
@@ -2467,10 +2598,15 @@ function queFaltaEnApto(cuerpo) {
 
     const faltan = [];
 
-    // Datos del jefe de familia.
-    if (!v('.jefe-nombre'))   faltan.push('· El nombre del jefe de familia');
-    if (!v('.jefe-cedula'))   faltan.push('· La cédula');
-    if (!v('.jefe-telefono')) faltan.push('· El teléfono');
+    // Datos del jefe de familia. En casas solo se piden en el primer
+    // nivel: si el bloque está oculto, no se valida.
+    const bloqueJefe = cuerpo.querySelector('.bloque-jefe');
+    const pideJefe = !bloqueJefe || bloqueJefe.style.display !== 'none';
+    if (pideJefe) {
+        if (!v('.jefe-nombre'))   faltan.push('· El nombre del jefe de familia');
+        if (!v('.jefe-cedula'))   faltan.push('· La cédula');
+        if (!v('.jefe-telefono')) faltan.push('· El teléfono');
+    }
 
     // Ambientes marcados para reparar.
     filas.forEach(row => {

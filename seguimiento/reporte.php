@@ -97,6 +97,64 @@ table.rp-tabla tr:nth-child(even) td { background:#fafbfe; }
     .rp-barra-fila .et { flex:0 0 110px; font-size:11.5px; }
     table.rp-tabla { font-size:11px; }
 }
+
+/* Pantallas angostas: la fila se parte en dos líneas.
+   Con anchos fijos, la etiqueta + número + barra + porcentaje suman
+   más que la pantalla y el porcentaje se salía del recuadro. */
+@media (max-width: 420px) {
+    .rp-barra-fila {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        grid-template-areas:
+            "punto etiqueta valor"
+            ".     barra    pct";
+        gap: 3px 8px;
+        align-items: center;
+        padding: 9px 0;
+    }
+
+    /* El cuadrito de color */
+    .rp-barra-fila > span:first-child { grid-area: punto; }
+
+    .rp-barra-fila .et {
+        grid-area: etiqueta;
+        flex: none;
+        font-size: 12.5px;
+        min-width: 0;
+        word-break: break-word;
+        line-height: 1.3;
+    }
+
+    /* El número, alineado a la derecha en la primera línea */
+    .rp-barra-fila .nu {
+        grid-area: valor;
+        flex: none;
+        font-size: 15px;
+        white-space: nowrap;
+    }
+
+    /* La barra ocupa el ancho disponible en la segunda línea */
+    .rp-barra-fila .ba {
+        grid-area: barra;
+        flex: none;
+        min-width: 0;
+        height: 9px;
+    }
+
+    .rp-barra-fila .pc {
+        grid-area: pct;
+        flex: none;
+        font-size: 11.5px;
+        white-space: nowrap;
+        padding-left: 4px;
+    }
+
+    /* Las cifras grandes de arriba, dos por fila */
+    .rp-kpis { grid-template-columns: repeat(2, 1fr) !important; }
+
+    /* La tabla de parroquias con desplazamiento propio */
+    .rp-card > div[style*="overflow-x"] { margin: 0 -12px; padding: 0 12px; }
+}
 @media print {
     .seg-filtros, .app-nav, .no-print { display:none !important; }
     .rp-card { box-shadow:none; border:1px solid #dbe0ec; page-break-inside:avoid; }

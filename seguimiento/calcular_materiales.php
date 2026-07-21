@@ -14,17 +14,46 @@ header('Content-Type: application/json; charset=utf-8');
 try {
     requierePermiso('seguimiento', 'ver');
 
-    // Modo simple (GET): ?tipo=mamposteria&m2=12  -> materiales de un solo tipo.
+    // Modo simple (GET): ?tipo=friso_completo&m2=12
+    //
+    // El parámetro es un TIPO DE TRABAJO del catálogo, no una superficie.
+    // Antes se validaba contra las superficies (pared, techo, piso) y por
+    // eso las áreas comunes nunca mostraban su material.
     if (isset($_GET['tipo'], $_GET['m2'])) {
         $tipo = trim($_GET['tipo']);
         $m2v  = (float)$_GET['m2'];
-        $tipos = array_keys(recTiposSuperficie());
-        if (!in_array($tipo, $tipos, true) || $m2v <= 0) {
+
+        if ($tipo === '' || $m2v <= 0) {
             echo json_encode(['ok' => true, 'materiales' => []]);
             exit;
         }
-        $materiales = recCalcularMateriales([$tipo => $m2v]);
-        echo json_encode(['ok' => true, 'materiales' => $materiales], JSON_UNESCAPED_UNICODE);
+
+        // ¿Es un trabajo del catálogo? Es el caso normal.
+        $claves = [];
+        foreach (recTiposTrabajo() as $tt) $claves[] = $tt['clave'];
+
+        if (in_array($tipo, $claves, true)) {
+            $out = [];
+            foreach (recMaterialesPorTrabajo([$tipo => $m2v]) as $mat => $d) {
+                $out[] = [
+                    'material' => $mat,
+                    'cantidad' => $d['cantidad'],
+                    'unidad'   => $d['unidad'],
+                ];
+            }
+            echo json_encode(['ok' => true, 'materiales' => $out], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Si no, se intenta como superficie (compatibilidad con lo viejo).
+        $sups = array_keys(recTiposSuperficie());
+        if (in_array($tipo, $sups, true)) {
+            $materiales = recCalcularMateriales([$tipo => $m2v]);
+            echo json_encode(['ok' => true, 'materiales' => $materiales], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        echo json_encode(['ok' => true, 'materiales' => []]);
         exit;
     }
 
