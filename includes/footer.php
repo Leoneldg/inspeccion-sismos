@@ -31,7 +31,9 @@ window._USER_ID = <?= (int)($_SESSION['user_id'] ?? 0) ?>;</script>
 <script src="<?= APP_URL_BASE ?>assets/js/offline-cache.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/mantener-sesion.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/obras-fotos.js?v=<?= ASSET_VERSION ?>"></script>
+<script>window.APP_URL_BASE = '<?= APP_URL_BASE ?>';</script>
 <script src="<?= APP_URL_BASE ?>assets/js/obras-offline.js?v=<?= ASSET_VERSION ?>"></script>
+<script src="<?= APP_URL_BASE ?>assets/js/obras-catalogo.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/main.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/qr.js?v=<?= ASSET_VERSION ?>"></script>
 </body>

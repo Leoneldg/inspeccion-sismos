@@ -16,7 +16,7 @@
  */
 'use strict';
 
-const VERSION = 'obras-pwa-v5';
+const VERSION = 'obras-pwa-v6';
 const CACHE_ESTATICO = VERSION + '-estatico';
 const CACHE_PAGINAS  = VERSION + '-paginas';
 
@@ -25,6 +25,7 @@ const CACHE_PAGINAS  = VERSION + '-paginas';
 const PRECACHE = [
   'seguimiento/index.php?pwa=1',
   'assets/js/obras-offline.js',
+  'assets/js/obras-catalogo.js',
   'assets/js/obras-fotos.js',
   'assets/js/mantener-sesion.js',
   'assets/css/style.css',
@@ -114,22 +115,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Las páginas del sistema van SIEMPRE a la red. Cachear HTML hacía
-  // que algunos usuarios siguieran viendo una versión vieja después de
-  // una actualización, mientras otros veían la nueva.
-  //
-  // Solo se cachea el cascarón mínimo para trabajar sin señal.
-  if (url.pathname.includes('/seguimiento/')
-      || url.pathname.includes('/admin/')
-      || url.pathname.includes('/dashboard/')) {
-    event.respondWith(
-      fetch(request).catch(() =>
-        caches.match(request).then((c) => c || caches.match('offline-fallback.html'))
-      )
-    );
+  // Las pantallas de administración van siempre a la red: no se usan
+  // en campo y cachearlas causaba que algunos vieran versiones viejas.
+  if (url.pathname.includes('/admin/') || url.pathname.includes('/dashboard/')) {
+    event.respondWith(fetch(request).catch(() =>
+      caches.match('offline-fallback.html')
+    ));
     return;
   }
 
+  // Las de seguimiento SÍ se guardan: el técnico tiene que poder abrir
+  // el levantamiento sin señal. Se pide primero a la red para que
+  // siempre tenga la versión actual, y se guarda una copia por si
+  // después se queda sin datos.
+  //
   // Otras páginas: red primero, caché como respaldo.
   event.respondWith(
     fetch(request)

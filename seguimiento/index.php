@@ -572,6 +572,9 @@ async function asignarEnteAlPunto() {
 // Al abrir, mostrar solo las parroquias del estado predeterminado.
 try { filtrarParroquias(); } catch (e) { /* no interrumpir */ }
 
+// Cuántas edificaciones hay guardadas para trabajar sin señal.
+try { setTimeout(mostrarEstadoCampo, 600); } catch (e) { /* nada */ }
+
 // Si se llega con ?abrir=ID, mostrar esa edificación de una vez.
 (function () {
     const params = new URLSearchParams(location.search);
@@ -1022,6 +1025,65 @@ function filtrarParroquias() {
     // partes la invocan.
 }
 
+/**
+ * Descarga todas las edificaciones al teléfono, para poder buscarlas
+ * y abrirlas sin señal.
+ */
+async function prepararCampo() {
+    const btn = document.getElementById('btn-campo');
+    const txt = document.getElementById('btn-campo-txt');
+    if (!window.ObrasCatalogo) { alert('Módulo no disponible. Recargue la página.'); return; }
+
+    btn.disabled = true;
+    try {
+        await ObrasCatalogo.descargar(m => { txt.textContent = m; });
+        txt.textContent = 'Equipo listo';
+        btn.style.background = '#eff8f1';
+        setTimeout(mostrarEstadoCampo, 2500);
+    } catch (e) {
+        txt.textContent = 'Preparar para campo';
+        alert(e.message || 'No se pudo preparar el equipo.');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+/** Muestra cuántas edificaciones hay guardadas y de cuándo. */
+async function mostrarEstadoCampo() {
+    if (!window.ObrasCatalogo) return;
+    const txt = document.getElementById('btn-campo-txt');
+    if (!txt) return;
+    try {
+        const e = await ObrasCatalogo.estado();
+        if (!e.listo) { txt.textContent = 'Preparar para campo'; return; }
+
+        const dias = e.cuando
+            ? Math.floor((Date.now() - e.cuando.getTime()) / 86400000) : 99;
+        txt.textContent = dias === 0
+            ? e.total.toLocaleString('es-VE') + ' listas'
+            : 'Actualizar (' + dias + ' día' + (dias === 1 ? '' : 's') + ')';
+    } catch (err) { /* no interrumpir */ }
+}
+
+/**
+ * Busca en el catálogo guardado cuando no hay señal.
+ * Devuelve los resultados con la misma forma que el buscador en línea.
+ */
+async function buscarSinSenal(q, parroquia) {
+    if (!window.ObrasCatalogo) return null;
+    try {
+        const lista = await ObrasCatalogo.buscar(q, parroquia, 60);
+        return lista.map(e => ({
+            id: e.id, codigo: e.cod, nombre: e.nom,
+            parroquia: e.parr, decision: e.dec, color: e.col,
+            uso: e.uso, familias: e.fam || null, pisos: e.pisos,
+            lat: e.lat, lng: e.lng,
+            tiene_coord: e.lat !== null && e.lng !== null,
+            offline: true,
+        }));
+    } catch (e) { return null; }
+}
+
 // Busca mientras se escribe, esperando a que la persona termine de
 // teclear para no lanzar una consulta por cada letra.
 let _tempBusqueda = null;
@@ -1051,6 +1113,23 @@ async function ejecutarBusqueda() {
     cont.style.display = 'block';
     cont.innerHTML = '<p class="text-muted" style="margin:0;">Buscando…</p>';
 
+    // Sin señal se busca en lo guardado en el teléfono.
+    if (!navigator.onLine) {
+        const local = await buscarSinSenal(q, parroquia);
+        if (local && local.length) {
+            _ultimaBusqueda = local;
+            pintarResultados(local);
+            try { dibujarPuntosEnMapa(local); } catch (e) {}
+            return;
+        }
+        if (local !== null) {
+            cont.innerHTML = '<p class="text-muted" style="margin:0;">'
+                + 'Sin conexión y no hay edificaciones guardadas. '
+                + 'Toque "Preparar para campo" cuando tenga señal.</p>';
+            return;
+        }
+    }
+
     try {
         const url = BUSCAR_URL + '?q=' + encodeURIComponent(q)
                   + '&parroquia=' + encodeURIComponent(parroquia)
@@ -1066,7 +1145,17 @@ async function ejecutarBusqueda() {
         pintarResultados(d.puntos);
         dibujarPuntosEnMapa(d.puntos);
     } catch(e) {
-        cont.innerHTML = '<p class="text-muted" style="margin:0;">Error de red.</p>';
+        // Se cayó la red a mitad: se intenta con lo guardado.
+        const local = await buscarSinSenal(q, parroquia);
+        if (local && local.length) {
+            _ultimaBusqueda = local;
+            pintarResultados(local);
+            try { dibujarPuntosEnMapa(local); } catch (e2) {}
+            return;
+        }
+        cont.innerHTML = '<p class="text-muted" style="margin:0;">'
+            + 'Sin conexión. Toque "Preparar para campo" cuando tenga señal '
+            + 'para poder buscar sin datos.</p>';
     }
 }
 
@@ -1101,6 +1190,13 @@ function pintarResultados(puntos) {
                title="Resumen de una página para presentar">
                 <i class="bi bi-file-earmark-bar-graph-fill"></i> Resumen ejecutivo
             </a>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-campo"
+                    onclick="prepararCampo()"
+                    style="border-color:#2E7D3288;color:#2E7D32;"
+                    title="Descargar todo para trabajar sin señal">
+                <i class="bi bi-cloud-arrow-down-fill"></i>
+                <span id="btn-campo-txt">Preparar para campo</span>
+            </button>
         </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }
