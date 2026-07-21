@@ -67,168 +67,133 @@ $flashes = obtenerFlashes();
         <!-- ══════════════════════════════════════════════
              GRUPO 1: Operaciones de campo
              ══════════════════════════════════════════════ -->
-        <?php if (puede('dashboard','ver') || puede('formulario','ver') || puede('seguimiento','ver')): ?>
-        <div class="nav-group <?= in_array($activeModule, ['dashboard','formulario','import_export','seguimiento']) ? 'open tiene-activo' : 'open' ?>" data-group="campo">
+        <?php
+        // El menú se redujo a lo que se usa a diario. Lo que ya tiene
+        // botón dentro de otra pantalla se quitó de aquí: repetirlo
+        // solo alarga la lista y hace más lenta la navegación.
+        $esAdmin = usuarioEsMaster()
+                || str_contains(mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8'), 'administrador');
+        ?>
+
+        <?php if (puede('seguimiento','ver')): ?>
+        <div class="nav-group open" data-group="trabajo">
             <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-clipboard2-check group-icon"></i>
-                <span>Inspecciones</span>
-                <i class="bi bi-chevron-down group-chevron"></i>
+                <i class="bi bi-clipboard-check"></i>
+                <span>Trabajo diario</span>
+                <i class="bi bi-chevron-down nav-chevron"></i>
             </div>
             <div class="nav-group-items">
-                <?php if (false && puede('dashboard','ver')): // OCULTO: sistema enfocado en Seguimiento y Control ?>
-                <a href="<?= APP_URL_BASE ?>dashboard/index.php" class="nav-item <?= $activeModule==='dashboard'?'active':'' ?>" title="Dashboard">
-                    <i class="bi bi-bar-chart-line-fill"></i> <span>Dashboard</span>
-                </a>
-                <?php endif; ?>
-                <?php if (false && puede('formulario','ver')): // OCULTO: sistema enfocado en Seguimiento y Control ?>
-                <a href="<?= APP_URL_BASE ?>formulario/index.php" class="nav-item <?= $activeModule==='formulario'?'active':'' ?>" title="Formulario de Inspección">
-                    <i class="bi bi-clipboard2-check-fill"></i> <span>Formulario</span>
-                </a>
-                <?php endif; ?>
-                <?php if (puede('seguimiento','ver')): ?>
+
                 <?php if (function_exists('usuarioLimitadoAFrente') && usuarioLimitadoAFrente()): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/mi_frente.php" class="nav-item <?= $activeModule==='mi_frente'?'active':'' ?>" title="Mi frente de trabajo">
-                    <i class="bi bi-diagram-3-fill"></i> <span>Mi frente</span>
+                    <i class="bi bi-people-fill"></i> <span>Mi frente</span>
                 </a>
                 <?php endif; ?>
+
                 <?php if (function_exists('usuarioLimitadoAParroquia') && usuarioLimitadoAParroquia()): ?>
                 <a href="<?= APP_URL_BASE ?>seguimiento/mi_parroquia.php" class="nav-item <?= $activeModule==='mi_parroquia'?'active':'' ?>" title="Mi parroquia">
                     <i class="bi bi-geo-alt-fill"></i> <span>Mi parroquia</span>
                 </a>
                 <?php endif; ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Seguimiento y Control">
-                    <i class="bi bi-tools"></i> <span>Seguimiento y Control</span>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Buscar edificaciones y asignar obra">
+                    <i class="bi bi-map-fill"></i> <span>Edificaciones</span>
                 </a>
-                <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="nav-item <?= $activeModule==='reconstruccion'?'active':'' ?>" title="Edificaciones en obra">
-                    <i class="bi bi-hammer"></i> <span>En reconstrucción</span>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="nav-item <?= $activeModule==='reconstruccion'?'active':'' ?>" title="Levantamientos en curso">
+                    <i class="bi bi-hammer"></i> <span>Levantamientos</span>
                 </a>
-                <a href="<?= APP_URL_BASE ?>seguimiento/sin_etiqueta.php" class="nav-item <?= $activeModule==='sin_etiqueta'?'active':'' ?>" title="Levantamientos sin foto de etiqueta">
-                    <i class="bi bi-tag"></i> <span>Sin etiqueta</span>
+
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if (puede('seguimiento','ver')): ?>
+        <div class="nav-group <?= in_array($activeModule, ['reporte','reporte_global']) ? 'open tiene-activo' : '' ?>" data-group="informes">
+            <div class="nav-group-header" onclick="toggleNavGroup(this)">
+                <i class="bi bi-graph-up-arrow"></i>
+                <span>Reportes</span>
+                <i class="bi bi-chevron-down nav-chevron"></i>
+            </div>
+            <div class="nav-group-items">
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/reporte.php" class="nav-item <?= $activeModule==='reporte'?'active':'' ?>" title="Estado del programa con gráficos">
+                    <i class="bi bi-bar-chart-fill"></i> <span>Reporte ejecutivo</span>
                 </a>
-                <?php if (puede('seguimiento','editar')): ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/nueva_edificacion.php" class="nav-item <?= $activeModule==='nueva_edif'?'active':'' ?>" title="Agregar edificación">
-                    <i class="bi bi-plus-circle"></i> <span>Agregar edificación</span>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/reporte_global.php" class="nav-item <?= $activeModule==='reporte_global'?'active':'' ?>" title="Consolidado por responsable">
+                    <i class="bi bi-globe-americas"></i> <span>Reporte global</span>
                 </a>
-                <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="nav-item <?= $activeModule==='agregadas'?'active':'' ?>" title="Edificaciones agregadas en campo">
-                    <i class="bi bi-clipboard-plus"></i> <span>Agregadas en campo</span>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php" target="_blank" class="nav-item" title="Resumen de una página en PDF">
+                    <i class="bi bi-file-earmark-pdf-fill"></i> <span>Resumen en PDF</span>
+                </a>
+
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($esAdmin || puede('configuracion','ver') || puede('usuarios','ver')): ?>
+        <div class="nav-group <?= in_array($activeModule, ['usuarios','roles','materiales','ingenieros','sistematizadores','configuracion','entes','frentes','representantes','sin_etiqueta','agregadas','limpiar','import_export','correcciones','informes']) ? 'open tiene-activo' : '' ?>" data-group="admin">
+            <div class="nav-group-header" onclick="toggleNavGroup(this)">
+                <i class="bi bi-gear-fill"></i>
+                <span>Administración</span>
+                <i class="bi bi-chevron-down nav-chevron"></i>
+            </div>
+            <div class="nav-group-items">
+
+                <?php if (puede('usuarios','ver')): ?>
+                <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule==='usuarios'?'active':'' ?>" title="Usuarios del sistema">
+                    <i class="bi bi-person-badge"></i> <span>Usuarios</span>
                 </a>
                 <?php endif; ?>
-                <?php if (usuarioEsMaster()): ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Limpiar levantamientos de prueba">
-                    <i class="bi bi-trash3"></i> <span>Limpiar levantamientos</span>
-                </a>
-                <?php endif; ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/representantes.php" class="nav-item <?= $activeModule==='representantes'?'active':'' ?>" title="Representantes por parroquia">
-                    <i class="bi bi-people-fill"></i> <span>Representantes</span>
-                </a>
-                <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="nav-item <?= $activeModule==='frentes'?'active':'' ?>" title="Frentes de trabajo y cuadrillas">
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="nav-item <?= $activeModule==='frentes'?'active':'' ?>" title="Frentes de trabajo y brigadas">
                     <i class="bi bi-diagram-3-fill"></i> <span>Frentes de trabajo</span>
                 </a>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
 
-        <!-- ══════════════════════════════════════════════
-             GRUPO 2: Datos e informes
-             ══════════════════════════════════════════════ -->
-        <?php if (puede('import_export','ver') || puede('correcciones','ver')): ?>
-        <div class="nav-group <?= in_array($activeModule, ['import_export','correcciones']) ? 'open tiene-activo' : '' ?>" data-group="datos">
-            <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-database group-icon"></i>
-                <span>Datos e informes</span>
-                <i class="bi bi-chevron-down group-chevron"></i>
-            </div>
-            <div class="nav-group-items">
-                <?php if (puede('import_export','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>dashboard/informes.php" class="nav-item <?= $activeModule==='informes'?'active':'' ?>" title="Informes">
-                    <i class="bi bi-file-earmark-bar-graph"></i> <span>Informes</span>
-                </a>
-                <?php endif; ?>
-                <?php if (puede('import_export','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item <?= $activeModule==='import_export'?'active':'' ?>" title="Importar / Exportar">
-                    <i class="bi bi-arrow-left-right"></i> <span>Importar / Exportar</span>
-                </a>
-                <?php endif; ?>
-                <?php if (puede('correcciones','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/correcciones.php" class="nav-item <?= $activeModule==='correcciones'?'active':'' ?>" title="Correcciones">
-                    <i class="bi bi-clipboard2-pulse-fill"></i> <span>Correcciones</span>
-                </a>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- ══════════════════════════════════════════════
-             GRUPO 3: Administración de personas
-             ══════════════════════════════════════════════ -->
-        <?php if (puede('usuarios','ver') || puede('ingenieros','ver')): ?>
-        <div class="nav-group <?= in_array($activeModule, ['usuarios','roles','ingenieros']) ? 'open tiene-activo' : '' ?>" data-group="admin">
-            <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-people group-icon"></i>
-                <span>Administración</span>
-                <i class="bi bi-chevron-down group-chevron"></i>
-            </div>
-            <div class="nav-group-items">
-                <?php if (puede('usuarios','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule==='usuarios'?'active':'' ?>" title="Usuarios">
-                    <i class="bi bi-people-fill"></i> <span>Usuarios</span>
-                </a>
-                <a href="<?= APP_URL_BASE ?>admin/sistematizadores.php" class="nav-item <?= $activeModule==='sistematizadores'?'active':'' ?>" title="Sistematizadores">
-                    <i class="bi bi-person-check-fill"></i> <span>Sistematizadores</span>
-                </a>
+                <?php if (puede('configuracion','ver') || $esAdmin): ?>
                 <a href="<?= APP_URL_BASE ?>admin/materiales.php" class="nav-item <?= $activeModule==='materiales'?'active':'' ?>" title="Materiales y rendimientos">
                     <i class="bi bi-box-seam"></i> <span>Materiales</span>
                 </a>
-                <?php if (puede('usuarios','editar')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule==='roles'?'active':'' ?>" title="Roles y Permisos">
-                    <i class="bi bi-shield-lock-fill"></i> <span>Roles y Permisos</span>
-                </a>
                 <?php endif; ?>
-                <?php endif; ?>
-                <?php if (puede('ingenieros','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item <?= $activeModule==='ingenieros'?'active':'' ?>" title="Ingenieros / Inspectores">
-                    <i class="bi bi-person-vcard-fill"></i> <span>Ingenieros</span>
-                </a>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
 
-        <!-- ══════════════════════════════════════════════
-             GRUPO 4: Sistema (solo superadmin)
-             ══════════════════════════════════════════════ -->
-        <?php if (puede('configuracion','ver') || (function_exists('usuarioEsMaster') && usuarioEsMaster())): ?>
-        <div class="nav-group <?= in_array($activeModule, ['configuracion','entes_resumen']) ? 'open tiene-activo' : '' ?>" data-group="sistema">
-            <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-gear group-icon"></i>
-                <span>Sistema</span>
-                <i class="bi bi-chevron-down group-chevron"></i>
-            </div>
-            <div class="nav-group-items">
-                <?php if (function_exists('usuarioEsMaster') && usuarioEsMaster()): ?>
-                <a href="<?= APP_URL_BASE ?>admin/entes_resumen.php" class="nav-item <?= $activeModule==='entes_resumen'?'active':'' ?>" title="Resumen por ente">
-                    <i class="bi bi-hdd-stack-fill"></i> <span>Bases por ente</span>
+                <a href="<?= APP_URL_BASE ?>seguimiento/sin_etiqueta.php" class="nav-item <?= $activeModule==='sin_etiqueta'?'active':'' ?>" title="Edificaciones marcadas sin etiqueta">
+                    <i class="bi bi-tag"></i> <span>Sin etiqueta</span>
+                </a>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="nav-item <?= $activeModule==='agregadas'?'active':'' ?>" title="Edificaciones registradas en campo">
+                    <i class="bi bi-plus-square"></i> <span>Agregadas en campo</span>
+                </a>
+
+                <?php if ($esAdmin): ?>
+                <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule==='roles'?'active':'' ?>" title="Roles y permisos">
+                    <i class="bi bi-shield-lock"></i> <span>Roles y permisos</span>
+                </a>
+
+                <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item <?= $activeModule==='ingenieros'?'active':'' ?>" title="Ingenieros e inspectores">
+                    <i class="bi bi-person-vcard"></i> <span>Ingenieros</span>
+                </a>
+
+                <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item <?= $activeModule==='import_export'?'active':'' ?>" title="Importar y exportar datos">
+                    <i class="bi bi-arrow-down-up"></i> <span>Importar / Exportar</span>
+                </a>
+
+                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Borrar levantamientos de prueba">
+                    <i class="bi bi-trash3"></i> <span>Limpiar pruebas</span>
                 </a>
                 <?php endif; ?>
+
                 <?php if (puede('configuracion','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="nav-item <?= $activeModule==='configuracion'?'active':'' ?>" title="Configuración del Sistema">
+                <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="nav-item <?= $activeModule==='configuracion'?'active':'' ?>" title="Configuración del sistema">
                     <i class="bi bi-sliders"></i> <span>Configuración</span>
                 </a>
                 <?php endif; ?>
+
             </div>
         </div>
         <?php endif; ?>
 
-
-        <div class="user-card">
-            <div class="avatar"><?= e(mb_strtoupper(mb_substr($_SESSION['nombre'] ?? '?', 0, 1))) ?></div>
-            <div class="info">
-                <strong><?= e($_SESSION['nombre'] ?? '') ?></strong>
-                <span><?= e($_SESSION['rol_nombre'] ?? '') ?></span>
-            </div>
-            <a href="<?= APP_URL_BASE ?>logout.php" class="logout" title="Cerrar sesión"><i class="bi bi-box-arrow-right"></i></a>
-        </div>
     </aside>
 
     <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
