@@ -173,8 +173,9 @@ ob_start();
 
   <!-- Las dos cifras de trabajo -->
   <?php
-  // Los m² de las tres etapas no se suman: una pared aporta a varias.
-  // Lo que se muestra es el metraje registrado, que es la superficie real.
+  // El metraje registrado es la superficie de PARED. El revestimiento
+  // sale mayor porque cada pared se frisa por las dos caras: son
+  // magnitudes distintas y no deben confundirse.
   $m2Real = $c['m2_total'];
   ?>
   <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:13px;">
@@ -195,7 +196,7 @@ ob_start();
       </div>
       <div style="font-size:9.5px;color:#ffffffcc;text-transform:uppercase;
                   margin-top:5px;letter-spacing:.3px;">
-        m² a reparar
+        m² de pared a reparar
       </div>
     </div>
   </div>
@@ -291,7 +292,11 @@ ob_start();
     </div>
     <?php endif; ?>
 
-    <div style="font-size:8px;color:#8a6d1a;margin-top:8px;">
+    <div style="font-size:9px;color:#8a6d1a;margin-top:9px;line-height:1.5;">
+      <strong>Por qué el revestimiento tiene más metros:</strong>
+      cada pared se frisa y se pinta por las <strong>dos caras</strong>,
+      así que <?= num($m2Real, 0) ?> m² de pared dan
+      <?= num($rev['m2'] ?? 0, 0) ?> m² de superficie a cubrir.<br>
       Incluye 10% de holgura. Escombro calculado a 0,15 m³ por m² demolido.
       Sobre <?= ent($c['edificios']) ?> levantamientos completados.
     </div>
