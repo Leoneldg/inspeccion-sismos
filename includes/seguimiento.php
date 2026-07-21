@@ -2927,8 +2927,11 @@ function segMaterialPorEtapa(array $trabajos): array
     // única fuente de verdad, en vez de tener números repetidos y
     // desincronizados en el código.
     $reparto = [
+        'demoler_pared_completa_concreto' => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
         'demoler_pared_completa_arcilla'  => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+        'demolicion_parcial_concreto'     => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
         'demolicion_parcial_arcilla'      => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+        'pared_completa_concreto'         => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
         'pared_completa_arcilla'          => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
         'friso_completo_dos_caras'        => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
         'friso_completo'                  => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
@@ -3058,9 +3061,12 @@ function segMaterialPorEtapa(array $trabajos): array
 function segTrabajosPorCategoria(array $trabajos): array
 {
     $reparto = [
-        // acción => [demolición, construcción, revestimiento]
+        // acción => [demolición, reconstrucción, revestimiento]
+        'demoler_pared_completa_concreto' => [1.0, 1.0, 2.0],
         'demoler_pared_completa_arcilla'  => [1.0, 1.0, 2.0],
+        'demolicion_parcial_concreto'     => [1.0, 1.0, 2.0],
         'demolicion_parcial_arcilla'      => [1.0, 1.0, 2.0],
+        'pared_completa_concreto'         => [0.0, 1.0, 2.0],
         'pared_completa_arcilla'          => [0.0, 1.0, 2.0],
         'friso_completo_dos_caras'        => [0.0, 0.0, 2.0],
         'friso_completo'                  => [0.0, 0.0, 1.0],
@@ -3070,8 +3076,11 @@ function segTrabajosPorCategoria(array $trabajos): array
         'solo_pintura'                    => [0.0, 0.0, 1.0],
         'pintura'                         => [0.0, 0.0, 1.0],
         // Las que quedaron de versiones anteriores.
+        'demoler_reconstruir_concreto'    => [1.0, 1.0, 0.0],
         'demoler_reconstruir_arcilla'     => [1.0, 1.0, 0.0],
+        'mamposteria_bloque_concreto'     => [0.0, 1.0, 0.0],
         'mamposteria_bloque_arcilla'      => [0.0, 1.0, 0.0],
+        'demolicion_mamposteria'          => [1.0, 0.0, 0.0],
         'demolicion_mamposteria'          => [1.0, 0.0, 0.0],
     ];
 

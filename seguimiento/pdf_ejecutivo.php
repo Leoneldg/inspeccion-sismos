@@ -221,7 +221,7 @@ ob_start();
     <div style="margin-bottom:11px;">
       <div style="font-size:10.5px;font-weight:800;color:#22366F;
                   margin-bottom:5px;text-transform:uppercase;">
-        Construcción · <?= num($con['m2'], 0) ?> m² de pared a levantar
+        Reconstrucción · <?= num($con['m2'], 0) ?> m² de pared a levantar
       </div>
       <div class="mat">
         <?php $i = 0; foreach ($con['materiales'] as $m): ?>
@@ -278,7 +278,7 @@ ob_start();
   $cats = $c['categorias'] ?? [];
   $CAT = [
       'demolicion'    => ['Demolición',    '#A61C1C', 'Pared a tumbar'],
-      'construccion'  => ['Construcción',  '#22366F', 'Pared a levantar'],
+      'construccion'  => ['Reconstrucción', '#22366F', 'Pared a levantar'],
       'revestimiento' => ['Revestimiento', '#C9A227', 'Friso y acabado'],
   ];
   $totCat = 0;
