@@ -230,6 +230,25 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<!-- Preparar el equipo para trabajar sin señal -->
+<div class="card" style="margin-bottom:14px;">
+    <div class="card-body" style="padding:12px 16px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline" id="btn-campo"
+                    onclick="prepararCampo()"
+                    style="border-color:#2E7D3288;color:#2E7D32;">
+                <i class="bi bi-cloud-arrow-down-fill"></i>
+                <span id="btn-campo-txt">Preparar para campo</span>
+            </button>
+            <div style="flex:1;min-width:220px;font-size:12.5px;color:#5b6478;">
+                Descargue las edificaciones para buscarlas y levantarlas
+                sin conexión. Hágalo con WiFi antes de salir.
+            </div>
+            <span id="campo-estado" style="font-size:12px;color:#767c94;"></span>
+        </div>
+    </div>
+</div>
+
 <!-- Filtros -->
 <div class="card" style="margin-bottom:14px;">
     <div class="card-body">
@@ -1190,13 +1209,7 @@ function pintarResultados(puntos) {
                title="Resumen de una página para presentar">
                 <i class="bi bi-file-earmark-bar-graph-fill"></i> Resumen ejecutivo
             </a>
-            <button type="button" class="btn btn-outline btn-sm" id="btn-campo"
-                    onclick="prepararCampo()"
-                    style="border-color:#2E7D3288;color:#2E7D32;"
-                    title="Descargar todo para trabajar sin señal">
-                <i class="bi bi-cloud-arrow-down-fill"></i>
-                <span id="btn-campo-txt">Preparar para campo</span>
-            </button>
+
         </div>
         <div style="max-height:280px;overflow-y:auto;">${filas}</div>`;
 }

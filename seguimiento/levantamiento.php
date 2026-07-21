@@ -1858,6 +1858,36 @@ function descartarRespaldo(btn) {
     if (aviso) aviso.remove();
 }
 
+/**
+ * Aviso permanente cuando no hay señal, para que el técnico sepa que
+ * puede seguir trabajando y que nada se pierde.
+ */
+function avisoSinSenal() {
+    let barra = document.getElementById('aviso-sin-senal');
+
+    if (navigator.onLine) {
+        if (barra) barra.remove();
+        return;
+    }
+    if (barra) return;
+
+    barra = document.createElement('div');
+    barra.id = 'aviso-sin-senal';
+    barra.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9998;'
+        + 'background:#C9A227;color:#22366F;padding:9px 14px;font-size:13px;'
+        + 'font-weight:700;text-align:center;box-shadow:0 -2px 8px rgba(0,0,0,.15);';
+    barra.innerHTML = '<i class="bi bi-wifi-off"></i> '
+        + 'Sin señal · Siga trabajando: todo se guarda en el teléfono '
+        + 'y se envía al recuperar la conexión.';
+    document.body.appendChild(barra);
+}
+
+try {
+    avisoSinSenal();
+    window.addEventListener('online',  avisoSinSenal);
+    window.addEventListener('offline', avisoSinSenal);
+} catch (e) { /* no interrumpir */ }
+
 // Arranque del respaldo automático.
 // El script va al final de la página, así que DOMContentLoaded ya pasó:
 // hay que llamar directamente o el respaldo nunca arranca.
