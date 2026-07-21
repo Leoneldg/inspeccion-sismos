@@ -400,6 +400,39 @@ include __DIR__ . '/../includes/header.php';
             $areasCat = recAreasComunesTipicas();
             $areasGuardadas = recAreasComunes((int)$ed['id']);
 
+            // Los metros y el tipo de trabajo REALES viven en rec_reparacion,
+            // no en rec_area_comun (ahi solo queda un resumen). Si no se leen
+            // aqui, el formulario se dibuja vacio y al guardar de nuevo
+            // sobreescribe con vacio lo que ya estaba bien guardado.
+            $repAreas = [];   // [tipo_area] => ['principal'=>..., 'extras'=>[...]]
+            foreach ($areasGuardadas as $akTmp => $acTmp) {
+                $filas = [];
+                try { $filas = recReparaciones('area_comun', (int)$acTmp['id']); }
+                catch (Throwable $e) { $filas = []; }
+                if (!$filas) continue;
+
+                // partida 1 = trabajo principal; el resto son trabajos extra.
+                $princ = ['trabajo' => '', 'sup' => []];
+                $extras = [];
+                foreach ($filas as $f) {
+                    $part = (int)($f['partida'] ?? 1);
+                    $sup  = $f['tipo_superficie'] ?? '';
+                    $m2f  = (float)($f['metros_cuadrados'] ?? 0);
+                    $ttf  = $f['tipo_trabajo'] ?? '';
+                    if ($m2f <= 0 || $sup === '') continue;
+
+                    // Todo lo que comparta el trabajo principal se agrupa ahi.
+                    if ($princ['trabajo'] === '' || $ttf === $princ['trabajo']) {
+                        $princ['trabajo'] = $princ['trabajo'] ?: $ttf;
+                        $princ['sup'][$sup] = ($princ['sup'][$sup] ?? 0) + $m2f;
+                    } else {
+                        if (!isset($extras[$ttf])) $extras[$ttf] = [];
+                        $extras[$ttf][$sup] = ($extras[$ttf][$sup] ?? 0) + $m2f;
+                    }
+                }
+                $repAreas[$akTmp] = ['principal' => $princ, 'extras' => $extras];
+            }
+
             // Áreas que el técnico agregó con nombre libre ("Otros").
             recAsegurarAreasPartidas();
             $areasPropias = [];
@@ -427,6 +460,18 @@ include __DIR__ . '/../includes/header.php';
                 <?php foreach ($areasCat as $ak => $albl):
                     $ac = $areasGuardadas[$ak] ?? null;
                     $reparar = $ac && $ac['necesita_reparacion'];
+
+                    // Datos reales guardados en rec_reparacion para esta area.
+                    $rp        = $repAreas[$ak] ?? null;
+                    $supGuard  = $rp['principal']['sup'] ?? [];
+                    $extrasG   = $rp['extras'] ?? [];
+                    // El trabajo mostrado sale de rec_reparacion; si por alguna
+                    // razon no hay, se cae al resumen de rec_area_comun.
+                    $trabajoAct = $rp['principal']['trabajo'] ?? '';
+                    if ($trabajoAct === '') $trabajoAct = (string)($ac['tipo_trabajo'] ?? '');
+                    // Si hay metros guardados, el area esta a reparar aunque el
+                    // resumen se haya quedado desactualizado.
+                    if (!$reparar && ($supGuard || $extrasG)) $reparar = true;
                 ?>
                 <div class="area-row" data-area="<?= $ak ?>" style="border:1px solid #eef0f5;border-radius:8px;overflow:hidden;">
                     <label class="area-chk-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:7px;padding:9px 11px;cursor:pointer;font-size:13px;<?= $reparar ? 'background:#fdf3e7;font-weight:600;color:#A66A00;' : '' ?>">
@@ -446,7 +491,7 @@ include __DIR__ . '/../includes/header.php';
                                 onchange="calcularMatArea(this)">
                             <option value="">Seleccione…</option>
                             <?php foreach ($tiposTrabajo as $tk => $tl): ?>
-                            <option value="<?= $tk ?>" <?= ($ac && ($ac['tipo_trabajo'] ?? '') === $tk) ? 'selected' : '' ?>><?= $tl ?></option>
+                            <option value="<?= $tk ?>" <?= ($trabajoAct === (string)$tk) ? 'selected' : '' ?>><?= $tl ?></option>
                             <?php endforeach; ?>
                         </select>
                         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
@@ -454,8 +499,14 @@ include __DIR__ . '/../includes/header.php';
                         </label>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
                             <?php foreach (['pared','techo','piso'] as $sup):
-                                $valSup = ($ac && ($ac['tipo_superficie'] ?? '') === $sup)
-                                        ? ($ac['metros_cuadrados'] ?? '') : ''; ?>
+                                // rec_area_comun NO tiene columna tipo_superficie:
+                                // el desglose real esta en rec_reparacion.
+                                // Se muestra con coma, como se escribe en Venezuela
+                                // (igual que los ambientes).
+                                $valSup = isset($supGuard[$sup]) && $supGuard[$sup] > 0
+                                        ? str_replace('.', ',',
+                                            rtrim(rtrim(number_format((float)$supGuard[$sup], 2, '.', ''), '0'), '.'))
+                                        : ''; ?>
                             <div style="width:104px;">
                                 <label class="text-sm" style="text-transform:capitalize;
                                        font-size:11px;"><?= $sup ?></label>
@@ -473,8 +524,9 @@ include __DIR__ . '/../includes/header.php';
                         </div>
 
                         <!-- Campo oculto: conserva el total para el guardado -->
+                        <?php $totalAreaG = $supGuard ? array_sum($supGuard) : (float)($ac['metros_cuadrados'] ?? 0); ?>
                         <input type="hidden" class="area-m2"
-                               value="<?= e((string)($ac['metros_cuadrados'] ?? '')) ?>">
+                               value="<?= $totalAreaG > 0 ? e(str_replace('.', ',', rtrim(rtrim(number_format($totalAreaG, 2, '.', ''), '0'), '.'))) : '' ?>">
 
                         <button type="button" class="btn btn-outline btn-sm"
                                 style="margin-bottom:8px;border-color:#2d448855;color:#2d4488;
@@ -773,6 +825,44 @@ const TIPOS_TRABAJO = <?= json_encode(array_map(fn($t) => [
 ], recTiposTrabajo()), JSON_UNESCAPED_UNICODE) ?>;
 
 /**
+ * Trabajos ADICIONALES ya guardados en cada area comun.
+ * Se usan para volver a dibujarlos al recargar el paso 1: sin esto el
+ * formulario aparecia sin ellos y al guardar de nuevo se borraban.
+ * Forma: { lobby: [ { trabajo: 'friso_pared', sup: { pared: 12 } } ], ... }
+ */
+const AREA_EXTRAS = <?= json_encode(array_map(
+    fn($r) => array_map(
+        fn($tt, $sups) => ['trabajo' => $tt, 'sup' => $sups],
+        array_keys($r['extras'] ?? []),
+        array_values($r['extras'] ?? [])
+    ),
+    $repAreas ?? []
+), JSON_UNESCAPED_UNICODE) ?>;
+
+// Redibujar los trabajos adicionales guardados de cada area comun.
+// Este <script> va DESPUES de la grilla de areas, asi que el DOM que
+// necesita ya existe. Si DOMContentLoaded ya paso (script al final de
+// la pagina), el listener no se dispararia nunca: por eso se ejecuta
+// directamente en ese caso.
+function restaurarExtrasAreas() {
+    try {
+        Object.keys(AREA_EXTRAS || {}).forEach(function (clave) {
+            const lista = AREA_EXTRAS[clave] || [];
+            if (!lista.length) return;
+            const row = document.querySelector('.area-row[data-area="' + clave + '"]');
+            if (!row) return;
+            lista.forEach(function (ex) { agregarPartidaArea(row, clave, ex); });
+        });
+    } catch (e) { /* si algo falla, el paso 1 sigue usable */ }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restaurarExtrasAreas);
+} else {
+    restaurarExtrasAreas();
+}
+
+/**
  * Avisa qué superficies cuentan para el trabajo elegido.
  * Levantar una pared consume metros de PARED: si el técnico llena
  * también techo y piso, esos metros no entran en el cálculo.
@@ -987,14 +1077,24 @@ function pintarAreaNueva(clave, nombre) {
  * Funciona igual que en los ambientes: un área puede necesitar
  * demolición y además friso, por ejemplo.
  */
-function agregarPartidaArea(btn, clave) {
-    const row = btn.closest('.area-row');
+/**
+ * Agrega un bloque de "otro trabajo" a un area comun.
+ * `pre` permite reconstruir un trabajo ya guardado al recargar la pagina:
+ *   pre = { trabajo: 'friso_pared', sup: { pared: 12, techo: 4 } }
+ * `ctx` puede ser el boton (uso normal) o la propia .area-row (precarga).
+ */
+function agregarPartidaArea(ctx, clave, pre) {
+    const row = (ctx && ctx.classList && ctx.classList.contains('area-row'))
+        ? ctx : (ctx ? ctx.closest('.area-row') : null);
     const cont = row ? row.querySelector('.area-partidas') : null;
     if (!cont) return;
 
     const n = cont.querySelectorAll('.partida-area').length + 2;
+    const trabPre = (pre && pre.trabajo) ? String(pre.trabajo) : '';
     const opciones = (Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : [])
-        .map(t => '<option value="' + t.clave + '">' + t.nombre + '</option>').join('');
+        .map(t => '<option value="' + t.clave + '"'
+                + (String(t.clave) === trabPre ? ' selected' : '')
+                + '>' + t.nombre + '</option>').join('');
 
     const bloque = document.createElement('div');
     bloque.className = 'partida-area';
@@ -1020,7 +1120,10 @@ function agregarPartidaArea(btn, clave) {
             + sup + '</label>'
             + '<div style="display:flex;align-items:center;gap:4px;">'
             + '<input type="text" inputmode="decimal" class="form-control part-area-m2" '
-            + 'data-sup="' + sup + '" value="" style="flex:1;min-width:0;'
+            + 'data-sup="' + sup + '" value="'
+            + ((pre && pre.sup && pre.sup[sup])
+                ? String(pre.sup[sup]).replace('.', ',') : '')
+            + '" style="flex:1;min-width:0;'
             + 'padding:6px 8px;font-size:12.5px;" '
             + 'oninput="normalizarDecimal(this); calcularMatArea(this);">'
             + '<span style="font-size:11px;color:#8a6d1a;font-weight:600;">m²</span>'
@@ -1029,7 +1132,8 @@ function agregarPartidaArea(btn, clave) {
 
     cont.appendChild(bloque);
     const sel = bloque.querySelector('.part-area-trabajo');
-    if (sel) sel.focus();
+    // Al precargar no se roba el foco: el tecnico no pidio escribir aqui.
+    if (sel && !pre) sel.focus();
 }
 
 /** Foto de un área común del edificio. */
@@ -1175,6 +1279,9 @@ async function guardarEdificio(ev) {
         tiene_areas_comunes: 1,
         areas_comunes: [],
     };
+    // Areas marcadas pero sin datos: se avisa antes de guardar.
+    const areasIncompletas = [];
+
     // Recolectar las áreas marcadas para reparar, con su trabajo y m².
     document.querySelectorAll('.area-row').forEach(row => {
         if (!row.querySelector('.area-reparar').checked) return;
@@ -1211,7 +1318,25 @@ async function guardarEdificio(ev) {
             superficies: sups,
             extras: extras,
         });
+
+        // Si un area quedo marcada pero sin trabajo ni metros, se avisa:
+        // guardarla asi borraria lo que ya estuviera registrado.
+        if (!row.querySelector('.area-trabajo').value || total <= 0) {
+            const lbl = row.querySelector('.area-chk-lbl span');
+            areasIncompletas.push(lbl ? lbl.textContent.trim() : row.dataset.area);
+        }
     });
+
+    // Aviso claro antes de sobreescribir con datos vacios.
+    if (areasIncompletas.length) {
+        const seguir = confirm(
+            'Estas areas comunes estan marcadas para reparar pero les falta '
+            + 'el tipo de trabajo o los metros:\n\n· '
+            + areasIncompletas.join('\n· ')
+            + '\n\nSi continua, se guardaran sin esos datos.\n'
+            + '¿Desea continuar de todos modos?');
+        if (!seguir) return false;
+    }
     // Copia local siempre, antes de intentar enviar.
     guardarBorrador('paso1_' + INSPECCION_ID, payload);
 
@@ -3933,14 +4058,79 @@ async function cargarResumen() {
     cont.innerHTML = html;
 }
 
-// Cargar la foto de etiqueta si ya existe.
-(function cargarEtiqueta() {
+/**
+ * Vuelve a pintar TODAS las fotos que cuelgan del edificio.
+ *
+ * Todas se guardan con nivel='edificio' y el campo `parte` dice a que
+ * bloque pertenece cada una:
+ *   'etiqueta'            -> foto de la etiqueta de la fachada (paso 1)
+ *   '<clave_area>'        -> foto de un area comun: 'lobby', 'escaleras'...
+ *   '<clave>_reparacion'  -> foto del cierre: 'azotea_reparacion', etc.
+ *
+ * Antes solo se recuperaba la de etiqueta y las demas se descartaban en
+ * el filtro, asi que al reabrir el levantamiento las areas comunes y el
+ * cierre aparecian sin foto aunque estuvieran guardadas. El tecnico creia
+ * que se habian perdido y volvia a tomarlas, duplicandolas.
+ */
+function pintarFotosDelEdificio(fotos) {
+    if (!Array.isArray(fotos) || !fotos.length) return;
+
+    // Se limpian los contenedores antes de pintar, para poder llamar a
+    // esta funcion mas de una vez sin que las fotos salgan repetidas.
+    const vaciar = (el) => { if (el) el.innerHTML = ''; };
+    vaciar(document.getElementById('etiqueta-fotos'));
+    document.querySelectorAll('.area-row .area-fotos').forEach(vaciar);
+    document.querySelectorAll('.cierre-foto .cierre-fotos').forEach(vaciar);
+
+    fotos.forEach(f => {
+        const parte = String(f.parte || '').trim();
+        if (!parte) return;
+
+        // 1) Etiqueta de la fachada.
+        if (parte === 'etiqueta') {
+            const c = document.getElementById('etiqueta-fotos');
+            if (c) agregarMiniFoto(c, f);
+            return;
+        }
+
+        // 2) Cierre (azotea / tanques / impermeabilizacion).
+        if (parte.endsWith('_reparacion')) {
+            const key = parte.slice(0, -'_reparacion'.length);
+            const bloque = document.getElementById('cierre-foto-' + key);
+            const c = bloque ? bloque.querySelector('.cierre-fotos') : null;
+            if (c) agregarMiniFoto(c, f);
+            return;
+        }
+
+        // 3) Area comun: `parte` es la clave del area.
+        const row = document.querySelector('.area-row[data-area="' + parte + '"]');
+        if (!row) return;
+        const c = row.querySelector('.area-fotos');
+        if (!c) return;
+        agregarMiniFoto(c, f);
+
+        // Si hay foto, el area estaba marcada para reparar: se abre su
+        // detalle para que la foto no quede escondida.
+        const chk = row.querySelector('.area-reparar');
+        if (chk && !chk.checked) {
+            chk.checked = true;
+            const det = row.querySelector('.area-detalle');
+            if (det) det.style.display = 'block';
+            const lbl = row.querySelector('.area-chk-lbl');
+            if (lbl) {
+                lbl.style.background = '#fdf3e7';
+                lbl.style.fontWeight = '600';
+                lbl.style.color = '#A66A00';
+            }
+        }
+    });
+}
+
+// Recuperar las fotos ya guardadas del edificio al abrir el levantamiento.
+(function cargarFotosEdificio() {
     fetch(URL_BASE + 'listar_rec_aptos.php?fotos_nivel=edificio&ref_id=' + EDIFICIO_ID)
         .then(r => r.json()).then(d => {
-            if (d.ok && d.fotos && d.fotos.length) {
-                const cont = document.getElementById('etiqueta-fotos');
-                d.fotos.filter(f => f.parte === 'etiqueta').forEach(f => agregarMiniFoto(cont, f));
-            }
+            if (d.ok && d.fotos) pintarFotosDelEdificio(d.fotos);
         }).catch(()=>{});
 })();
 
