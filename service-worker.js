@@ -16,7 +16,7 @@
  */
 'use strict';
 
-const VERSION = 'obras-pwa-v4';
+const VERSION = 'obras-pwa-v5';
 const CACHE_ESTATICO = VERSION + '-estatico';
 const CACHE_PAGINAS  = VERSION + '-paginas';
 
@@ -114,7 +114,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Páginas (HTML): network-first con respaldo a caché.
+  // Las páginas del sistema van SIEMPRE a la red. Cachear HTML hacía
+  // que algunos usuarios siguieran viendo una versión vieja después de
+  // una actualización, mientras otros veían la nueva.
+  //
+  // Solo se cachea el cascarón mínimo para trabajar sin señal.
+  if (url.pathname.includes('/seguimiento/')
+      || url.pathname.includes('/admin/')
+      || url.pathname.includes('/dashboard/')) {
+    event.respondWith(
+      fetch(request).catch(() =>
+        caches.match(request).then((c) => c || caches.match('offline-fallback.html'))
+      )
+    );
+    return;
+  }
+
+  // Otras páginas: red primero, caché como respaldo.
   event.respondWith(
     fetch(request)
       .then((resp) => {

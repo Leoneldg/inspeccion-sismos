@@ -48,6 +48,26 @@ try {
         resp(true, 'Apartamento guardado.', ['ambientes' => recAmbientes($aptoId)]);
     }
 
+    // --- Datos del jefe de familia, guardado inmediato ---
+    // Se guarda campo por campo mientras el técnico escribe, para que
+    // una caída de señal no borre lo que ya llenó.
+    if ($accion === 'jefe_familia') {
+        $aptoId = (int)($b['apartamento_id'] ?? 0);
+        if ($aptoId <= 0) resp(false, 'Apartamento no válido.');
+
+        db()->prepare('UPDATE rec_apartamento
+                          SET jefe_nombre = :n, jefe_cedula = :c, jefe_telefono = :t
+                        WHERE id = :id')
+            ->execute([
+                'n'  => trim($b['jefe_nombre'] ?? '') ?: null,
+                'c'  => trim($b['jefe_cedula'] ?? '') ?: null,
+                't'  => trim($b['jefe_telefono'] ?? '') ?: null,
+                'id' => $aptoId,
+            ]);
+
+        resp(true, 'Guardado.');
+    }
+
     // --- Apartamento que no se pudo levantar ---
     if ($accion === 'marcar_visita') {
         $aptoId = (int)($b['apartamento_id'] ?? 0);

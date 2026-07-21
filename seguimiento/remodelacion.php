@@ -350,6 +350,9 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 
+    <!-- Áreas comunes y azotea -->
+    <div id="fs-areas-caja" style="display:none;"></div>
+
     <!-- Pisos y apartamentos -->
     <div id="fs-pisos"><p class="text-muted">Cargando pisos…</p></div>
 </div>
@@ -480,6 +483,9 @@ async function cargarFicha() {
         const c = document.getElementById('fs-m2-total');
         if (c) c.innerHTML = '<span class="text-muted text-sm">No se pudo calcular.</span>';
     }
+
+    try { pintarAreasComunes(d.areas_comunes || [], d.cierre || null); }
+    catch (e) { console.error('Áreas comunes:', e); }
 
     try { pintarRevision(d.revision || null); }
     catch (e) { console.error('Revisión:', e); }
@@ -671,6 +677,77 @@ function pintarAptosReparar(d) {
         + '<strong>' + pct + '%</strong> de los apartamentos del edificio necesitan '
         + 'alguna reparación.</div>'
         ;
+}
+
+/**
+ * Áreas comunes a reparar, más el estado de azotea y tanques.
+ * Son parte del edificio y no cuelgan de ningún apartamento.
+ */
+function pintarAreasComunes(areas, cierre) {
+    const caja = document.getElementById('fs-areas-caja');
+    if (!caja) return;
+
+    const lista = areas || [];
+    const c = cierre || {};
+    const hayCierre = c.azotea_estado || c.tanques_estado;
+
+    if (!lista.length && !hayCierre) { caja.style.display = 'none'; return; }
+
+    let html = '<div class="fs-card" style="padding:15px 20px;">'
+        + '<div style="font-weight:700;color:#22366F;margin-bottom:11px;">'
+        + '<i class="bi bi-building-gear"></i> Áreas comunes y azotea</div>';
+
+    if (lista.length) {
+        html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+        lista.forEach(a => {
+            html += '<div style="border:1px solid #e5e8f0;border-radius:9px;'
+                + 'padding:10px 13px;">'
+                + '<div style="display:flex;justify-content:space-between;'
+                + 'align-items:center;flex-wrap:wrap;gap:8px;">'
+                + '<span style="font-weight:700;color:#2a3140;font-size:13.5px;">'
+                + '<i class="bi bi-tools" style="color:#a8871f;"></i> ' + a.nombre + '</span>'
+                + (a.m2 > 0
+                    ? '<span style="font-size:16px;font-weight:800;color:#22366F;">'
+                      + a.m2.toLocaleString('es-VE', {maximumFractionDigits:2}) + ' m²</span>'
+                    : '')
+                + '</div>';
+            if (a.estado) {
+                html += '<div style="font-size:12px;color:#5b6478;margin-top:3px;">'
+                    + 'Estado: ' + a.estado + '</div>';
+            }
+            if (a.obs) {
+                html += '<div style="font-size:11.5px;color:#767c94;font-style:italic;">'
+                    + a.obs + '</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    // Azotea y tanques.
+    if (hayCierre) {
+        const col = e => e === 'Bueno' ? '#2E7D32'
+                       : (e === 'Requiere reparación' ? '#A61C1C' : '#5b6478');
+        html += '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:'
+            + (lista.length ? '11px' : '0') + ';">';
+        [['Azotea', c.azotea_estado, c.azotea_obs],
+         ['Tanques de agua', c.tanques_estado, c.tanques_obs]].forEach(([n, est, obs]) => {
+            if (!est) return;
+            html += '<div style="flex:1;min-width:150px;border:1px solid '
+                + col(est) + '33;border-radius:9px;padding:10px 13px;">'
+                + '<div style="font-size:11px;text-transform:uppercase;color:#55617f;'
+                + 'font-weight:700;">' + n + '</div>'
+                + '<div style="font-size:14px;font-weight:700;color:' + col(est) + ';'
+                + 'margin-top:2px;">' + est + '</div>'
+                + (obs ? '<div style="font-size:11.5px;color:#767c94;">' + obs + '</div>' : '')
+                + '</div>';
+        });
+        html += '</div>';
+    }
+
+    html += '</div>';
+    caja.innerHTML = html;
+    caja.style.display = '';
 }
 
 /**

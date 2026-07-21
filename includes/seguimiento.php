@@ -4943,6 +4943,31 @@ function recArbolAvance(int $edificioId): array
         'por_trabajo'     => $porTrabajo,
         'detalle_trabajos'=> recDetalleTrabajos($edificioId),
         'global_acabados' => recGlobalFrisoPintura($edificioId),
+        'areas_comunes'   => (function() use ($edificioId) {
+            try {
+                $out = [];
+                foreach (recAreasComunesConNombre($edificioId) as $a) {
+                    if (empty($a['necesita_reparacion'])) continue;
+                    $out[] = [
+                        'nombre'   => $a['etiqueta'],
+                        'estado'   => $a['estado'] ?? '',
+                        'trabajo'  => $a['tipo_trabajo'] ?? '',
+                        'm2'       => (float)($a['metros_cuadrados'] ?? 0),
+                        'obs'      => $a['observaciones'] ?? '',
+                    ];
+                }
+                return $out;
+            } catch (Throwable $e) { return []; }
+        })(),
+        'cierre'          => (function() use ($edificioId) {
+            try {
+                $st = db()->prepare('SELECT azotea_estado, azotea_obs,
+                                            tanques_estado, tanques_obs
+                                       FROM rec_edificio WHERE id = :e');
+                $st->execute(['e' => $edificioId]);
+                return $st->fetch() ?: [];
+            } catch (Throwable $e) { return []; }
+        })(),
         'revision'        => recRevisarLevantamiento($edificioId),
         'aptos_reparar'   => recAptosConReparacion($edificioId),
         'fotos_edificio'  => $fotosEdificio,

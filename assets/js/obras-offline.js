@@ -484,5 +484,40 @@
         if (cola.length) sincronizar();
     });
     window.addEventListener('offline', actualizarAviso);
-    document.addEventListener('DOMContentLoaded', actualizarAviso);
+
+    /**
+     * Al abrir la página se revisa la cola: si quedaron datos sin
+     * enviar de una sesión anterior, se suben ahora.
+     *
+     * Antes solo se sincronizaba al cambiar la conexión, así que un
+     * técnico que cerraba la app sin señal y la reabría con señal
+     * seguía teniendo todo pendiente.
+     */
+    async function arrancar() {
+        try {
+            await actualizarAviso();
+            if (navigator.onLine) {
+                const cola = await listarCola();
+                if (cola.length) sincronizar();
+            }
+        } catch (e) { /* no interrumpir la carga */ }
+    }
+
+    // Se llama directo: si el script va al final, DOMContentLoaded
+    // ya pasó y el evento nunca se dispararía.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', arrancar);
+    } else {
+        arrancar();
+    }
+
+    // Reintento periódico: si la señal es intermitente, el evento
+    // 'online' puede no llegar nunca.
+    setInterval(async () => {
+        if (!navigator.onLine) return;
+        try {
+            const cola = await listarCola();
+            if (cola.length) sincronizar();
+        } catch (e) {}
+    }, 60000);   // cada minuto
 })();

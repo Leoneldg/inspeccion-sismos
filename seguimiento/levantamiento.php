@@ -1208,7 +1208,7 @@ function pintarApartamento(a, lista) {
     const card = document.createElement('div');
     card.className = 'apto-card';
     card.innerHTML = `
-        <div class="apto-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
+        <div class="apto-head" onclick="abrirApto(this)">
             <i class="bi bi-door-open"></i> Apartamento ${a.identificador}
         </div>
         <div class="apto-body hidden">
@@ -1253,15 +1253,15 @@ function pintarApartamento(a, lista) {
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <div class="field jefe-field" style="flex:2;min-width:180px;">
                         <label class="text-sm">Nombre completo *</label>
-                        <input type="text" class="form-control jefe-nombre" value="${a.jefe_nombre||''}" placeholder="Nombre y apellido">
+                        <input type="text" class="form-control jefe-nombre" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_nombre||''}" placeholder="Nombre y apellido">
                     </div>
                     <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Cédula *</label>
-                        <input type="text" class="form-control jefe-cedula" value="${a.jefe_cedula||''}" placeholder="V-12345678" inputmode="numeric">
+                        <input type="text" class="form-control jefe-cedula" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_cedula||''}" placeholder="V-12345678" inputmode="numeric">
                     </div>
                     <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Teléfono *</label>
-                        <input type="tel" class="form-control jefe-telefono" value="${a.jefe_telefono||''}" placeholder="0412-1234567" inputmode="tel">
+                        <input type="tel" class="form-control jefe-telefono" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_telefono||''}" placeholder="0412-1234567" inputmode="tel">
                     </div>
                 </div>
             </div>
@@ -1400,6 +1400,7 @@ function pintarAptoMarcado(card, cuerpo, estado, obs) {
     }
 
     if (cuerpo) {
+        cuerpo.classList.add('apto-marcado');   // ya resuelto: no se valida
         cuerpo.innerHTML = '<div style="background:' + color + '10;border:1px solid '
             + color + '44;border-radius:9px;padding:13px 15px;">'
             + '<div style="font-weight:700;color:' + color + ';font-size:14px;">'
@@ -2224,6 +2225,152 @@ function aNumero(txt) {
     return isNaN(n) ? 0 : n;
 }
 
+/**
+ * Abre un apartamento, pero antes revisa que el que estaba abierto
+ * esté completo.
+ *
+ * Sin esto, el técnico salta de uno a otro y deja huecos que después
+ * hay que rastrear edificio por edificio.
+ */
+function abrirApto(cab) {
+    const cuerpo = cab.nextElementSibling;
+    const yaAbierto = !cuerpo.classList.contains('hidden');
+
+    // Si se está cerrando, no hay nada que revisar.
+    if (yaAbierto) {
+        cuerpo.classList.add('hidden');
+        return;
+    }
+
+    // Revisar el apartamento que quedó abierto, si hay alguno.
+    const abierto = document.querySelector('.apto-card .apto-body:not(.hidden)');
+    if (abierto && abierto !== cuerpo) {
+        const falta = queFaltaEnApto(abierto);
+        if (falta) {
+            alert('Antes de pasar al siguiente apartamento:\n\n' + falta);
+            abierto.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        abierto.classList.add('hidden');
+    }
+
+    cuerpo.classList.remove('hidden');
+}
+
+/**
+ * Qué le falta a un apartamento para darse por terminado.
+ * Devuelve el texto de lo que falta, o cadena vacía si está completo.
+ */
+function queFaltaEnApto(cuerpo) {
+    if (!cuerpo) return '';
+
+    // Si se marcó como no visitado, ya está resuelto.
+    if (cuerpo.querySelector('.apto-marcado')) return '';
+
+    const v = sel => {
+        const el = cuerpo.querySelector(sel);
+        return el ? (el.value || '').trim() : '';
+    };
+
+    // Un apartamento sin ambientes generados todavía no se tocó.
+    const filas = cuerpo.querySelectorAll('.amb-row');
+    const sinTocar = filas.length === 0
+                  && !v('.jefe-nombre') && !v('.jefe-cedula');
+    if (sinTocar) return '';   // ni siquiera lo empezó: no se bloquea
+
+    const faltan = [];
+
+    // Datos del jefe de familia.
+    if (!v('.jefe-nombre'))   faltan.push('· El nombre del jefe de familia');
+    if (!v('.jefe-cedula'))   faltan.push('· La cédula');
+    if (!v('.jefe-telefono')) faltan.push('· El teléfono');
+
+    // Ambientes marcados para reparar.
+    filas.forEach(row => {
+        const chk = row.querySelector('.amb-reparar');
+        if (!chk || !chk.checked) return;
+
+        const nom = row.querySelector('.amb-nom');
+        const et = nom ? nom.textContent.trim() : 'un ambiente';
+
+        const selT = row.querySelector('.amb-trabajo');
+        if (selT && !selT.value) faltan.push('· ' + et + ': qué trabajo hacer');
+
+        let m2 = 0;
+        row.querySelectorAll('[data-sup]').forEach(i => { m2 += aNumero(i.value); });
+        if (m2 <= 0) faltan.push('· ' + et + ': los metros cuadrados');
+
+        if (row.querySelectorAll('.amb-fotos img').length === 0) {
+            faltan.push('· ' + et + ': la foto del daño');
+        }
+    });
+
+    if (!faltan.length) return '';
+    return faltan.slice(0, 8).join('\n')
+         + (faltan.length > 8 ? '\n· y ' + (faltan.length - 8) + ' más' : '')
+         + '\n\nSi no pudo entrar, use los botones de arriba.';
+}
+
+/**
+ * Guarda los datos del jefe de familia apenas se escriben.
+ *
+ * Antes solo se enviaban al tocar "Generar ambientes": si se iba la
+ * señal antes, se perdía todo lo escrito. Ahora cada campo se guarda
+ * al salir de él, y si no hay conexión queda en la cola de envío.
+ */
+async function guardarJefe(aptoId, input) {
+    if (!PUEDE_EDITAR) return;
+    const cuerpo = input.closest('.apto-body');
+    if (!cuerpo) return;
+
+    const v = sel => {
+        const el = cuerpo.querySelector(sel);
+        return el ? (el.value || '').trim() : '';
+    };
+
+    const payload = {
+        accion: 'jefe_familia',
+        apartamento_id: aptoId,
+        jefe_nombre:   v('.jefe-nombre'),
+        jefe_cedula:   v('.jefe-cedula'),
+        jefe_telefono: v('.jefe-telefono'),
+    };
+
+    // Respaldo inmediato en el teléfono, pase lo que pase.
+    try { respaldarTodo(); } catch (e) {}
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Jefe de familia · apto ' + aptoId);
+        marcarGuardado(input, 'En el teléfono');
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials: 'same-origin'
+        });
+        const d = await res.json();
+        marcarGuardado(input, d.ok ? 'Guardado' : 'No se pudo');
+    } catch (e) {
+        // Sin señal: a la cola.
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Jefe de familia · apto ' + aptoId);
+            marcarGuardado(input, 'En el teléfono');
+        }
+    }
+}
+
+/** Señal breve de que el dato quedó guardado. */
+function marcarGuardado(input, texto) {
+    if (!input) return;
+    const ok = texto === 'Guardado' || texto === 'En el teléfono';
+    input.style.borderColor = ok ? '#2E7D32' : '#A61C1C';
+    setTimeout(() => { input.style.borderColor = ''; }, 1800);
+}
+
 /** Quita un trabajo adicional y vuelve a guardar el ambiente. */
 function quitarPartida(btn, ambId) {
     const bloque = btn.closest('.partida-extra');
@@ -2956,6 +3103,43 @@ async function guardarCierre(ev) {
     ev.preventDefault();
     if (!PUEDE_EDITAR) return false;
     const form = document.getElementById('form-cierre');
+
+    // La azotea y los tanques son parte del levantamiento: sin ellos
+    // el edificio queda a medias y hay que volver a subir.
+    const faltaCierre = [];
+    ['azotea','tanques'].forEach(k => {
+        if (!form.querySelector('input[name="'+k+'_estado"]:checked')) {
+            faltaCierre.push(k === 'azotea' ? '· El estado de la azotea'
+                                            : '· El estado de los tanques de agua');
+        }
+    });
+    if (faltaCierre.length) {
+        alert('Falta registrar:\n\n' + faltaCierre.join('\n'));
+        return false;
+    }
+
+    // Las áreas comunes marcadas para reparar necesitan su trabajo y metros.
+    const faltaArea = [];
+    document.querySelectorAll('.area-row').forEach(row => {
+        const chk = row.querySelector('.area-reparar');
+        if (!chk || !chk.checked) return;
+
+        const lbl = row.querySelector('.area-chk-lbl span');
+        const nom = lbl ? lbl.textContent.trim() : 'un área común';
+
+        const selT = row.querySelector('.area-trabajo');
+        if (selT && !selT.value) faltaArea.push('· ' + nom + ': qué trabajo hacer');
+
+        const m2 = row.querySelector('.area-m2');
+        if (m2 && aNumero(m2.value) <= 0) faltaArea.push('· ' + nom + ': los metros');
+    });
+    if (faltaArea.length) {
+        alert('En las áreas comunes falta:\n\n' + faltaArea.join('\n')
+            + '\n\nComplételo en el paso 1, o desmarque el área si no hay daño.');
+        irPaso(1);
+        return false;
+    }
+
     const payload = { inspeccion_id: INSPECCION_ID, accion:'cierre' };
     ['azotea','tanques'].forEach(k => {
         const sel = form.querySelector('input[name="'+k+'_estado"]:checked');
