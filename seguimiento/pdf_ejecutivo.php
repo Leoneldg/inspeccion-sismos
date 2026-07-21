@@ -87,10 +87,10 @@ ob_start();
 <style>
   * { font-family: "DejaVu Sans", Arial, sans-serif; box-sizing: border-box; }
   body { margin: 0; color: #1a1f2b; font-size: 10px; }
-  .hoja { padding: 16px 22px; }
+  .hoja { padding: 12px 20px; }
 
-  .cab { border-bottom: 3px solid #C9A227; padding-bottom: 9px; margin-bottom: 12px; }
-  .cab h1 { margin: 0; font-size: 22px; color: #22366F; font-weight: 800; }
+  .cab { border-bottom: 3px solid #C9A227; padding-bottom: 7px; margin-bottom: 9px; }
+  .cab h1 { margin: 0; font-size: 19px; color: #22366F; font-weight: 800; }
   .cab .der { float: right; text-align: right; font-size: 9.5px; color: #55617f; }
   .cab .sub { font-size: 10.5px; color: #55617f; }
 
@@ -104,7 +104,7 @@ ob_start();
   .fila { display: table; width: 100%; border-spacing: 8px 0; }
   .fila .col { display: table-cell; vertical-align: top; }
 
-  .caja { border: 1px solid #e0e4ee; border-radius: 8px; padding: 10px 12px; }
+  .caja { border: 1px solid #e0e4ee; border-radius: 8px; padding: 8px 11px; }
   .caja h3 { margin: 0 0 8px; font-size: 11px; color: #22366F;
              text-transform: uppercase; letter-spacing: .3px; }
 
@@ -123,15 +123,15 @@ ob_start();
              border-radius: 8px 8px 0 0; font-size: 16px; font-weight: 800;
              letter-spacing: .5px; }
   .mat-caja { border: 2px solid #C9A227; border-top: 0; border-radius: 0 0 8px 8px;
-              padding: 11px 14px; background: #fffdf5; }
-  .mat { display: table; width: 100%; border-spacing: 5px; }
+              padding: 9px 12px; background: #fffdf5; }
+  .mat { display: table; width: 100%; border-spacing: 4px; }
   .mat .m { display: table-cell; background: #fff; border: 1px solid #C9A22755;
-            border-radius: 7px; padding: 9px 11px; width: 25%; text-align: center; }
+            border-radius: 7px; padding: 7px 9px; width: 25%; text-align: center; }
   .mat .c { font-size: 23px; font-weight: 800; color: #22366F; line-height: 1; }
   .mat .u { font-size: 10px; color: #2a3140; margin-top: 5px; font-weight: 600;
             line-height: 1.3; }
 
-  .pie { margin-top: 12px; font-size: 8px; color: #767c94; text-align: center; }
+  .pie { margin-top: 9px; font-size: 8px; color: #767c94; text-align: center; }
 </style></head><body>
 <div class="hoja">
 
@@ -150,8 +150,8 @@ ob_start();
   <!-- Las dos cifras principales -->
   <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:9px;">
     <div style="display:table-cell;width:50%;background:#22366F;
-                border-radius:9px;padding:16px 14px;text-align:center;">
-      <div style="font-size:38px;font-weight:800;color:#fff;line-height:1;">
+                border-radius:9px;padding:13px 14px;text-align:center;">
+      <div style="font-size:34px;font-weight:800;color:#fff;line-height:1;">
         <?= ent($c['edificios']) ?>
       </div>
       <div style="font-size:10px;color:#ffffffcc;text-transform:uppercase;
@@ -160,8 +160,8 @@ ob_start();
       </div>
     </div>
     <div style="display:table-cell;width:50%;background:#2d4488;
-                border-radius:9px;padding:16px 14px;text-align:center;">
-      <div style="font-size:38px;font-weight:800;color:#fff;line-height:1;">
+                border-radius:9px;padding:13px 14px;text-align:center;">
+      <div style="font-size:34px;font-weight:800;color:#fff;line-height:1;">
         <?= ent($c['apartamentos']) ?>
       </div>
       <div style="font-size:10px;color:#ffffffcc;text-transform:uppercase;
@@ -178,10 +178,10 @@ ob_start();
   // magnitudes distintas y no deben confundirse.
   $m2Real = $c['m2_total'];
   ?>
-  <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:13px;">
+  <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:10px;">
     <div style="display:table-cell;width:50%;background:#C9A227;
-                border-radius:9px;padding:13px 14px;text-align:center;">
-      <div style="font-size:28px;font-weight:800;color:#22366F;line-height:1;">
+                border-radius:9px;padding:11px 14px;text-align:center;">
+      <div style="font-size:26px;font-weight:800;color:#22366F;line-height:1;">
         <?= ent($c['aptos_reparar']) ?>
       </div>
       <div style="font-size:9.5px;color:#22366Fcc;text-transform:uppercase;
@@ -190,8 +190,8 @@ ob_start();
       </div>
     </div>
     <div style="display:table-cell;width:50%;background:#5b6478;
-                border-radius:9px;padding:13px 14px;text-align:center;">
-      <div style="font-size:28px;font-weight:800;color:#fff;line-height:1;">
+                border-radius:9px;padding:11px 14px;text-align:center;">
+      <div style="font-size:26px;font-weight:800;color:#fff;line-height:1;">
         <?= num($m2Real, 0) ?>
       </div>
       <div style="font-size:9.5px;color:#ffffffcc;text-transform:uppercase;
@@ -200,48 +200,6 @@ ob_start();
       </div>
     </div>
   </div>
-
-  <!-- Desglose de los metros por etapa -->
-  <?php
-  $etD = $c['por_etapa'] ?? [];
-  $mDem = $etD['demolicion']['m2'] ?? 0;
-  $mCon = $etD['construccion']['m2'] ?? 0;
-  $mRev = $etD['revestimiento']['m2'] ?? 0;
-  ?>
-  <?php if ($mDem > 0 || $mCon > 0 || $mRev > 0): ?>
-  <div style="border:1px solid #e0e4ee;border-radius:8px;padding:10px 14px;
-              margin-bottom:13px;background:#fafbfe;">
-    <div style="font-size:10px;text-transform:uppercase;color:#55617f;
-                font-weight:700;margin-bottom:7px;letter-spacing:.3px;">
-      Los <?= num($m2Real, 0) ?> m² de pared se traducen en:
-    </div>
-    <div style="display:table;width:100%;border-spacing:6px 0;">
-      <div style="display:table-cell;width:33%;text-align:center;
-                  border-right:1px solid #e5e8f0;">
-        <div style="font-size:20px;font-weight:800;color:#A61C1C;line-height:1;">
-          <?= num($mDem, 0) ?></div>
-        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
-          m² a demoler</div>
-      </div>
-      <div style="display:table-cell;width:33%;text-align:center;
-                  border-right:1px solid #e5e8f0;">
-        <div style="font-size:20px;font-weight:800;color:#22366F;line-height:1;">
-          <?= num($mCon, 0) ?></div>
-        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
-          m² a levantar</div>
-      </div>
-      <div style="display:table-cell;width:33%;text-align:center;">
-        <div style="font-size:20px;font-weight:800;color:#a8871f;line-height:1;">
-          <?= num($mRev, 0) ?></div>
-        <div style="font-size:9.5px;color:#2a3140;margin-top:3px;font-weight:600;">
-          m² a frisar y pintar</div>
-      </div>
-    </div>
-    <div style="font-size:8.5px;color:#767c94;margin-top:7px;">
-      El revestimiento es mayor porque cada pared se cubre por las dos caras.
-    </div>
-  </div>
-  <?php endif; ?>
 
   <!-- Material por etapa -->
   <?php
@@ -355,20 +313,12 @@ ob_start();
           <div class="m" style="border:0;background:none;"></div>
         <?php $i++; endwhile; ?>
       </div>
-      <div style="font-size:8.5px;color:#767c94;margin-top:6px;">
-        Suma de las tres etapas. El cemento y la arena aparecen en varias,
-        aquí van consolidados.
-      </div>
+
     </div>
     <?php endif; ?>
 
-    <div style="font-size:9px;color:#8a6d1a;margin-top:9px;line-height:1.5;">
-      <strong>Por qué el revestimiento tiene más metros:</strong>
-      cada pared se frisa y se pinta por las <strong>dos caras</strong>,
-      así que <?= num($m2Real, 0) ?> m² de pared dan
-      <?= num($rev['m2'] ?? 0, 0) ?> m² de superficie a cubrir.<br>
-      Incluye 10% de holgura. Escombro calculado a 0,15 m³ por m² demolido.
-      Sobre <?= ent($c['edificios']) ?> levantamientos completados.
+    <div style="font-size:8.5px;color:#8a6d1a;margin-top:7px;">
+      Incluye 10% de holgura. Escombro a 0,15 m³/m². Revestimiento por ambas caras.
     </div>
     <?php if (!empty($et['avisos']['materiales_sin_etapa'])): ?>
     <div style="font-size:8px;color:#A61C1C;margin-top:4px;">
@@ -378,52 +328,6 @@ ob_start();
     </div>
     <?php endif; ?>
   </div>
-
-  <!-- Tipo de trabajo -->
-  <?php
-  $cats = $c['categorias'] ?? [];
-  $CAT = [
-      'demolicion'    => ['Demolición',    '#A61C1C', 'Pared a tumbar'],
-      'construccion'  => ['Reconstrucción', '#22366F', 'Pared a levantar'],
-      'revestimiento' => ['Revestimiento', '#C9A227', 'Friso y acabado'],
-  ];
-  $totCat = 0;
-  foreach ($CAT as $k => $v) $totCat += $cats[$k]['m2'] ?? 0;
-  ?>
-  <?php if ($totCat > 0): ?>
-  <div class="caja" style="margin-bottom:13px;">
-    <h3>Tipo de trabajo · <?= num($totCat, 0) ?> m² en total</h3>
-    <div style="display:table;width:100%;border-spacing:6px 0;">
-      <?php foreach ($CAT as $k => $v):
-          $m2 = $cats[$k]['m2'] ?? 0;
-          $pct = $totCat > 0 ? round($m2 / $totCat * 100) : 0;
-      ?>
-      <div style="display:table-cell;width:33%;border-radius:7px;
-                  border:1px solid <?= $v[1] ?>33;background:<?= $v[1] ?>0a;
-                  padding:9px 11px;">
-        <div style="font-size:17px;font-weight:800;color:<?= $v[1] ?>;line-height:1;">
-          <?= num($m2, 0) ?> m²
-        </div>
-        <div style="font-size:9.5px;font-weight:700;color:#2a3140;margin-top:3px;">
-          <?= $v[0] ?>
-          <span style="color:#767c94;font-weight:400;">· <?= $pct ?>%</span>
-        </div>
-        <div style="font-size:8px;color:#767c94;"><?= $v[2] ?></div>
-
-        <!-- Barra de proporción -->
-        <div style="background:#f1f3f8;border-radius:10px;height:6px;
-                    overflow:hidden;margin-top:5px;">
-          <div style="width:<?= $pct ?>%;height:100%;background:<?= $v[1] ?>;"></div>
-        </div>
-      </div>
-      <?php endforeach; ?>
-    </div>
-    <div style="font-size:8px;color:#767c94;margin-top:7px;">
-      Una pared que se tumba y se levanta de nuevo aporta a las tres
-      categorías. El revestimiento cuenta las dos caras.
-    </div>
-  </div>
-  <?php endif; ?>
 
   <!-- Torta y parroquias, lado a lado -->
   <div class="fila">
