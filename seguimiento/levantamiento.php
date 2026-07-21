@@ -720,6 +720,10 @@ const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const SOLO_LECTURA = <?= $soloLectura ? 'true' : 'false' ?>;
 
+// Cuántos pisos tiene ya el servidor. Si son más de cero, la copia
+// local del teléfono sobra y se descarta para no duplicar.
+const PISOS_REALES = <?= count($pisos ?? []) ?>;
+
 // En casas no hay apartamentos: cada nivel lleva sus ambientes directo.
 const ES_CASA = <?php
     $u = mb_strtolower(trim($insp['uso_edificacion'] ?? ''), 'UTF-8');
@@ -897,6 +901,25 @@ async function agregarAreaOtra() {
     inp.value = '';
     pintarAreaNueva(clave, nombre);
 }
+
+/**
+ * Limpia la estructura local cuando el servidor ya tiene los pisos.
+ *
+ * Si no se limpia, al volver a entrar el sistema sigue mostrando los
+ * pisos del teléfono con ids negativos, y al guardar algo se crean
+ * duplicados.
+ */
+function limpiarEstructuraLocalSiYaEsta() {
+    try {
+        // PISOS_REALES lo escribe el PHP: si el servidor ya tiene
+        // pisos, lo del teléfono sobra.
+        if (typeof PISOS_REALES === 'number' && PISOS_REALES > 0) {
+            localStorage.removeItem('estructura_' + INSPECCION_ID);
+        }
+    } catch (e) { /* no interrumpir */ }
+}
+
+try { limpiarEstructuraLocalSiYaEsta(); } catch (e) { /* seguir */ }
 
 /**
  * Vuelve a dibujar las áreas que se agregaron sin señal.
@@ -1199,18 +1222,60 @@ async function guardarEdificio(ev) {
  * nomenclatura que usaría el servidor, y encola el guardado real.
  */
 async function continuarSinSenal(payload) {
-    if (window.ObrasOffline) {
-        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
-            'Datos del edificio (paso 1)');
-    }
-
     const nPisos = parseInt(payload.num_pisos) || 0;
     const nAptos = parseInt(payload.aptos_por_piso) || 0;
     if (nPisos < 1) { alert('Indique la cantidad de pisos.'); return; }
 
+    // Si ya se creó la estructura antes, no se vuelve a encolar: dos
+    // envíos hacen que el servidor genere los pisos dos veces y el
+    // levantamiento queda duplicado.
+    let yaCreada = null;
+    try {
+        yaCreada = JSON.parse(localStorage.getItem('estructura_' + INSPECCION_ID) || 'null');
+    } catch (e) { yaCreada = null; }
+
+    const mismaEstructura = yaCreada
+        && parseInt(yaCreada.num_pisos) === nPisos
+        && parseInt(yaCreada.aptos_por_piso) === nAptos;
+
+    if (mismaEstructura) {
+        // Nada cambió: se vuelve a dibujar lo que ya está guardado.
+        dibujarEstructuraLocal(yaCreada);
+        irPaso(2);
+        return;
+    }
+
+    if (yaCreada && !mismaEstructura) {
+        const ok = confirm(
+            'Ya había creado ' + yaCreada.num_pisos + ' piso(s) en este teléfono.\n\n'
+            + 'Si continúa, se reemplazan por ' + nPisos + ' piso(s) y se pierde '
+            + 'lo que haya llenado.\n\n¿Seguro que quiere cambiarlos?');
+        if (!ok) return;
+
+        // Se quita el envío anterior para que no lleguen los dos.
+        if (window.ObrasOffline && ObrasOffline.quitarDeCola) {
+            try { await ObrasOffline.quitarDeCola('estructura_' + INSPECCION_ID); }
+            catch (e) { /* seguir */ }
+        }
+    }
+
+    if (window.ObrasOffline) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            'Datos del edificio (paso 1)', 'estructura_' + INSPECCION_ID);
+    }
+
     // Estructura local: los ids son negativos para distinguirlos de los
     // reales del servidor. Al sincronizar se reemplazan por los definitivos.
-    const estructura = { inspeccion: INSPECCION_ID, pisos: [], creada_en: new Date().toISOString() };
+    // Se guardan las cantidades para poder comparar después: si el
+    // técnico vuelve a tocar "Continuar" con los mismos números, no
+    // hace falta recrear nada ni encolar otro envío.
+    const estructura = {
+        inspeccion: INSPECCION_ID,
+        num_pisos: nPisos,
+        aptos_por_piso: nAptos,
+        pisos: [],
+        creada_en: new Date().toISOString(),
+    };
     for (let p = 1; p <= nPisos; p++) {
         const piso = { id: -p, numero_piso: p, apartamentos: [] };
         for (let a = 1; a <= nAptos; a++) {

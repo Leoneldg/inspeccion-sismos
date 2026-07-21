@@ -101,12 +101,24 @@
     // ---------------------------------------------------------------
     // Cola de cambios pendientes
     // ---------------------------------------------------------------
-    async function encolar(tipo, url, datos, descripcion) {
+    /**
+     * Pone una petición en la cola de envío.
+     *
+     * `clave` es opcional: si se indica, reemplaza cualquier envío
+     * anterior con la misma clave. Sirve para cosas que no deben
+     * duplicarse, como la creación de pisos de un edificio.
+     */
+    async function encolar(tipo, url, datos, descripcion, clave) {
+        if (clave) {
+            try { await quitarDeCola(clave); } catch (e) { /* seguir */ }
+        }
+
         const item = {
             usuario: window._USER_ID || 0,   // cada quien sube lo suyo
             tipo: tipo,                 // 'avance' | 'foto'
             url: url,
             datos: datos,
+            clave: clave || null,       // para no duplicar envíos
             descripcion: descripcion || '',
             creado_en: new Date().toISOString(),
             intentos: 0,
@@ -115,6 +127,24 @@
         await tx(ST_COLA, 'readwrite', s => s.add(item));
         await actualizarAviso();
         return item;
+    }
+
+    /**
+     * Quita de la cola los envíos que tengan esa clave.
+     * Evita que el servidor reciba dos veces la misma orden.
+     */
+    async function quitarDeCola(clave) {
+        if (!clave) return 0;
+        const todos = await listarCola(true);
+        let n = 0;
+        for (const it of todos) {
+            if (it.clave === clave) {
+                await tx(ST_COLA, 'readwrite', s => s.delete(it.id));
+                n++;
+            }
+        }
+        if (n) await actualizarAviso();
+        return n;
     }
 
     async function listarCola(todos) {
@@ -470,7 +500,8 @@
     // ---------------------------------------------------------------
     window.ObrasOffline = {
         descargarFicha, obtenerFicha, listarFichas, borrarFicha,
-        encolar, listarCola, borrarDeCola,
+        encolar,
+        quitarDeCola, listarCola, borrarDeCola,
         sincronizar, sincronizarAhora, actualizarAviso,
         verPendientes, descartar, pendientesDeOtros,
         hayConexion: () => navigator.onLine,
