@@ -414,6 +414,66 @@ async function borrarLev(id, nombre, nAptos, btn) {
     }
 }
 
+/**
+ * Asigna el ingeniero responsable a un levantamiento ya cargado.
+ * Sirve para completar los que se hicieron antes de que existiera
+ * este campo.
+ */
+async function asignarIngeniero(edificioId, sel) {
+    const valor = sel.value;
+    const antes = sel.style.borderColor;
+    sel.disabled = true;
+
+    try {
+        const res = await fetch('<?= APP_URL_BASE ?>seguimiento/guardar_rec_edificio.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                accion: 'ingeniero',
+                edificio_id: edificioId,
+                ingeniero_id: valor || null,
+            }),
+            credentials: 'same-origin'
+        });
+
+        const texto = await res.text();
+        let d;
+        try {
+            d = JSON.parse(texto);
+        } catch (err) {
+            // Respuesta que no es JSON: casi siempre un error de PHP.
+            console.error('Respuesta del servidor:', texto);
+            alert('El servidor devolvió una respuesta inesperada.\n\n'
+                + texto.substring(0, 200));
+            sel.disabled = false;
+            return;
+        }
+
+        if (!d.ok) {
+            alert(d.mensaje || 'No se pudo asignar el ingeniero.');
+            sel.disabled = false;
+            sel.style.borderColor = '#A61C1C';
+            return;
+        }
+
+        if (valor) {
+            // Se reemplaza el selector por el nombre, ya asignado.
+            const nom = sel.options[sel.selectedIndex].text;
+            sel.parentNode.innerHTML =
+                '<div style="font-size:11px;color:#2d4488;font-weight:600;">'
+                + '<i class="bi bi-person-vcard"></i> ' + nom + '</div>';
+        } else {
+            sel.disabled = false;
+            sel.style.borderColor = antes;
+        }
+
+    } catch (e) {
+        console.error('Asignar ingeniero:', e);
+        alert('Sin conexión. Intente de nuevo.');
+        sel.disabled = false;
+    }
+}
+
 let _filtroEstado = 'todos';
 
 function filtrarEstado(f, btn) {

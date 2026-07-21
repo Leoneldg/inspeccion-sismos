@@ -61,16 +61,38 @@ try {
         recAsegurarIngeniero();
         $ingId = !empty($b['ingeniero_id']) ? (int)$b['ingeniero_id'] : null;
 
-        // Puede venir por inspección (desde el levantamiento) o por
-        // edificio (al asignarlo desde la lista de reconstrucción).
+        // El id del edificio manda cuando viene explícito: es el caso
+        // de la lista de reconstrucción. Usar el de recEdificio()
+        // podría apuntar a otro registro.
         $destino = !empty($b['edificio_id']) ? (int)$b['edificio_id'] : $edificioId;
+        if ($destino <= 0) resp(false, 'No se pudo ubicar la edificación.');
 
-        db()->prepare('UPDATE rec_edificio SET ingeniero_id = :i WHERE id = :e')
-            ->execute(['i' => $ingId, 'e' => $destino]);
+        // Verificar que el ingeniero exista y esté activo.
+        if ($ingId !== null) {
+            $stV = db()->prepare('SELECT COUNT(*) FROM ingenieros
+                                   WHERE id = :i AND activo = 1');
+            $stV->execute(['i' => $ingId]);
+            if (!(int)$stV->fetchColumn()) {
+                resp(false, 'El ingeniero no existe o está inactivo.');
+            }
+        }
 
-        recAuditar('ingeniero_asignado', $inspeccionId, $edificioId,
+        $up = db()->prepare('UPDATE rec_edificio SET ingeniero_id = :i WHERE id = :e');
+        $up->execute(['i' => $ingId, 'e' => $destino]);
+
+        if ($up->rowCount() === 0) {
+            // Puede que el valor ya fuera el mismo: se comprueba.
+            $stC = db()->prepare('SELECT ingeniero_id FROM rec_edificio WHERE id = :e');
+            $stC->execute(['e' => $destino]);
+            $actual = $stC->fetchColumn();
+            if ((int)$actual !== (int)$ingId) {
+                resp(false, 'No se encontró la edificación (id ' . $destino . ').');
+            }
+        }
+
+        recAuditar('ingeniero_asignado', $inspeccionId, $destino,
                    'Ingeniero responsable: ' . ($ingId ?: 'ninguno'));
-        resp(true, 'Ingeniero registrado.');
+        resp(true, 'Ingeniero registrado.', ['edificio_id' => $destino]);
     }
 
     // --- Área común con nombre libre ---
