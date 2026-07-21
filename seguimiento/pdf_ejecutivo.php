@@ -119,15 +119,17 @@ ob_start();
                text-align: left; padding: 3px 4px; border-bottom: 1px solid #e0e4ee; }
   table.t td { font-size: 9.5px; padding: 4px; border-bottom: 1px solid #f2f4f8; }
 
-  .mat-cab { background: #C9A227; color: #22366F; padding: 8px 14px;
-             border-radius: 8px 8px 0 0; font-size: 12.5px; font-weight: 800; }
+  .mat-cab { background: #C9A227; color: #22366F; padding: 11px 16px;
+             border-radius: 8px 8px 0 0; font-size: 16px; font-weight: 800;
+             letter-spacing: .5px; }
   .mat-caja { border: 2px solid #C9A227; border-top: 0; border-radius: 0 0 8px 8px;
               padding: 11px 14px; background: #fffdf5; }
   .mat { display: table; width: 100%; border-spacing: 5px; }
   .mat .m { display: table-cell; background: #fff; border: 1px solid #C9A22755;
             border-radius: 7px; padding: 9px 11px; width: 25%; text-align: center; }
-  .mat .c { font-size: 16px; font-weight: 800; color: #22366F; line-height: 1; }
-  .mat .u { font-size: 8px; color: #5b6478; margin-top: 3px; }
+  .mat .c { font-size: 23px; font-weight: 800; color: #22366F; line-height: 1; }
+  .mat .u { font-size: 10px; color: #2a3140; margin-top: 5px; font-weight: 600;
+            line-height: 1.3; }
 
   .pie { margin-top: 12px; font-size: 8px; color: #767c94; text-align: center; }
 </style></head><body>
@@ -145,27 +147,56 @@ ob_start();
     </p>
   <?php else: ?>
 
-  <!-- Las cinco cifras que importan -->
-  <div class="kpis">
-    <div class="k" style="background:#22366F;">
-      <div class="n" style="color:#fff;"><?= ent($c['edificios']) ?></div>
-      <div class="l" style="color:#ffffffcc;">Edificaciones</div>
+  <!-- Las dos cifras principales -->
+  <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:9px;">
+    <div style="display:table-cell;width:50%;background:#22366F;
+                border-radius:9px;padding:16px 14px;text-align:center;">
+      <div style="font-size:38px;font-weight:800;color:#fff;line-height:1;">
+        <?= ent($c['edificios']) ?>
+      </div>
+      <div style="font-size:10px;color:#ffffffcc;text-transform:uppercase;
+                  margin-top:6px;letter-spacing:.4px;">
+        Edificios con levantamiento técnico
+      </div>
     </div>
-    <div class="k" style="background:#2d4488;">
-      <div class="n" style="color:#fff;"><?= ent($c['apartamentos']) ?></div>
-      <div class="l" style="color:#ffffffcc;">Apartamentos</div>
+    <div style="display:table-cell;width:50%;background:#2d4488;
+                border-radius:9px;padding:16px 14px;text-align:center;">
+      <div style="font-size:38px;font-weight:800;color:#fff;line-height:1;">
+        <?= ent($c['apartamentos']) ?>
+      </div>
+      <div style="font-size:10px;color:#ffffffcc;text-transform:uppercase;
+                  margin-top:6px;letter-spacing:.4px;">
+        Apartamentos totales
+      </div>
     </div>
-    <div class="k" style="background:#C9A227;">
-      <div class="n" style="color:#22366F;"><?= ent($c['aptos_reparar']) ?></div>
-      <div class="l" style="color:#22366Fcc;">A reparar</div>
+  </div>
+
+  <!-- Las dos cifras de trabajo -->
+  <?php
+  // Los m² de las tres etapas no se suman: una pared aporta a varias.
+  // Lo que se muestra es el metraje registrado, que es la superficie real.
+  $m2Real = $c['m2_total'];
+  ?>
+  <div style="display:table;width:100%;border-spacing:7px 0;margin-bottom:13px;">
+    <div style="display:table-cell;width:50%;background:#C9A227;
+                border-radius:9px;padding:13px 14px;text-align:center;">
+      <div style="font-size:28px;font-weight:800;color:#22366F;line-height:1;">
+        <?= ent($c['aptos_reparar']) ?>
+      </div>
+      <div style="font-size:9.5px;color:#22366Fcc;text-transform:uppercase;
+                  margin-top:5px;letter-spacing:.3px;">
+        Apartamentos a reparar
+      </div>
     </div>
-    <div class="k" style="background:#2E7D32;">
-      <div class="n" style="color:#fff;"><?= ent($c['familias']) ?></div>
-      <div class="l" style="color:#ffffffcc;">Familias</div>
-    </div>
-    <div class="k" style="background:#5b6478;">
-      <div class="n" style="color:#fff;"><?= num($c['m2_total'], 0) ?></div>
-      <div class="l" style="color:#ffffffcc;">m² a reparar</div>
+    <div style="display:table-cell;width:50%;background:#5b6478;
+                border-radius:9px;padding:13px 14px;text-align:center;">
+      <div style="font-size:28px;font-weight:800;color:#fff;line-height:1;">
+        <?= num($m2Real, 0) ?>
+      </div>
+      <div style="font-size:9.5px;color:#ffffffcc;text-transform:uppercase;
+                  margin-top:5px;letter-spacing:.3px;">
+        m² a reparar
+      </div>
     </div>
   </div>
 
@@ -183,33 +214,33 @@ ob_start();
     <!-- DEMOLICIÓN -->
     <?php if (!empty($dem['m2'])): ?>
     <div style="margin-bottom:11px;">
-      <div style="font-size:10.5px;font-weight:800;color:#A61C1C;
-                  margin-bottom:5px;text-transform:uppercase;">
+      <div style="font-size:14px;font-weight:800;color:#A61C1C;
+                  margin-bottom:7px;text-transform:uppercase;letter-spacing:.4px;">
         Demolición · <?= num($dem['m2'], 0) ?> m² a tumbar
       </div>
       <div style="display:table;width:100%;border-spacing:5px;">
         <div style="display:table-cell;width:33%;background:#fff;
                     border:1px solid #A61C1C44;border-radius:7px;
                     padding:9px 11px;text-align:center;">
-          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+          <div style="font-size:24px;font-weight:800;color:#A61C1C;line-height:1;">
             <?= num($dem['m3'], 1) ?></div>
-          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+          <div style="font-size:10.5px;color:#2a3140;margin-top:5px;font-weight:600;">
             m³ de escombro</div>
         </div>
         <div style="display:table-cell;width:33%;background:#fff;
                     border:1px solid #A61C1C44;border-radius:7px;
                     padding:9px 11px;text-align:center;">
-          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+          <div style="font-size:24px;font-weight:800;color:#A61C1C;line-height:1;">
             <?= ent($dem['sacos']) ?></div>
-          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+          <div style="font-size:10.5px;color:#2a3140;margin-top:5px;font-weight:600;">
             sacos de 0,05 m³</div>
         </div>
         <div style="display:table-cell;width:33%;background:#fff;
                     border:1px solid #A61C1C44;border-radius:7px;
                     padding:9px 11px;text-align:center;">
-          <div style="font-size:17px;font-weight:800;color:#A61C1C;line-height:1;">
+          <div style="font-size:24px;font-weight:800;color:#A61C1C;line-height:1;">
             <?= num($dem['camiones'], 1) ?></div>
-          <div style="font-size:8.5px;color:#5b6478;margin-top:3px;">
+          <div style="font-size:10.5px;color:#2a3140;margin-top:5px;font-weight:600;">
             viajes de camión (7 m³)</div>
         </div>
       </div>
@@ -219,8 +250,8 @@ ob_start();
     <!-- CONSTRUCCIÓN -->
     <?php if (!empty($con['materiales'])): ?>
     <div style="margin-bottom:11px;">
-      <div style="font-size:10.5px;font-weight:800;color:#22366F;
-                  margin-bottom:5px;text-transform:uppercase;">
+      <div style="font-size:14px;font-weight:800;color:#22366F;
+                  margin-bottom:7px;text-transform:uppercase;letter-spacing:.4px;">
         Reconstrucción · <?= num($con['m2'], 0) ?> m² de pared a levantar
       </div>
       <div class="mat">
@@ -241,8 +272,8 @@ ob_start();
     <!-- REVESTIMIENTO -->
     <?php if (!empty($rev['materiales'])): ?>
     <div>
-      <div style="font-size:10.5px;font-weight:800;color:#a8871f;
-                  margin-bottom:5px;text-transform:uppercase;">
+      <div style="font-size:14px;font-weight:800;color:#a8871f;
+                  margin-bottom:7px;text-transform:uppercase;letter-spacing:.4px;">
         Revestimiento · <?= num($rev['m2'], 0) ?> m² a frisar y pintar
       </div>
       <div class="mat">
@@ -323,46 +354,47 @@ ob_start();
   <div class="fila">
     <div class="col" style="width:38%;">
       <div class="caja">
-        <h3>Estado de las edificaciones</h3>
+        <h3>Apartamentos</h3>
         <?php
-        $totC = array_sum($porColor);
-        if ($totC > 0):
-            $svg = '';
-            $ang = 0;
-            foreach ($COL as $dec => $m) {
-                $n = $porColor[$dec] ?? 0;
-                if ($n <= 0) continue;
-                $delta = $n / $totC * 360;
-                $svg .= sectorTorta(75, 75, 68, $ang, $ang + $delta, $m[1]);
-                $ang += $delta;
-            }
+        $apTot = (int)$c['apartamentos'];
+        $apRep = (int)$c['aptos_reparar'];
+        $apSin = max(0, $apTot - $apRep);
+        if ($apTot > 0):
+            $angRep = $apRep / $apTot * 360;
+            $svg  = sectorTorta(75, 75, 68, 0, $angRep, '#C9A227');
+            $svg .= sectorTorta(75, 75, 68, $angRep, 360, '#2E7D32');
         ?>
-        <div style="text-align:center;margin-bottom:8px;">
-          <svg width="150" height="150" viewBox="0 0 150 150">
+        <div style="text-align:center;margin-bottom:9px;">
+          <svg width="152" height="152" viewBox="0 0 150 150">
             <?= $svg ?>
-            <circle cx="75" cy="75" r="34" fill="#fff"/>
-            <text x="75" y="72" text-anchor="middle" font-size="19"
-                  font-weight="bold" fill="#22366F"><?= ent($totC) ?></text>
-            <text x="75" y="87" text-anchor="middle" font-size="8"
-                  fill="#767c94">edificios</text>
+            <circle cx="75" cy="75" r="36" fill="#fff"/>
+            <text x="75" y="71" text-anchor="middle" font-size="21"
+                  font-weight="bold" fill="#22366F"><?= ent($apTot) ?></text>
+            <text x="75" y="87" text-anchor="middle" font-size="9"
+                  fill="#5b6478">apartamentos</text>
           </svg>
         </div>
 
-        <div class="leyenda">
-          <?php foreach ($COL as $dec => $m):
-              $n = $porColor[$dec] ?? 0;
-              if ($n <= 0) continue;
-              $pct = round($n / $totC * 100);
-          ?>
-          <div class="li">
-            <span class="pt" style="background:<?= $m[1] ?>;"></span>
-            <?= $m[0] ?>
-            <span class="v"><?= ent($n) ?> · <?= $pct ?>%</span>
+        <div style="font-size:11.5px;">
+          <div style="padding:5px 0;border-bottom:1px solid #f2f4f8;">
+            <span style="display:inline-block;width:11px;height:11px;
+                  border-radius:2px;background:#C9A227;margin-right:6px;"></span>
+            <strong style="color:#a8871f;">A reparar</strong>
+            <span style="float:right;font-weight:800;color:#a8871f;">
+              <?= ent($apRep) ?> · <?= round($apRep / $apTot * 100) ?>%
+            </span>
           </div>
-          <?php endforeach; ?>
+          <div style="padding:5px 0;">
+            <span style="display:inline-block;width:11px;height:11px;
+                  border-radius:2px;background:#2E7D32;margin-right:6px;"></span>
+            <strong style="color:#2E7D32;">Sin daños</strong>
+            <span style="float:right;font-weight:800;color:#2E7D32;">
+              <?= ent($apSin) ?> · <?= round($apSin / $apTot * 100) ?>%
+            </span>
+          </div>
         </div>
         <?php else: ?>
-        <p style="color:#767c94;font-size:9.5px;">Sin datos de clasificación.</p>
+        <p style="color:#767c94;font-size:10px;">Sin apartamentos registrados.</p>
         <?php endif; ?>
       </div>
     </div>
