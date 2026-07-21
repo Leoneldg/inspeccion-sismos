@@ -122,7 +122,7 @@ try {
         segAsegurarEquipoFrente();
 
         $frenteId = (int)($b['frente_id'] ?? 0);
-        if ($frenteId <= 0) resp(false, 'Frente no válido.');
+        if ($frenteId <= 0) jr(false, 'Frente no válido.');
 
         $ingId = !empty($b['ingeniero_id']) ? (int)$b['ingeniero_id'] : null;
         $sisId = !empty($b['sistematizador_id']) ? (int)$b['sistematizador_id'] : null;
@@ -132,13 +132,13 @@ try {
             $stV = db()->prepare('SELECT COUNT(*) FROM ingenieros
                                    WHERE id = :i AND activo = 1');
             $stV->execute(['i' => $ingId]);
-            if (!(int)$stV->fetchColumn()) resp(false, 'El ingeniero no existe.');
+            if (!(int)$stV->fetchColumn()) jr(false, 'El ingeniero no existe.');
         }
         if ($sisId !== null) {
             $stV = db()->prepare('SELECT COUNT(*) FROM usuarios
                                    WHERE id = :u AND activo = 1');
             $stV->execute(['u' => $sisId]);
-            if (!(int)$stV->fetchColumn()) resp(false, 'El usuario no existe.');
+            if (!(int)$stV->fetchColumn()) jr(false, 'El usuario no existe.');
         }
 
         db()->prepare('UPDATE frente
@@ -153,7 +153,7 @@ try {
                 'f' => $frenteId,
             ]);
 
-        resp(true, 'Equipo del frente actualizado.');
+        jr(true, 'Equipo del frente actualizado.');
     }
 
     if ($accion === 'crear_frente') {
