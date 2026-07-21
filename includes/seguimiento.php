@@ -3758,6 +3758,121 @@ function segReporteEjecutivo(array $filtros = []): array
     return $out;
 }
 
+/**
+ * Columnas del equipo de un frente de trabajo.
+ *
+ * Cada frente tiene un responsable escrito a mano, un ingeniero del
+ * catálogo y un sistematizador (usuario del sistema).
+ */
+function segAsegurarEquipoFrente(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM frente")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ([
+            'responsable'      => "VARCHAR(140) DEFAULT NULL",
+            'responsable_tlf'  => "VARCHAR(40) DEFAULT NULL",
+            'ingeniero_id'     => "INT UNSIGNED DEFAULT NULL",
+            'sistematizador_id'=> "INT UNSIGNED DEFAULT NULL",
+        ] as $col => $def) {
+            if (!in_array($col, $cols, true)) {
+                db()->exec("ALTER TABLE frente ADD COLUMN `$col` $def");
+            }
+        }
+    } catch (Throwable $e) { /* seguir */ }
+}
+
+/**
+ * Frentes con su equipo completo: responsable, ingeniero,
+ * sistematizador, parroquias que cubren y cuántas brigadas tienen.
+ */
+function segFrentesConEquipo(): array
+{
+    segAsegurarEquipoFrente();
+    try {
+        $st = db()->query("
+            SELECT f.id, f.numero, f.nombre, f.activo,
+                   f.responsable, f.responsable_tlf,
+                   f.ingeniero_id, f.sistematizador_id,
+                   ing.nombre_completo AS ingeniero_nombre,
+                   ing.cedula          AS ingeniero_cedula,
+                   us.nombre_completo  AS sistematizador_nombre,
+                   (SELECT COUNT(*) FROM cuadrilla c
+                     WHERE c.frente_id = f.id AND c.activa = 1) AS brigadas,
+                   (SELECT COUNT(*) FROM asignacion_frente_obra a
+                     WHERE a.frente_id = f.id) AS obras
+              FROM frente f
+              LEFT JOIN ingenieros ing ON ing.id = f.ingeniero_id
+              LEFT JOIN usuarios   us  ON us.id  = f.sistematizador_id
+             ORDER BY f.numero
+        ");
+        $frentes = $st->fetchAll() ?: [];
+
+        // Parroquias de cada frente.
+        foreach ($frentes as &$f) {
+            $f['parroquias'] = [];
+            try {
+                $stP = db()->prepare('SELECT parroquia FROM frente_parroquia
+                                       WHERE frente_id = :f ORDER BY parroquia');
+                $stP->execute(['f' => $f['id']]);
+                $f['parroquias'] = $stP->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            } catch (Throwable $e) {}
+        }
+        unset($f);
+
+        return $frentes;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Brigadas (cuadrillas) de un frente, con sus integrantes. */
+function segBrigadasDeFrente(int $frenteId): array
+{
+    try {
+        $st = db()->prepare("
+            SELECT c.id, c.numero, c.nombre, c.especialidad, c.activa,
+                   (SELECT COUNT(*) FROM cuadrilla_integrante ci
+                     WHERE ci.cuadrilla_id = c.id AND ci.activo = 1) AS n_integrantes
+              FROM cuadrilla c
+             WHERE c.frente_id = :f
+             ORDER BY c.numero, c.nombre
+        ");
+        $st->execute(['f' => $frenteId]);
+        $brigadas = $st->fetchAll() ?: [];
+
+        foreach ($brigadas as &$b) {
+            $b['integrantes'] = [];
+            try {
+                $stI = db()->prepare('SELECT nombre, cedula, telefono, oficio, es_jefe
+                                        FROM cuadrilla_integrante
+                                       WHERE cuadrilla_id = :c AND activo = 1
+                                       ORDER BY es_jefe DESC, nombre');
+                $stI->execute(['c' => $b['id']]);
+                $b['integrantes'] = $stI->fetchAll() ?: [];
+            } catch (Throwable $e) {}
+        }
+        unset($b);
+
+        return $brigadas;
+    } catch (Throwable $e) { return []; }
+}
+
+/** Usuarios que pueden ser sistematizadores. */
+function segSistematizadores(): array
+{
+    try {
+        $st = db()->query("
+            SELECT u.id, u.nombre_completo, r.nombre AS rol
+              FROM usuarios u
+              LEFT JOIN roles r ON r.id = u.rol_id
+             WHERE u.activo = 1
+             ORDER BY u.nombre_completo
+        ");
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
 function segEnReconstruccion(array $filtros = []): array
 {
     recAsegurarTablasAvance();

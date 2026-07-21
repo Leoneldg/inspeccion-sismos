@@ -74,6 +74,29 @@ try {
     }
 } catch (Throwable $e) {}
 
+// Ingenieros y sistematizadores, para asignarlos a cada frente.
+segAsegurarEquipoFrente();
+$ingenierosLista = [];
+$sistematizadores = [];
+try { $ingenierosLista = recIngenierosActivos(); } catch (Throwable $e) {}
+try { $sistematizadores = segSistematizadores(); } catch (Throwable $e) {}
+
+// Equipo ya asignado a cada frente.
+$equipoFrente = [];
+try {
+    foreach (db()->query("
+        SELECT f.id, f.responsable AS resp_manual, f.responsable_tlf,
+               f.ingeniero_id, f.sistematizador_id,
+               ing.nombre_completo AS ing_nombre,
+               us.nombre_completo  AS sis_nombre
+          FROM frente f
+          LEFT JOIN ingenieros ing ON ing.id = f.ingeniero_id
+          LEFT JOIN usuarios   us  ON us.id  = f.sistematizador_id
+    ")->fetchAll() as $eq) {
+        $equipoFrente[(int)$eq['id']] = $eq;
+    }
+} catch (Throwable $e) {}
+
 // Responsable de cada parroquia, para autocompletar al elegirla.
 $respPorParroquia = [];
 try {
@@ -329,6 +352,84 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
       </div>
 
+      <!-- Equipo del frente: responsable, ingeniero y sistematizador -->
+      <?php $eq = $equipoFrente[$fid] ?? []; ?>
+      <div style="padding:12px 15px;background:#fafbfe;border-top:1px solid #eef0f5;">
+        <div style="font-size:11.5px;color:#55617f;font-weight:700;
+                    text-transform:uppercase;margin-bottom:8px;letter-spacing:.3px;">
+          <i class="bi bi-people-fill"></i> Equipo del frente
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+                    gap:9px;">
+
+          <!-- Responsable: se escribe a mano -->
+          <div>
+            <label style="font-size:11px;color:#767c94;display:block;margin-bottom:3px;">
+              Responsable
+            </label>
+            <input type="text" class="form-control eq-responsable"
+                   data-frente="<?= $fid ?>"
+                   value="<?= e($eq['resp_manual'] ?? '') ?>"
+                   placeholder="Nombre y apellido"
+                   style="font-size:12.5px;padding:6px 9px;"
+                   onchange="guardarEquipo(<?= $fid ?>)">
+          </div>
+
+          <!-- Teléfono del responsable -->
+          <div>
+            <label style="font-size:11px;color:#767c94;display:block;margin-bottom:3px;">
+              Teléfono
+            </label>
+            <input type="text" class="form-control eq-telefono"
+                   data-frente="<?= $fid ?>"
+                   value="<?= e($eq['responsable_tlf'] ?? '') ?>"
+                   placeholder="0412-1234567"
+                   style="font-size:12.5px;padding:6px 9px;"
+                   onchange="guardarEquipo(<?= $fid ?>)">
+          </div>
+
+          <!-- Ingeniero del catálogo -->
+          <div>
+            <label style="font-size:11px;color:#767c94;display:block;margin-bottom:3px;">
+              Ingeniero
+            </label>
+            <select class="form-control eq-ingeniero" data-frente="<?= $fid ?>"
+                    style="font-size:12.5px;padding:6px 9px;"
+                    onchange="guardarEquipo(<?= $fid ?>)">
+              <option value="">— Sin asignar —</option>
+              <?php foreach ($ingenierosLista as $ig): ?>
+              <option value="<?= (int)$ig['id'] ?>"
+                      <?= ((int)($eq['ingeniero_id'] ?? 0) === (int)$ig['id']) ? 'selected' : '' ?>>
+                <?= e($ig['nombre']) ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <!-- Sistematizador -->
+          <div>
+            <label style="font-size:11px;color:#767c94;display:block;margin-bottom:3px;">
+              Sistematizador
+            </label>
+            <select class="form-control eq-sistematizador" data-frente="<?= $fid ?>"
+                    style="font-size:12.5px;padding:6px 9px;"
+                    onchange="guardarEquipo(<?= $fid ?>)">
+              <option value="">— Sin asignar —</option>
+              <?php foreach ($sistematizadores as $su): ?>
+              <option value="<?= (int)$su['id'] ?>"
+                      <?= ((int)($eq['sistematizador_id'] ?? 0) === (int)$su['id']) ? 'selected' : '' ?>>
+                <?= e($su['nombre_completo']) ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+        </div>
+
+        <div class="eq-aviso" id="eq-aviso-<?= $fid ?>"
+             style="font-size:11.5px;margin-top:6px;height:14px;"></div>
+      </div>
+
       <div style="padding:11px 15px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <span style="font-size:11.5px;color:#55617f;font-weight:600;">Brigadas:</span>
         <?php if (!empty($f['brigadas'])): foreach ($f['brigadas'] as $b): ?>
@@ -435,6 +536,62 @@ async function renombrarFrente(id, actual) {
     if (nombre === null) return;   // canceló
     const d = await api({ accion: 'renombrar_frente', frente_id: id, nombre: nombre.trim() });
     if (d) location.reload();
+}
+
+/**
+ * Guarda el equipo del frente: responsable, teléfono, ingeniero y
+ * sistematizador. Se envía al salir de cualquiera de los campos.
+ */
+async function guardarEquipo(frenteId) {
+    const sel = c => document.querySelector('.' + c + '[data-frente="' + frenteId + '"]');
+    const aviso = document.getElementById('eq-aviso-' + frenteId);
+
+    const payload = {
+        accion: 'equipo',
+        frente_id: frenteId,
+        responsable:      (sel('eq-responsable')   || {}).value || '',
+        responsable_tlf:  (sel('eq-telefono')      || {}).value || '',
+        ingeniero_id:     (sel('eq-ingeniero')     || {}).value || null,
+        sistematizador_id:(sel('eq-sistematizador')|| {}).value || null,
+    };
+
+    if (aviso) {
+        aviso.textContent = 'Guardando…';
+        aviso.style.color = '#767c94';
+    }
+
+    try {
+        const res = await fetch('<?= APP_URL_BASE ?>seguimiento/guardar_frente.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'same-origin'
+        });
+
+        const texto = await res.text();
+        let d;
+        try {
+            d = JSON.parse(texto);
+        } catch (err) {
+            console.error('Respuesta del servidor:', texto);
+            if (aviso) {
+                aviso.textContent = 'El servidor devolvió una respuesta inesperada.';
+                aviso.style.color = '#A61C1C';
+            }
+            return;
+        }
+
+        if (aviso) {
+            aviso.textContent = d.ok ? 'Guardado' : (d.mensaje || 'No se pudo guardar');
+            aviso.style.color = d.ok ? '#2E7D32' : '#A61C1C';
+            if (d.ok) setTimeout(() => { aviso.textContent = ''; }, 2200);
+        }
+    } catch (e) {
+        if (aviso) {
+            aviso.textContent = 'Sin conexión. Intente de nuevo.';
+            aviso.style.color = '#A61C1C';
+        }
+    }
 }
 
 async function quitarFrente(id, numero) {

@@ -112,6 +112,50 @@ try {
     }
 
     // ---------- FRENTE ----------
+    // =================================================================
+    // EQUIPO DEL FRENTE
+    // ---------------------------------------------------------------
+    // Responsable escrito a mano, más un ingeniero del catálogo y un
+    // sistematizador del sistema. Uno de cada uno por frente.
+    // =================================================================
+    if ($accion === 'equipo') {
+        segAsegurarEquipoFrente();
+
+        $frenteId = (int)($b['frente_id'] ?? 0);
+        if ($frenteId <= 0) resp(false, 'Frente no válido.');
+
+        $ingId = !empty($b['ingeniero_id']) ? (int)$b['ingeniero_id'] : null;
+        $sisId = !empty($b['sistematizador_id']) ? (int)$b['sistematizador_id'] : null;
+
+        // Comprobar que existan, para no dejar referencias rotas.
+        if ($ingId !== null) {
+            $stV = db()->prepare('SELECT COUNT(*) FROM ingenieros
+                                   WHERE id = :i AND activo = 1');
+            $stV->execute(['i' => $ingId]);
+            if (!(int)$stV->fetchColumn()) resp(false, 'El ingeniero no existe.');
+        }
+        if ($sisId !== null) {
+            $stV = db()->prepare('SELECT COUNT(*) FROM usuarios
+                                   WHERE id = :u AND activo = 1');
+            $stV->execute(['u' => $sisId]);
+            if (!(int)$stV->fetchColumn()) resp(false, 'El usuario no existe.');
+        }
+
+        db()->prepare('UPDATE frente
+                          SET responsable = :r, responsable_tlf = :t,
+                              ingeniero_id = :i, sistematizador_id = :s
+                        WHERE id = :f')
+            ->execute([
+                'r' => trim($b['responsable'] ?? '') ?: null,
+                't' => trim($b['responsable_tlf'] ?? '') ?: null,
+                'i' => $ingId,
+                's' => $sisId,
+                'f' => $frenteId,
+            ]);
+
+        resp(true, 'Equipo del frente actualizado.');
+    }
+
     if ($accion === 'crear_frente') {
         $numero = (int)($b['numero'] ?? 0);
         if ($numero < 1) jr(false, 'Indique el número del frente.');
