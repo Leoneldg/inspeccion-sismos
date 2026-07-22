@@ -4925,8 +4925,18 @@ function recAsegurarIngeniero(): void
 /** Ingenieros activos, para el selector del levantamiento. */
 function recIngenierosActivos(): array
 {
+    // Se incluye la profesion (si la columna existe) para poder distinguir
+    // en el selector a los responsables que no son ingenieros.
+    $tieneProf = false;
     try {
-        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula
+        $cols = db()->query('SHOW COLUMNS FROM ingenieros')
+                    ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $tieneProf = in_array('profesion', $cols, true);
+    } catch (Throwable $e) { $tieneProf = false; }
+
+    try {
+        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula"
+                          . ($tieneProf ? ", profesion" : "") . "
                              FROM ingenieros
                             WHERE activo = 1
                             ORDER BY nombre_completo");
@@ -4938,11 +4948,27 @@ function recIngenierosActivos(): array
 function recIngenieroDe(int $edificioId): ?array
 {
     recAsegurarIngeniero();
+
+    // Solo se piden las columnas que existan de verdad: en instalaciones
+    // antiguas `profesion` o `foto` pueden faltar y la consulta entera
+    // fallaria, dejando la ficha sin responsable.
+    $colsIng = [];
     try {
+        $colsIng = db()->query('SHOW COLUMNS FROM ingenieros')
+                       ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) { $colsIng = []; }
+    $extraSel = '';
+    if (in_array('profesion', $colsIng, true)) $extraSel .= ", ing.profesion";
+    if (in_array('foto', $colsIng, true))      $extraSel .= ", ing.foto";
+
+    try {
+        // Se traen tambien profesion y foto: el responsable puede no ser
+        // ingeniero (se registra desde el paso 1 con el interruptor
+        // "No es ingeniero") y esos datos hacen falta para mostrarlo bien.
         $st = db()->prepare("SELECT ing.id,
                                     ing.nombre_completo AS nombre,
                                     ing.cedula,
-                                    ing.telefono
+                                    ing.telefono" . $extraSel . "
                                FROM rec_edificio re
                                JOIN ingenieros ing ON ing.id = re.ingeniero_id
                               WHERE re.id = :e");
