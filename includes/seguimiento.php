@@ -4097,34 +4097,15 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
     // Asegurar que existan las columnas nuevas (por si no se corrió el SQL).
     recAsegurarColumnasAreaComun();
 
-    // Tipos válidos: el catálogo fijo MÁS las áreas de nombre libre
-    // ("Otros") que el técnico ya agregó. Antes solo se aceptaba el
-    // catálogo, así que todo lo de "Otros" se descartaba en silencio.
+    // Catálogo fijo de áreas. Las de nombre libre ("Otros") se añaden
+    // más abajo, en $tiposValidos.
     $tipos = array_keys(recAreasComunesTipicas());
-<<<<<<< HEAD
-    try {
-        $stL = db()->prepare("SELECT tipo FROM rec_area_comun
-                               WHERE edificio_id = :e
-                                 AND nombre_libre IS NOT NULL AND nombre_libre <> ''");
-        $stL->execute(['e' => $edificioId]);
-        foreach ($stL->fetchAll(PDO::FETCH_COLUMN) as $tl) {
-            if (!in_array($tl, $tipos, true)) $tipos[] = $tl;
-        }
-    } catch (Throwable $e) { /* seguir con el catálogo fijo */ }
 
     // Los trabajos válidos salen de rec_tipo_trabajo, no de una lista
     // escrita a mano: las tres claves que había aquí
     // ('mamposteria', 'derrumbar', 'reconstruccion') no existen en la
     // tabla, así que TODO tipo_trabajo se guardaba como NULL y ninguna
     // área común llegaba nunca a rec_reparacion.
-=======
-
-    // Los tipos de trabajo validos salen del catalogo real (rec_tipo_trabajo).
-    // Antes habia una lista fija ('mamposteria','derrumbar','reconstruccion')
-    // que ya no existe en el catalogo: cualquier trabajo que eligiera el
-    // tecnico se guardaba como NULL y el area quedaba sin reparacion ni
-    // materiales. Ahora se acepta lo que realmente ofrece el formulario.
->>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     $trabajos = [];
     foreach (recTiposTrabajo() as $tt) {
         if (!empty($tt['clave'])) $trabajos[] = $tt['clave'];
@@ -4164,11 +4145,6 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
         // cálculo de materiales. Sin esto, las áreas comunes quedaban
         // guardadas pero su material nunca se pedía.
         try {
-<<<<<<< HEAD
-            // Con ON DUPLICATE KEY UPDATE, lastInsertId() puede devolver
-            // el id de otra fila o 0. Se busca siempre por su clave, que
-            // es lo único fiable.
-=======
             // El id SIEMPRE se consulta por (edificio, tipo).
             //
             // No se puede usar lastInsertId() aqui: con ON DUPLICATE KEY
@@ -4179,7 +4155,6 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
             // todas terminaban escribiendo sus metros sobre la misma fila y
             // las demas quedaban vacias. Por eso "guardar una por una"
             // parecia funcionar: con una sola area no hay id ajeno que pisar.
->>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
             $stB = db()->prepare('SELECT id FROM rec_area_comun
                                    WHERE edificio_id = :e AND tipo = :t');
             $stB->execute(['e' => $edificioId, 't' => $tipo]);
@@ -4234,34 +4209,16 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
     }
     // Quitar las que se deseleccionaron.
     //
-<<<<<<< HEAD
-    // Las áreas de nombre libre ("Otros") se crean con una llamada aparte
-    // (accion 'area_libre') y llegan aquí solo si el técnico las marcó
-    // para reparar. Si se borraran por no venir en la lista, el área que
-    // acaba de agregar desaparecería al guardar el paso 1.
-=======
     // OJO: el formulario solo envia las areas MARCADAS para reparar. Una
     // lista vacia significa "ninguna necesita reparacion", NO "borrar todo".
     // Antes se borraba la tabla entera del edificio, y con ella se perdian
     // las areas creadas a mano ("Otros"). Ahora solo se limpia la marca de
     // reparacion de las que ya no vienen, y nunca se tocan las de nombre
     // libre, que el tecnico agrego a proposito.
->>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     $marcados = array_column($areas, 'tipo');
     if ($marcados) {
         $in = implode(',', array_fill(0, count($marcados), '?'));
         $params = array_merge([$edificioId], $marcados);
-<<<<<<< HEAD
-        db()->prepare("DELETE FROM rec_area_comun
-                        WHERE edificio_id = ? AND tipo NOT IN ($in)
-                          AND (nombre_libre IS NULL OR nombre_libre = '')")
-            ->execute($params);
-    } else {
-        db()->prepare("DELETE FROM rec_area_comun
-                        WHERE edificio_id = ?
-                          AND (nombre_libre IS NULL OR nombre_libre = '')")
-            ->execute([$edificioId]);
-=======
         db()->prepare(
             "UPDATE rec_area_comun
                 SET necesita_reparacion = 0, tipo_trabajo = NULL, metros_cuadrados = NULL
@@ -4287,7 +4244,6 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
               WHERE nivel = 'area_comun'
                 AND ref_id IN (SELECT id FROM rec_area_comun WHERE edificio_id = ?)"
         )->execute([$edificioId]);
->>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     }
 }
 
