@@ -4101,6 +4101,7 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
     // ("Otros") que el técnico ya agregó. Antes solo se aceptaba el
     // catálogo, así que todo lo de "Otros" se descartaba en silencio.
     $tipos = array_keys(recAreasComunesTipicas());
+<<<<<<< HEAD
     try {
         $stL = db()->prepare("SELECT tipo FROM rec_area_comun
                                WHERE edificio_id = :e
@@ -4116,6 +4117,14 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
     // ('mamposteria', 'derrumbar', 'reconstruccion') no existen en la
     // tabla, así que TODO tipo_trabajo se guardaba como NULL y ninguna
     // área común llegaba nunca a rec_reparacion.
+=======
+
+    // Los tipos de trabajo validos salen del catalogo real (rec_tipo_trabajo).
+    // Antes habia una lista fija ('mamposteria','derrumbar','reconstruccion')
+    // que ya no existe en el catalogo: cualquier trabajo que eligiera el
+    // tecnico se guardaba como NULL y el area quedaba sin reparacion ni
+    // materiales. Ahora se acepta lo que realmente ofrece el formulario.
+>>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     $trabajos = [];
     foreach (recTiposTrabajo() as $tt) {
         if (!empty($tt['clave'])) $trabajos[] = $tt['clave'];
@@ -4127,9 +4136,21 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
             necesita_reparacion=VALUES(necesita_reparacion),
             tipo_trabajo=VALUES(tipo_trabajo), metros_cuadrados=VALUES(metros_cuadrados)'
     );
+    // Las areas agregadas a mano ("Otros") tienen una clave propia que no
+    // esta en el catalogo tipico. Se aceptan igual: ya existen en la tabla.
+    $propias = [];
+    try {
+        $stP = db()->prepare("SELECT tipo FROM rec_area_comun
+                               WHERE edificio_id = :e
+                                 AND nombre_libre IS NOT NULL AND nombre_libre <> ''");
+        $stP->execute(['e' => $edificioId]);
+        $propias = $stP->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) { $propias = []; }
+    $tiposValidos = array_merge($tipos, $propias);
+
     foreach ($areas as $a) {
         $tipo = $a['tipo'] ?? '';
-        if (!in_array($tipo, $tipos, true)) continue;
+        if (!in_array($tipo, $tiposValidos, true)) continue;
         $tt = in_array($a['tipo_trabajo'] ?? '', $trabajos, true) ? $a['tipo_trabajo'] : null;
         $st->execute([
             'e'  => $edificioId,
@@ -4143,9 +4164,22 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
         // cálculo de materiales. Sin esto, las áreas comunes quedaban
         // guardadas pero su material nunca se pedía.
         try {
+<<<<<<< HEAD
             // Con ON DUPLICATE KEY UPDATE, lastInsertId() puede devolver
             // el id de otra fila o 0. Se busca siempre por su clave, que
             // es lo único fiable.
+=======
+            // El id SIEMPRE se consulta por (edificio, tipo).
+            //
+            // No se puede usar lastInsertId() aqui: con ON DUPLICATE KEY
+            // UPDATE, MySQL solo fija LAST_INSERT_ID cuando la fila se
+            // INSERTA. Si el area ya existia (se actualiza), lastInsertId
+            // conserva el valor del ultimo INSERT de la conexion, es decir
+            // el id de OTRA area. Al guardar varias areas de una sola vez,
+            // todas terminaban escribiendo sus metros sobre la misma fila y
+            // las demas quedaban vacias. Por eso "guardar una por una"
+            // parecia funcionar: con una sola area no hay id ajeno que pisar.
+>>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
             $stB = db()->prepare('SELECT id FROM rec_area_comun
                                    WHERE edificio_id = :e AND tipo = :t');
             $stB->execute(['e' => $edificioId, 't' => $tipo]);
@@ -4200,14 +4234,24 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
     }
     // Quitar las que se deseleccionaron.
     //
+<<<<<<< HEAD
     // Las áreas de nombre libre ("Otros") se crean con una llamada aparte
     // (accion 'area_libre') y llegan aquí solo si el técnico las marcó
     // para reparar. Si se borraran por no venir en la lista, el área que
     // acaba de agregar desaparecería al guardar el paso 1.
+=======
+    // OJO: el formulario solo envia las areas MARCADAS para reparar. Una
+    // lista vacia significa "ninguna necesita reparacion", NO "borrar todo".
+    // Antes se borraba la tabla entera del edificio, y con ella se perdian
+    // las areas creadas a mano ("Otros"). Ahora solo se limpia la marca de
+    // reparacion de las que ya no vienen, y nunca se tocan las de nombre
+    // libre, que el tecnico agrego a proposito.
+>>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     $marcados = array_column($areas, 'tipo');
     if ($marcados) {
         $in = implode(',', array_fill(0, count($marcados), '?'));
         $params = array_merge([$edificioId], $marcados);
+<<<<<<< HEAD
         db()->prepare("DELETE FROM rec_area_comun
                         WHERE edificio_id = ? AND tipo NOT IN ($in)
                           AND (nombre_libre IS NULL OR nombre_libre = '')")
@@ -4217,6 +4261,33 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
                         WHERE edificio_id = ?
                           AND (nombre_libre IS NULL OR nombre_libre = '')")
             ->execute([$edificioId]);
+=======
+        db()->prepare(
+            "UPDATE rec_area_comun
+                SET necesita_reparacion = 0, tipo_trabajo = NULL, metros_cuadrados = NULL
+              WHERE edificio_id = ? AND tipo NOT IN ($in)"
+        )->execute($params);
+
+        // Sus reparaciones tambien dejan de aplicar.
+        db()->prepare(
+            "DELETE FROM rec_reparacion
+              WHERE nivel = 'area_comun'
+                AND ref_id IN (SELECT id FROM rec_area_comun
+                                WHERE edificio_id = ? AND tipo NOT IN ($in))"
+        )->execute($params);
+    } else {
+        db()->prepare(
+            'UPDATE rec_area_comun
+                SET necesita_reparacion = 0, tipo_trabajo = NULL, metros_cuadrados = NULL
+              WHERE edificio_id = ?'
+        )->execute([$edificioId]);
+
+        db()->prepare(
+            "DELETE FROM rec_reparacion
+              WHERE nivel = 'area_comun'
+                AND ref_id IN (SELECT id FROM rec_area_comun WHERE edificio_id = ?)"
+        )->execute([$edificioId]);
+>>>>>>> 85d014f75d779ff1d4bc01bd892b7d9f8077b218
     }
 }
 
@@ -5894,4 +5965,104 @@ function segPuntosDeParroquia(string $estado, string $parroquia, string $fase = 
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/* ===================================================================
+ * CEMENTO GRIS · EQUIVALENCIA EN SACOS DE 45 KG
+ * ===================================================================
+ * El cemento gris se calcula internamente en dos unidades distintas
+ * segun la receta: en 'kg' (recetas por peso) y en 'saco' (recetas de
+ * pared/friso, donde el "saco" de la receta es la unidad de obra).
+ *
+ * En obra el material se compra SIEMPRE en sacos de 45 kg, asi que
+ * cada indicador de Cemento gris muestra debajo un badge con la
+ * cantidad de sacos de 45 kg que hay que pedir.
+ *
+ * Se redondea hacia arriba: no se puede pedir medio saco.
+ * =================================================================== */
+
+/** Kilos que trae un saco comercial de cemento gris. */
+if (!defined('KG_POR_SACO_CEMENTO')) {
+    define('KG_POR_SACO_CEMENTO', 45);
+}
+
+/**
+ * ¿Este renglon es Cemento gris?
+ *
+ * Se compara de forma tolerante (sin distinguir mayusculas ni acentos)
+ * porque el nombre viaja como texto libre desde la tabla de recetas y
+ * en algunas vistas llega como "Cemento gris (saco)".
+ */
+function esCementoGris(?string $material): bool
+{
+    if ($material === null || $material === '') return false;
+    $m = mb_strtolower($material, 'UTF-8');
+    return (strpos($m, 'cemento') !== false) && (strpos($m, 'gris') !== false);
+}
+
+/**
+ * Sacos de 45 kg que hacen falta para una cantidad dada de cemento gris.
+ *
+ * $unidad indica en que viene $cantidad:
+ *   'kg'   → se divide entre 45 para pasar a sacos.
+ *   'saco' → la receta ya cuenta sacos de 45 kg: se usa tal cual.
+ *
+ * Siempre redondea hacia arriba (no se compra fraccion de saco).
+ */
+function sacosCementoGris(float $cantidad, string $unidad = 'kg'): int
+{
+    if ($cantidad <= 0) return 0;
+    $u = mb_strtolower(trim($unidad), 'UTF-8');
+
+    // La receta ya viene expresada en sacos: no se vuelve a dividir.
+    if ($u === 'saco' || $u === 'sacos') {
+        return (int)ceil($cantidad);
+    }
+
+    // Cualquier otra unidad de peso se convierte desde kilos.
+    return (int)ceil($cantidad / KG_POR_SACO_CEMENTO);
+}
+
+/**
+ * Texto del badge, ya formateado al estilo venezolano (punto de miles).
+ * Devuelve '' cuando no aplica, para poder ocultar el badge sin logica extra.
+ */
+function textoSacosCementoGris(float $cantidad, string $unidad = 'kg'): string
+{
+    $sacos = sacosCementoGris($cantidad, $unidad);
+    if ($sacos <= 0) return '';
+    return 'Cantidad de sacos de 45 kg: ' . number_format($sacos, 0, ',', '.');
+}
+
+/**
+ * Badge HTML listo para pintar debajo de un indicador de Cemento gris.
+ *
+ * $color permite adaptarlo a la seccion donde se muestra (azul, dorado…).
+ * Los estilos van en linea porque varias de estas vistas se imprimen con
+ * wkhtmltopdf, que no carga la hoja de estilos del sistema.
+ *
+ * Devuelve '' si el renglon no es cemento gris o si no hay cantidad,
+ * de modo que se puede llamar sin condicionales en la vista.
+ */
+function badgeSacosCementoGris(
+    ?string $material,
+    float $cantidad,
+    string $unidad = 'kg',
+    string $color = '#8a6d1a',
+    string $fontSize = '9px'
+): string {
+    if (!esCementoGris($material)) return '';
+
+    $texto = textoSacosCementoGris($cantidad, $unidad);
+    if ($texto === '') return '';
+
+    $c = htmlspecialchars($color, ENT_QUOTES, 'UTF-8');
+    $f = htmlspecialchars($fontSize, ENT_QUOTES, 'UTF-8');
+
+    return '<div style="display:inline-block;background:' . $c . '14;'
+         . 'border:1px solid ' . $c . '3a;border-radius:20px;'
+         . 'padding:2px 8px;margin-top:3px;font-size:' . $f . ';'
+         . 'color:' . $c . ';font-weight:700;line-height:1.3;">'
+         . htmlspecialchars($texto, ENT_QUOTES, 'UTF-8')
+         . '</div>';
 }

@@ -24,16 +24,9 @@ function num($v, $dec = 2) {
 }
 
 /**
- * El cemento se calcula en kilos, pero se compra en sacos de 45 kg.
- * Se muestran los sacos entre paréntesis para facilitar el pedido.
+ * El badge de sacos de cemento gris vive en includes/seguimiento.php
+ * (badgeSacosCementoGris) para que todas las vistas usen el mismo calculo.
  */
-const KG_POR_SACO = 45;
-
-function sacosDe(float $kg): string
-{
-    if ($kg <= 0) return '';
-    return ' (' . number_format(ceil($kg / KG_POR_SACO), 0, ',', '.') . ' sacos)';
-}
 
 $inspeccionId = (int)($_GET['inspeccion'] ?? 0);
 if ($inspeccionId <= 0) exit('Indique la inspección.');
@@ -270,10 +263,13 @@ ob_start();
       <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
       <div class="m">
         <div class="c"><?= num($cant) ?></div>
-        <div class="n"><?= esc($mat) ?><?php
-          if (stripos($mat, 'Cemento') !== false):
-            ?><span style="color:#8a6d1a;font-weight:700;"><?= sacosDe((float)$cant) ?></span><?php
-          endif; ?></div>
+        <?php
+        // La clave llega como "Cemento gris (saco)": se separa la unidad
+        // para saber si la cifra ya viene en sacos o en kilos.
+        $uniMat = preg_match('/\(([^)]+)\)\s*$/u', $mat, $mm) ? trim($mm[1]) : 'kg';
+        ?>
+        <?= badgeSacosCementoGris($mat, (float)$cant, $uniMat, '#8a6d1a', '7.5px') ?>
+        <div class="n"><?= esc($mat) ?></div>
       </div>
     <?php $i++; endforeach; ?>
     <?php // Rellenar la última fila para que no se estire

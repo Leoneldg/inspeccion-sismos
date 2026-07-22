@@ -134,6 +134,7 @@ include __DIR__ . '/../includes/header.php';
                 <div style="font-size:19px;font-weight:800;color:#22366F;line-height:1;">
                     <?= number_format($m['cantidad'], 2, ',', '.') ?>
                 </div>
+                <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#8a6d1a', '10px') ?>
                 <div style="font-size:11px;color:#5b6478;margin-top:3px;">
                     <?= e($m['unidad']) ?> · <?= e($m['material']) ?>
                 </div>
@@ -246,7 +247,10 @@ include __DIR__ . '/../includes/header.php';
                 <?php foreach ($r['materiales'] as $m): ?>
                 <span><strong style="color:#22366F;">
                     <?= number_format($m['cantidad'], 2, ',', '.') ?></strong>
-                    <?= e($m['unidad']) ?> · <?= e($m['material']) ?></span>
+                    <?= e($m['unidad']) ?> · <?= e($m['material']) ?>
+                    <?php $bs = badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#8a6d1a', '10px'); ?>
+                    <?php if ($bs !== ''): ?><br><?= $bs ?><?php endif; ?>
+                </span>
                 <?php endforeach; ?>
             </div>
         </div>

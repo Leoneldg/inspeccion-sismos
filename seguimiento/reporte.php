@@ -416,6 +416,7 @@ table.rp-tabla tr:nth-child(even) td { background:#fafbfe; }
                 <div style="font-size:20px;font-weight:800;color:#22366F;line-height:1;">
                     <?= number_format($m['cantidad'], 2, ',', '.') ?>
                 </div>
+                <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#8a6d1a', '10.5px') ?>
                 <div style="font-size:11.5px;color:#5b6478;margin-top:3px;">
                     <?= e($m['unidad']) ?> · <?= e($m['material']) ?>
                 </div>

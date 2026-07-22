@@ -194,6 +194,23 @@ $flashes = obtenerFlashes();
         </div>
         <?php endif; ?>
 
+        <!-- ==============================================
+             Usuario y cierre de sesión.
+             Va al final: el CSS lo empuja abajo con margin-top:auto.
+             ============================================== -->
+        <?php if (isLoggedIn()): ?>
+        <div class="user-card">
+            <div class="avatar"><?= e(mb_strtoupper(mb_substr($_SESSION['nombre'] ?? '?', 0, 1, 'UTF-8'), 'UTF-8')) ?></div>
+            <div class="info">
+                <strong><?= e($_SESSION['nombre'] ?? '') ?></strong>
+                <span><?= e($_SESSION['rol_nombre'] ?? '') ?></span>
+            </div>
+            <a href="<?= APP_URL_BASE ?>logout.php" class="logout" title="Cerrar sesión" aria-label="Cerrar sesión">
+                <i class="bi bi-box-arrow-right"></i>
+            </a>
+        </div>
+        <?php endif; ?>
+
     </aside>
 
     <div class="sidebar-backdrop" id="sidebar-backdrop"></div>

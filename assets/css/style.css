@@ -760,11 +760,14 @@ body.sidebar-collapsed .sidebar-toggle i { transform: rotate(180deg); }
 body.sidebar-collapsed .sidebar .brand .txt,
 body.sidebar-collapsed .sidebar .nav-label,
 body.sidebar-collapsed .sidebar .nav-item span,
-body.sidebar-collapsed .sidebar .user-card .info,
-body.sidebar-collapsed .sidebar .user-card a.logout { display: none; }
+body.sidebar-collapsed .sidebar .user-card .info { display: none; }
 body.sidebar-collapsed .sidebar .brand { justify-content: center; padding-left: 0; padding-right: 0; }
 body.sidebar-collapsed .sidebar .nav-item { justify-content: center; }
-body.sidebar-collapsed .sidebar .user-card { justify-content: center; padding: 10px; }
+body.sidebar-collapsed .sidebar .user-card {
+    justify-content: center; padding: 10px; flex-direction: column; gap: 8px;
+}
+/* El menu colapsado oculta el nombre, pero NUNCA el boton de cerrar sesion. */
+body.sidebar-collapsed .sidebar .user-card a.logout { margin-left: 0; }
 @media (max-width: 960px) { body.sidebar-collapsed .app-shell { grid-template-columns: 1fr; } }
 
 /* =====================================================================

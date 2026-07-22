@@ -21,16 +21,9 @@ requierePermiso('seguimiento', 'ver');
 function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
 /**
- * El cemento se pide en kilos, pero se compra en sacos.
- * Se muestran los sacos entre paréntesis para facilitar el pedido.
+ * El badge de sacos de cemento gris vive en includes/seguimiento.php
+ * (badgeSacosCementoGris) para que todas las vistas usen el mismo calculo.
  */
-const KG_POR_SACO = 45;
-
-function sacosDe(float $kg): string
-{
-    if ($kg <= 0) return '';
-    return ' (' . number_format(ceil($kg / KG_POR_SACO), 0, ',', '.') . ' sacos)';
-}
 function num($v, $d = 2) { return number_format((float)$v, $d, ',', '.'); }
 function ent($v) { return number_format((int)$v, 0, ',', '.'); }
 
@@ -275,6 +268,7 @@ ob_start();
           <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
           <div class="m" style="border-color:#22366F44;">
             <div class="c"><?= num($m['cantidad'], $m['unidad'] === 'saco' || $m['unidad'] === 'unidad' ? 0 : 2) ?></div>
+            <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#22366F', '8px') ?>
             <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
           </div>
         <?php $i++; endforeach; ?>
@@ -297,10 +291,8 @@ ob_start();
           <?php if ($i > 0 && $i % 4 === 0): ?></div><div class="mat"><?php endif; ?>
           <div class="m">
             <div class="c"><?= num($m['cantidad'], $m['unidad'] === 'm3' ? 2 : 0) ?></div>
-            <div class="u"><?= esc($m['unidad']) ?><?php
-              if ($m['unidad'] === 'kg' && $m['material'] === 'Cemento gris'):
-                ?><span style="font-size:9px;color:#5b6478;"><?= sacosDe($m['cantidad']) ?></span><?php
-              endif; ?><br><?= esc($m['material']) ?></div>
+            <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#a8871f', '8px') ?>
+            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
           </div>
         <?php $i++; endforeach; ?>
         <?php while ($i % 4 !== 0): ?>
@@ -324,10 +316,8 @@ ob_start();
           <div class="m" style="border-color:#22366F55;background:#f7f9fd;">
             <div class="c" style="font-size:24px;">
               <?= num($m['cantidad'], $m['unidad'] === 'm3' ? 2 : 0) ?></div>
-            <div class="u"><?= esc($m['unidad']) ?><?php
-              if ($m['unidad'] === 'kg' && $m['material'] === 'Cemento gris'):
-                ?><span style="font-size:9.5px;color:#22366F;font-weight:700;"><?= sacosDe($m['cantidad']) ?></span><?php
-              endif; ?><br><?= esc($m['material']) ?></div>
+            <?= badgeSacosCementoGris($m['material'], (float)$m['cantidad'], $m['unidad'], '#22366F', '8px') ?>
+            <div class="u"><?= esc($m['unidad']) ?><br><?= esc($m['material']) ?></div>
           </div>
         <?php $i++; endforeach; ?>
         <?php while ($i % 4 !== 0): ?>
