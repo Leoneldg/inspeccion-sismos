@@ -971,15 +971,57 @@ function pintarAreaNueva(clave, nombre) {
         + 'onchange="calcularMatArea(this)">'
         + '<option value="">Seleccione…</option>' + opciones + '</select>'
         + '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'
-        + 'Metros cuadrados (m²)</label>'
-        + '<input type="text" inputmode="decimal" class="form-control area-m2" '
-        + 'placeholder="Ej: 12" style="width:100%;padding:6px 8px;font-size:12.5px;margin-bottom:8px;" '
-        + 'oninput="normalizarDecimal(this); calcularMatArea(this);">'
+        + 'Metros cuadrados a reparar</label>'
+
+        // Mismos tres campos por superficie que las áreas del catálogo.
+        // Antes había un solo input y el guardado —que lee .area-sup—
+        // no encontraba nada, así que los metros se perdían.
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+        + ['pared', 'techo', 'piso'].map(sup =>
+            '<div style="width:104px;">'
+            + '<label class="text-sm" style="text-transform:capitalize;font-size:11px;">'
+            + sup + '</label>'
+            + '<div style="display:flex;align-items:center;gap:4px;">'
+            + '<input type="text" inputmode="decimal" class="form-control area-sup" '
+            + 'data-sup="' + sup + '" value="" '
+            + 'style="flex:1;min-width:0;padding:6px 8px;font-size:12.5px;" '
+            + 'oninput="normalizarDecimal(this); calcularMatArea(this);">'
+            + '<span style="font-size:11px;color:#8a6d1a;font-weight:600;">m²</span>'
+            + '</div></div>').join('')
+        + '</div>'
+
+        // Campo oculto con el total, igual que en el catálogo.
+        + '<input type="hidden" class="area-m2" value="">'
+
+        + '<button type="button" class="btn btn-outline btn-sm" '
+        + 'style="margin-bottom:8px;border-color:#2d448855;color:#2d4488;font-size:11.5px;" '
+        + 'onclick="agregarPartidaArea(this, \'' + clave + '\')">'
+        + '<i class="bi bi-plus-circle"></i> Agregar otro trabajo aquí</button>'
+        + '<div class="area-partidas"></div>'
+
         + '<div class="area-materiales" style="font-size:12px;color:#22366F;background:#eef2fb;'
         + 'border-radius:6px;padding:8px 10px;display:none;"></div></div>';
 
     grid.appendChild(div);
+
+    // El checkbox "Reparar" de las filas del catálogo se conecta al cargar
+    // la página; esta fila nace después, así que hay que conectarla aquí.
+    const chk = div.querySelector('.area-reparar');
+    if (chk) {
+        chk.addEventListener('change', function () {
+            const det = div.querySelector('.area-detalle');
+            if (det) det.style.display = this.checked ? 'block' : 'none';
+            const lbl = div.querySelector('.area-chk-lbl');
+            if (lbl) {
+                lbl.style.background  = this.checked ? '#fdf3e7' : '';
+                lbl.style.fontWeight  = this.checked ? '600' : '';
+                lbl.style.color       = this.checked ? '#A66A00' : '';
+            }
+        });
+    }
+
     div.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return div;
 }
 
 /**
@@ -1048,7 +1090,9 @@ function subirFotoArea(areaKey, btn) {
 
 // Calcular materiales de un área según m² y tipo de trabajo.
 async function calcularMatArea(inp) {
+    if (!inp) return;
     const row = inp.closest('.area-row');
+    if (!row) return;
 
     // Se suman las tres superficies, igual que en los ambientes.
     let m2 = 0;
@@ -1175,10 +1219,16 @@ async function guardarEdificio(ev) {
             }
         });
 
+        // Nombre visible: en las áreas "Otros" es lo único que permite
+        // volver a dibujar la fila después de refrescar.
+        const lblNom = row.querySelector('.area-chk-lbl span');
+        const selArea = row.querySelector('.area-trabajo');
+
         payload.areas_comunes.push({
             tipo: row.dataset.area,
+            nombre_libre: lblNom ? lblNom.textContent.trim() : '',
             necesita_reparacion: 1,
-            tipo_trabajo: row.querySelector('.area-trabajo').value,
+            tipo_trabajo: selArea ? selArea.value : '',
             metros_cuadrados: total,
             superficies: sups,
             extras: extras,
@@ -1383,30 +1433,118 @@ function mostrarPisoSeleccionado() {
 async function cargarAptosDelPiso(card) {
     const pisoId = parseInt(card.dataset.piso);
     const lista = card.querySelector('.apto-lista');
-    const res = await fetch(URL_BASE + 'listar_rec_aptos.php?piso_id=' + pisoId);
-    const data = await res.json();
-    if (data.ok && data.apartamentos && data.apartamentos.length) {
-        lista.innerHTML = '';
-        data.apartamentos.forEach(a => pintarApartamento(a, lista));
-    } else {
-        // No hay apartamentos: generarlos automáticamente según el paso 1.
-        const cantidad = APTOS_POR_PISO;
-        // El número de piso se obtiene del texto del panel (o del orden).
-        const numeroPiso = parseInt(card.dataset.numeroPiso || '0');
-        if (cantidad > 0) generarAptosAuto(card, pisoId, numeroPiso, cantidad);
+    const numeroPiso = parseInt(card.dataset.numeroPiso || '0');
+
+    // Sin señal se generan aquí mismo: pedirlos al servidor fallaría
+    // y el piso quedaría vacío sin poder seguir.
+    if (!navigator.onLine) {
+        generarAptosLocales(card, pisoId, numeroPiso, APTOS_POR_PISO);
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'listar_rec_aptos.php?piso_id=' + pisoId);
+        const data = await res.json();
+
+        if (data.ok && data.apartamentos && data.apartamentos.length) {
+            lista.innerHTML = '';
+            data.apartamentos.forEach(a => pintarApartamento(a, lista));
+        } else {
+            // No hay apartamentos: generarlos según el paso 1.
+            if (APTOS_POR_PISO > 0) {
+                generarAptosAuto(card, pisoId, numeroPiso, APTOS_POR_PISO);
+            }
+        }
+    } catch (e) {
+        // Se cayó la señal: se generan en el teléfono.
+        generarAptosLocales(card, pisoId, numeroPiso, APTOS_POR_PISO);
     }
 }
 
+/**
+ * Crea los apartamentos de un piso en el teléfono, sin servidor.
+ *
+ * Usa ids negativos para no chocar con los reales, y los deja listos
+ * para llenar: al recuperar señal se envían con el resto.
+ */
+function generarAptosLocales(card, pisoId, numeroPiso, cantidad) {
+    const lista = card.querySelector('.apto-lista');
+    if (!lista) return;
+
+    const n = parseInt(cantidad) || 0;
+    if (n < 1) {
+        lista.innerHTML = '<div style="font-size:12.5px;color:#8a6d1a;padding:8px 0;">'
+            + 'No se indicó cuántos apartamentos tiene cada piso. '
+            + 'Vuelva al paso 1 y complete ese dato.</div>';
+        return;
+    }
+
+    // Si ya se generaron antes, se reutilizan: no se duplican.
+    let guardados = null;
+    try {
+        guardados = JSON.parse(localStorage.getItem('aptos_piso_' + pisoId) || 'null');
+    } catch (e) { guardados = null; }
+
+    let aptos;
+    if (guardados && Array.isArray(guardados.apartamentos)
+        && guardados.apartamentos.length === n) {
+        aptos = guardados.apartamentos;
+    } else {
+        aptos = [];
+        for (let i = 1; i <= n; i++) {
+            aptos.push({
+                // Negativo y único: piso × 100 + número de apartamento.
+                id: -(Math.abs(pisoId) * 100 + i),
+                identificador: (numeroPiso || 1) + '-' + String.fromCharCode(64 + i),
+                piso_id: pisoId,
+                jefe_nombre: '', jefe_cedula: '', jefe_telefono: '',
+                num_habitaciones: 0, num_salas: 0, num_banos: 0,
+                num_cocinas: 0, num_balcones: 0,
+                ambientes: [], local: true,
+            });
+        }
+        try {
+            localStorage.setItem('aptos_piso_' + pisoId,
+                JSON.stringify({ piso_id: pisoId, apartamentos: aptos }));
+        } catch (e) { /* sin espacio: seguir igual */ }
+    }
+
+    lista.innerHTML = '<div style="background:#fffbf0;border:1px solid #C9A22755;'
+        + 'border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:12.5px;'
+        + 'color:#8a6d1a;"><i class="bi bi-phone-fill"></i> '
+        + 'Estos apartamentos se crearon en su teléfono. Llénelos con normalidad: '
+        + 'todo se enviará al recuperar la señal.</div>';
+
+    aptos.forEach(a => pintarApartamento(a, lista));
+}
+
 async function generarAptosAuto(card, pisoId, numeroPiso, cantidad) {
-    const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ accion:'generar', piso_id: pisoId, cantidad, numero_piso: numeroPiso })
-    });
-    const data = await res.json();
-    if (data.ok) {
-        const lista = card.querySelector('.apto-lista');
-        lista.innerHTML = '';
-        data.apartamentos.forEach(a => pintarApartamento(a, lista));
+    // Sin señal se generan en el teléfono.
+    if (!navigator.onLine) {
+        generarAptosLocales(card, pisoId, numeroPiso, cantidad);
+        return;
+    }
+
+    try {
+        const res = await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ accion:'generar', piso_id: pisoId,
+                                   cantidad, numero_piso: numeroPiso }),
+            credentials: 'same-origin'
+        });
+        const data = await res.json();
+
+        if (data.ok && data.apartamentos) {
+            const lista = card.querySelector('.apto-lista');
+            lista.innerHTML = '';
+            data.apartamentos.forEach(a => pintarApartamento(a, lista));
+        } else {
+            // El servidor no los creó: se generan en el teléfono para
+            // no dejar al técnico sin poder trabajar.
+            generarAptosLocales(card, pisoId, numeroPiso, cantidad);
+        }
+    } catch (e) {
+        generarAptosLocales(card, pisoId, numeroPiso, cantidad);
     }
 }
 
@@ -1896,6 +2034,16 @@ async function guardarApto(btn, aptoId) {
         // sale vacía.
         guardarAmbientesLocales(aptoId, payload);
         pintarAmbientesLocales(cont, payload, aptoId);
+
+        // Se encola para que suba al recuperar señal. La clave evita
+        // que se acumulen varios envíos del mismo apartamento.
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php',
+                Object.assign({}, payload, { apartamento_local: true }),
+                'Apartamento ' + (payload.identificador || aptoId),
+                'apto_' + aptoId);
+        }
+
         marcarAptoPendiente(cont, 'Guardado en el teléfono');
         return;
     }
@@ -2261,6 +2409,74 @@ function avisoSinSenal() {
 // Áreas comunes agregadas sin señal: se vuelven a dibujar.
 try { restaurarAreasLibres(); } catch (e) { /* seguir */ }
 
+/**
+ * Devuelve a la pantalla lo escrito en las áreas comunes del Paso 1.
+ *
+ * El borrador ya se guardaba ('paso1_' + INSPECCION_ID) pero nadie lo
+ * volvía a leer: por eso, al refrescar sin haber podido enviar, el
+ * técnico veía las áreas vacías y creía que se había perdido todo.
+ */
+function restaurarAreasPaso1() {
+    const b = leerBorrador('paso1_' + INSPECCION_ID);
+    if (!b || !b.datos || !Array.isArray(b.datos.areas_comunes)) return;
+
+    b.datos.areas_comunes.forEach(a => {
+        let row = document.querySelector('.area-row[data-area="' + a.tipo + '"]');
+
+        // Un área "Otros" cuya fila todavía no existe: se redibuja.
+        if (!row && String(a.tipo).indexOf('otra_') === 0) {
+            const nom = (a.nombre_libre || String(a.tipo).slice(5).replace(/_/g, ' '));
+            row = pintarAreaNueva(a.tipo, nom);
+        }
+        if (!row) return;
+
+        const chk = row.querySelector('.area-reparar');
+        if (chk && !chk.checked) {
+            chk.checked = true;
+            const det = row.querySelector('.area-detalle');
+            if (det) det.style.display = 'block';
+            const lbl = row.querySelector('.area-chk-lbl');
+            if (lbl) {
+                lbl.style.background = '#fdf3e7';
+                lbl.style.fontWeight = '600';
+                lbl.style.color      = '#A66A00';
+            }
+        }
+
+        const selT = row.querySelector('.area-trabajo');
+        if (selT && a.tipo_trabajo) selT.value = a.tipo_trabajo;
+
+        // Metros por superficie.
+        const sups = a.superficies || {};
+        Object.keys(sups).forEach(sup => {
+            const inp = row.querySelector('.area-sup[data-sup="' + sup + '"]');
+            if (inp) inp.value = String(sups[sup]).replace('.', ',');
+        });
+
+        // Trabajos adicionales del área.
+        (a.extras || []).forEach(ex => {
+            const btn = row.querySelector('[onclick*="agregarPartidaArea"]');
+            if (!btn) return;
+            agregarPartidaArea(btn, a.tipo);
+            const bloques = row.querySelectorAll('.partida-area');
+            const nuevo = bloques[bloques.length - 1];
+            if (!nuevo) return;
+            const st = nuevo.querySelector('.part-area-trabajo');
+            if (st && ex.tipo_trabajo) st.value = ex.tipo_trabajo;
+            Object.keys(ex.superficies || {}).forEach(sup => {
+                const inp = nuevo.querySelector('.part-area-m2[data-sup="' + sup + '"]');
+                if (inp) inp.value = String(ex.superficies[sup]).replace('.', ',');
+            });
+        });
+
+        try { calcularMatArea(row.querySelector('.area-sup')); } catch (e) {}
+    });
+}
+
+// Se llama después de restaurarAreasLibres: primero existen las filas,
+// después se rellenan.
+try { restaurarAreasPaso1(); } catch (e) { /* seguir */ }
+
 try {
     avisoSinSenal();
     window.addEventListener('online',  avisoSinSenal);
@@ -2290,16 +2506,52 @@ try {
 
 /** Guarda los datos de un apartamento creado sin conexión. */
 function guardarAptoLocal(aptoId, datos) {
+    let guardado = false;
+
+    // 1) Si el apartamento vive en la estructura completa del edificio
+    //    (creada al no haber señal en el paso 1).
     try {
         const est = window._estructuraLocal
             || JSON.parse(localStorage.getItem('estructura_' + INSPECCION_ID) || 'null');
-        if (!est) return;
-        est.pisos.forEach(p => p.apartamentos.forEach(a => {
-            if (a.id === aptoId) Object.assign(a, datos, { completado: true });
-        }));
-        localStorage.setItem('estructura_' + INSPECCION_ID, JSON.stringify(est));
-        window._estructuraLocal = est;
+        if (est && Array.isArray(est.pisos)) {
+            est.pisos.forEach(p => (p.apartamentos || []).forEach(a => {
+                if (a.id === aptoId) {
+                    Object.assign(a, datos, { completado: true });
+                    guardado = true;
+                }
+            }));
+            if (guardado) {
+                localStorage.setItem('estructura_' + INSPECCION_ID, JSON.stringify(est));
+                window._estructuraLocal = est;
+            }
+        }
+    } catch (e) { /* seguir con el segundo intento */ }
+
+    if (guardado) return;
+
+    // 2) Si se generó por piso (cuando el edificio ya existía en el
+    //    servidor pero el piso se abrió sin señal).
+    try {
+        // El id del piso sale del id del apartamento: -(piso*100 + n)
+        const pisoId = Math.floor(Math.abs(aptoId) / 100);
+        const k = 'aptos_piso_' + pisoId;
+        const bloque = JSON.parse(localStorage.getItem(k) || 'null');
+        if (bloque && Array.isArray(bloque.apartamentos)) {
+            bloque.apartamentos.forEach(a => {
+                if (a.id === aptoId) Object.assign(a, datos, { completado: true });
+            });
+            localStorage.setItem(k, JSON.stringify(bloque));
+            guardado = true;
+        }
     } catch (e) { /* seguir */ }
+
+    // 3) Último recurso: se guarda suelto, para no perder lo escrito.
+    if (!guardado) {
+        try {
+            localStorage.setItem('apto_local_' + aptoId,
+                JSON.stringify(Object.assign({}, datos, { id: aptoId, completado: true })));
+        } catch (e) { /* sin espacio */ }
+    }
 }
 
 /**
@@ -2371,22 +2623,150 @@ function pintarAmbientesLocales(cont, datos, aptoId) {
         + '<i class="bi bi-phone-fill"></i> Estos ambientes están guardados en su teléfono. '
         + 'Puede tomarles fotos: todo subirá junto al recuperar la señal.</div>';
 
+    const iconos = {'Habitación':'bi-door-closed','Sala':'bi-tv','Balcón':'bi-flower1','Cocina':'bi-fire','Baño':'bi-droplet'};
+    const tipos = (Array.isArray(TIPOS_TRABAJO) ? TIPOS_TRABAJO : []);
+
     ambientes.forEach(am => {
-        html += '<div class="amb-row" data-amb-local="' + am.id + '" '
-            + 'style="display:flex;align-items:center;gap:10px;padding:9px 4px;'
-            + 'border-bottom:1px solid #f0f2f7;flex-wrap:wrap;">'
-            + '<i class="bi bi-door-closed" style="color:#2d4488;"></i>'
-            + '<span style="flex:1;min-width:120px;font-size:13.5px;font-weight:600;color:#2a3140;">'
-            + am.etiqueta + '</span>'
-            + '<button type="button" class="btn btn-outline btn-sm" '
-            + 'onclick="fotoAmbienteLocal(' + am.id + ', \'' + am.etiqueta + '\', ' + aptoId + ')">'
-            + '<i class="bi bi-camera"></i> Foto</button>'
-            + '<span class="amb-fotos amb-fotos-local" id="amb-fotos-' + am.id + '" '
-            + 'style="display:flex;gap:5px;flex-wrap:wrap;"></span>'
-            + '</div>';
+        const rep = am.necesita_reparacion == 1;
+        html += `
+        <div class="amb-row" data-amb="${am.id}" data-amb-local="${am.id}"
+             style="border:1px solid #e8ebf3;border-radius:9px;padding:10px 12px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span class="amb-nom" style="font-weight:600;color:#2a3140;">
+                    <i class="bi ${iconos[am.tipo]||'bi-square'}"></i> ${am.etiqueta}
+                </span>
+                <label class="seg-radio">
+                    <input type="checkbox" class="amb-reparar" ${rep?'checked':''}
+                           onchange="toggleReparar(this, ${am.id})"> Necesita reparación
+                </label>
+                <button type="button" class="btn btn-outline btn-sm"
+                        onclick="fotoAmbienteLocal(${am.id}, '${String(am.etiqueta).replace(/'/g, "\\'")}', ${aptoId})">
+                    <i class="bi bi-camera"></i> Foto
+                </button>
+                <span class="amb-hint text-sm" style="color:#767c94;">
+                    ${rep?'Suba fotos indicando la parte':'Suba 1 foto del estado'}
+                </span>
+            </div>
+            <div class="amb-reparacion" style="${rep?'':'display:none;'}margin-top:10px;padding:10px;background:#fbf8ef;border-radius:8px;">
+                <div style="background:#fff;border:1px solid #C9A22755;border-radius:7px;
+                            padding:8px 11px;margin-bottom:10px;font-size:12px;color:#8a6d1a;">
+                    <strong><i class="bi bi-exclamation-circle-fill"></i> Este ambiente necesita
+                    tres datos obligatorios:</strong><br>
+                    1. Qué trabajo hacer &nbsp;·&nbsp; 2. Cuántos metros &nbsp;·&nbsp; 3. Foto del daño
+                </div>
+                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
+                    <i class="bi bi-tools"></i> ¿Qué trabajo hay que hacer?
+                    <span style="color:#A61C1C;">*</span>
+                </div>
+                <select class="form-control amb-trabajo" style="margin-bottom:10px;"
+                        onchange="guardarTrabajo(${am.id}, this); avisoSuperficies(this); recalcularMateriales(this.closest('.amb-row'));">
+                    <option value="">— Seleccione el trabajo —</option>
+                    ${tipos.map(t =>
+                        `<option value="${t.clave}" ${am.tipo_trabajo === t.clave ? 'selected' : ''}
+                                 title="${t.descripcion || ''}">${t.nombre}</option>`).join('')}
+                </select>
+                <div class="text-sm" style="font-weight:600;color:#8a6d1a;margin-bottom:6px;">
+                    <i class="bi bi-rulers"></i> Metros cuadrados a reparar
+                    <span style="color:#A61C1C;">*</span>
+                    <span style="font-weight:400;font-size:11.5px;color:#8a6d1a;">
+                        — indique al menos uno
+                    </span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${['pared','techo','piso'].map(sup => `
+                        <div style="width:112px;">
+                            <label class="text-sm" style="text-transform:capitalize;">${sup}</label>
+                            <div style="display:flex;align-items:center;gap:5px;">
+                                <input type="text" inputmode="decimal" class="form-control sup-${sup}"
+                                       data-sup="${sup}" value="0" style="flex:1;min-width:0;"
+                                       oninput="normalizarDecimal(this); actualizarTotalM2(this.closest('.amb-row'));"
+                                       onchange="guardarReparacion(${am.id}, this)">
+                                <span style="font-size:12px;color:#8a6d1a;font-weight:600;">m²</span>
+                            </div>
+                        </div>`).join('')}
+                </div>
+
+                <div class="amb-total-m2" style="margin-top:9px;background:#fff;
+                     border:1px solid #C9A22755;border-radius:8px;padding:9px 13px;
+                     display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:12.5px;color:#8a6d1a;font-weight:600;">
+                        Total de este ambiente
+                    </span>
+                    <span class="amb-suma" style="font-size:18px;font-weight:800;color:#22366F;">
+                        0 m²
+                    </span>
+                </div>
+
+                <div class="amb-partidas"></div>
+
+                <button type="button" class="btn btn-outline btn-sm"
+                        style="margin-top:9px;border-color:#2d448855;color:#2d4488;font-size:12px;"
+                        onclick="agregarPartida(this, ${am.id})">
+                    <i class="bi bi-plus-circle"></i> Agregar otro trabajo aquí
+                </button>
+
+                <div class="amb-materiales text-sm" style="margin-top:8px;color:#55617f;"></div>
+            </div>
+            <span class="amb-fotos amb-fotos-local" id="amb-fotos-${am.id}"
+                  style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></span>
+        </div>`;
     });
 
     lista.innerHTML = html;
+
+    // Repintar lo que el técnico ya había escrito para estos ambientes.
+    restaurarAmbientesLocales(aptoId, lista);
+    try { aplicarSoloLectura(); } catch (e) { /* seguir */ }
+}
+
+/**
+ * Vuelve a colocar en pantalla el trabajo y los metros que el técnico
+ * ya había escrito sin señal. Sin esto, al cerrar y reabrir el
+ * apartamento los datos seguían guardados pero se veían vacíos.
+ */
+function restaurarAmbientesLocales(aptoId, lista) {
+    const b = leerBorrador(aptoId);
+    if (!b || !b.datos || !Array.isArray(b.datos.ambientes)) return;
+
+    b.datos.ambientes.forEach(g => {
+        const row = lista.querySelector('.amb-row[data-amb="' + g.amb + '"]');
+        if (!row) return;
+
+        const chk = row.querySelector('.amb-reparar');
+        if (chk && g.repara) {
+            chk.checked = true;
+            const bloque = row.querySelector('.amb-reparacion');
+            if (bloque) bloque.style.display = 'block';
+            const hint = row.querySelector('.amb-hint');
+            if (hint) hint.textContent = 'Suba fotos indicando la parte';
+        }
+
+        const selT = row.querySelector('.amb-trabajo');
+        if (selT && g.trabajo) selT.value = g.trabajo;
+
+        Object.keys(g.metros || {}).forEach(sup => {
+            const inp = row.querySelector('.sup-' + sup);
+            if (inp) inp.value = g.metros[sup];
+        });
+
+        (g.extras || []).forEach(ex => {
+            const btn = row.querySelector('[onclick*="agregarPartida"]');
+            if (!btn) return;
+            agregarPartida(btn, g.amb);
+            const bloques = row.querySelectorAll('.partida-extra');
+            const nuevo = bloques[bloques.length - 1];
+            if (!nuevo) return;
+            const st = nuevo.querySelector('.part-trabajo');
+            if (st && ex.trabajo) st.value = ex.trabajo;
+            Object.keys(ex.metros || {}).forEach(sup => {
+                const inp = nuevo.querySelector('[data-sup="' + sup + '"]');
+                if (inp) inp.value = ex.metros[sup];
+            });
+        });
+
+        actualizarTotalM2(row);
+        recalcularMateriales(row);
+    });
 }
 
 /**
@@ -2890,6 +3270,8 @@ function agregarPartida(btn, ambId) {
 /** Guarda el tipo de trabajo elegido para un ambiente. */
 async function guardarTrabajo(ambId, sel) {
     const payload = { accion:'guardar_trabajo', ambiente_id: ambId, tipo_trabajo: sel.value };
+    // Ambiente aún no creado en el servidor: se queda en el borrador local.
+    if (ambId < 0) return;
     if (window.ObrasOffline && !navigator.onLine) {
         await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
             'Tipo de trabajo · ambiente ' + ambId);
@@ -2912,8 +3294,9 @@ function ambienteTieneMetros(row) {
     if (!row) return true;
     const chk = row.querySelector('.amb-reparar');
     if (!chk || !chk.checked) return true;   // sin reparación, no aplica
+    // Los campos de metros son de texto (se escribe con coma), no number.
     let suma = 0;
-    row.querySelectorAll('.amb-reparacion input[type=number]').forEach(i => {
+    row.querySelectorAll('.amb-reparacion [data-sup]').forEach(i => {
         suma += aNumero(i.value);
     });
     return suma > 0;
@@ -2976,10 +3359,30 @@ async function toggleReparar(chk, ambId) {
     row.querySelector('.amb-hint').textContent = chk.checked ? 'Suba fotos indicando la parte' : 'Suba 1 foto del estado';
     const bloque = row.querySelector('.amb-reparacion');
     if (bloque) bloque.style.display = chk.checked ? 'block' : 'none';
-    await fetch(URL_BASE + 'guardar_rec_apto.php', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ accion:'guardar_ambiente', ambiente_id: ambId, necesita_reparacion: chk.checked?1:0 })
-    });
+
+    const payload = { accion:'guardar_ambiente', ambiente_id: ambId,
+                      necesita_reparacion: chk.checked?1:0 };
+
+    // Ambiente creado sin señal (id negativo): todavía no existe en el
+    // servidor, así que solo se guarda en el teléfono.
+    if (ambId < 0) return;
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+            'Necesita reparación · ambiente ' + ambId);
+        return;
+    }
+    try {
+        await fetch(URL_BASE + 'guardar_rec_apto.php', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload), credentials:'same-origin'
+        });
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
+                'Necesita reparación · ambiente ' + ambId);
+        }
+    }
 }
 
 async function guardarReparacion(ambId, input) {
@@ -3030,6 +3433,10 @@ async function guardarReparacion(ambId, input) {
         reparaciones: reparaciones,
         tipo_trabajo: selT ? selT.value : '',
     };
+
+    // Ambiente creado sin señal: sus metros viajan con el apartamento
+    // cuando este se sincroniza, no por separado.
+    if (ambId < 0) { recalcularMateriales(row); return; }
 
     if (window.ObrasOffline && !navigator.onLine) {
         await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_apto.php', payload,
