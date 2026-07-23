@@ -1984,9 +1984,41 @@ function recApartamentos(int $pisoId): array
 {
     recAsegurarColumnasApartamento();
     recAsegurarEstadoVisita();
-    $st = db()->prepare('SELECT * FROM rec_apartamento WHERE piso_id = :p ORDER BY id');
+    // Los locales comerciales (es_local=1) NO son apartamentos: se listan
+    // aparte con recLocales(). Se excluyen aquí para no inflar el conteo
+    // ni mezclarlos en la lista de viviendas. COALESCE por si la columna
+    // aún no existe en instalaciones viejas.
+    $st = db()->prepare('SELECT * FROM rec_apartamento
+                          WHERE piso_id = :p AND COALESCE(es_local,0) = 0
+                          ORDER BY id');
     $st->execute(['p' => $pisoId]);
     return $st->fetchAll();
+}
+
+/** Locales comerciales de un piso (planta baja). */
+function recLocales(int $pisoId): array
+{
+    recAsegurarLocales();
+    try {
+        $st = db()->prepare('SELECT * FROM rec_apartamento
+                              WHERE piso_id = :p AND es_local = 1 ORDER BY id');
+        $st->execute(['p' => $pisoId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+/** Todos los locales de un edificio (en cualquier piso). */
+function recLocalesEdificio(int $edificioId): array
+{
+    recAsegurarLocales();
+    try {
+        $st = db()->prepare("SELECT ap.* FROM rec_apartamento ap
+                              JOIN rec_piso pi ON pi.id = ap.piso_id
+                             WHERE pi.edificio_id = :e AND ap.es_local = 1
+                             ORDER BY ap.id");
+        $st->execute(['e' => $edificioId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
 }
 
 /** Genera los apartamentos de un piso según una cantidad (si no existen ya). */
@@ -2018,10 +2050,69 @@ function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): ar
 }
 
 /**
- * Elimina un apartamento con todo lo que cuelga de él:
- * ambientes, avances y fotos (incluidos los archivos en disco).
+ * Genera los locales comerciales de un edificio en la planta baja.
+ *
+ * Un local es un rec_apartamento con es_local=1. Se cuelga del piso 1
+ * (planta baja). Reusa TODO lo demás: ambientes, reparaciones, fotos.
+ * Sus ambientes por defecto son los típicos de un local (área de venta,
+ * depósito, baño), pero el técnico puede ajustarlos en el paso 2.
  */
-function recEliminarApartamento(int $apartamentoId): void
+function recGenerarLocales(int $edificioId, int $cantidad): array
+{
+    recAsegurarLocales();
+
+    // La planta baja es el piso de menor número del edificio.
+    $piso = null;
+    foreach (recPisos($edificioId) as $p) {
+        if ($piso === null || (int)$p['numero_piso'] < (int)$piso['numero_piso']) {
+            $piso = $p;
+        }
+    }
+    if (!$piso) {
+        // Si aún no hay pisos, se crea al menos la planta baja.
+        recGenerarPisos($edificioId, 1);
+        $pisos = recPisos($edificioId);
+        $piso = $pisos[0] ?? null;
+        if (!$piso) return [];
+    }
+    $pisoId = (int)$piso['id'];
+
+    // Locales ya existentes en ese piso.
+    $existentes = [];
+    try {
+        $st = db()->prepare("SELECT * FROM rec_apartamento
+                              WHERE piso_id = :p AND es_local = 1 ORDER BY id");
+        $st->execute(['p' => $pisoId]);
+        $existentes = $st->fetchAll() ?: [];
+    } catch (Throwable $e) { $existentes = []; }
+    $n = count($existentes);
+
+    // Crear los que falten, con identificador "L-1", "L-2"…
+    for ($i = $n + 1; $i <= $cantidad; $i++) {
+        $ident = 'L-' . $i;
+        db()->prepare(
+            'INSERT INTO rec_apartamento (piso_id, identificador, es_local) VALUES (:p, :id, 1)'
+        )->execute(['p' => $pisoId, 'id' => $ident]);
+    }
+
+    // Si se redujo la cantidad, quitar los sobrantes (los últimos).
+    if ($cantidad < $n) {
+        $sobrantes = array_slice($existentes, $cantidad);
+        foreach ($sobrantes as $lc) {
+            recEliminarApartamento((int)$lc['id']);
+        }
+    }
+
+    // Devolver los locales del piso.
+    try {
+        $st = db()->prepare("SELECT * FROM rec_apartamento
+                              WHERE piso_id = :p AND es_local = 1 ORDER BY id");
+        $st->execute(['p' => $pisoId]);
+        return $st->fetchAll() ?: [];
+    } catch (Throwable $e) { return []; }
+}
+
+
 {
     $pdo = db();
     try {
@@ -2166,10 +2257,120 @@ function recMarcarVisita(int $apartamentoId, string $estado, string $obs = ''): 
     } catch (Throwable $e) { /* no interrumpir */ }
 }
 
+/**
+ * Guarda un local comercial: responsable + ambientes propios.
+ *
+ * Reusa rec_apartamento y rec_ambiente. Los conteos vienen con otros
+ * nombres (num_venta, num_deposito, num_banoslocal) y se traducen a los
+ * tipos de ambiente del local. El responsable se guarda en los mismos
+ * campos jefe_* (así el resto del sistema no necesita cambios).
+ */
+function recGuardarLocal(int $localId, array $d): void
+{
+    recAsegurarLocales();
+
+    // Conteos actuales, para no borrar por un envío incompleto.
+    $actual = [];
+    try {
+        $stA = db()->prepare("SELECT
+                    (SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id=:a1 AND tipo='Área de venta') AS venta,
+                    (SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id=:a2 AND tipo='Depósito')      AS deposito,
+                    (SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id=:a3 AND tipo='Baño de local')  AS banoslocal");
+        $stA->execute(['a1'=>$localId, 'a2'=>$localId, 'a3'=>$localId]);
+        $actual = $stA->fetch() ?: [];
+    } catch (Throwable $e) {}
+
+    $leer = function (string $clave, string $col) use ($d, $actual): int {
+        if (!isset($d[$clave]) || $d[$clave] === '' || $d[$clave] === null) {
+            return max(0, (int)($actual[$col] ?? 0));
+        }
+        return max(0, (int)$d[$clave]);
+    };
+    $nv = $leer('num_venta',      'venta');
+    $nd = $leer('num_deposito',   'deposito');
+    $nb = $leer('num_banoslocal', 'banoslocal');
+
+    // Guardar responsable (en los campos jefe_*) y nombre del local.
+    db()->prepare(
+        'UPDATE rec_apartamento
+            SET jefe_nombre=:jn, jefe_cedula=:jc, jefe_telefono=:jt,
+                nombre_local=:nl, completado=1,
+                registrado_por=:rp, registrado_en=NOW()
+          WHERE id=:id'
+    )->execute([
+        'jn'=>trim($d['jefe_nombre'] ?? '') ?: null,
+        'jc'=>trim($d['jefe_cedula'] ?? '') ?: null,
+        'jt'=>trim($d['jefe_telefono'] ?? '') ?: null,
+        'nl'=>trim($d['nombre_local'] ?? '') ?: null,
+        'rp'=>$_SESSION['user_id'] ?? null,
+        'id'=>$localId,
+    ]);
+
+    // Generar ambientes del local sin duplicar ni borrar los que tengan
+    // trabajo o fotos ya registrados.
+    $tipos = ['Área de venta'=>$nv, 'Depósito'=>$nd, 'Baño de local'=>$nb];
+    foreach ($tipos as $tipo => $cant) {
+        $st = db()->prepare('SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id=:a AND tipo=:t');
+        $st->execute(['a'=>$localId, 't'=>$tipo]);
+        $ya = (int)$st->fetchColumn();
+        for ($n = $ya + 1; $n <= $cant; $n++) {
+            db()->prepare('INSERT INTO rec_ambiente (apartamento_id, tipo, numero) VALUES (:a,:t,:n)')
+                ->execute(['a'=>$localId, 't'=>$tipo, 'n'=>$n]);
+        }
+        if ($cant < $ya) {
+            // Quitar los sobrantes que NO tengan fotos ni reparaciones.
+            $st2 = db()->prepare('SELECT id FROM rec_ambiente
+                                   WHERE apartamento_id=:a AND tipo=:t
+                                   ORDER BY numero DESC');
+            $st2->execute(['a'=>$localId, 't'=>$tipo]);
+            $ids = $st2->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            $porQuitar = $ya - $cant;
+            foreach ($ids as $ambId) {
+                if ($porQuitar <= 0) break;
+                $tieneRep = (int)db()->query("SELECT COUNT(*) FROM rec_reparacion
+                    WHERE nivel='ambiente' AND ref_id=".(int)$ambId)->fetchColumn();
+                $tieneFoto = (int)db()->query("SELECT COUNT(*) FROM rec_foto
+                    WHERE nivel='ambiente' AND ref_id=".(int)$ambId)->fetchColumn();
+                if ($tieneRep === 0 && $tieneFoto === 0) {
+                    db()->prepare('DELETE FROM rec_ambiente WHERE id=:id')->execute(['id'=>$ambId]);
+                    $porQuitar--;
+                }
+            }
+        }
+    }
+
+    // Auditoría.
+    try {
+        $st = db()->prepare(
+            'SELECT ap.identificador, pi.edificio_id, re.inspeccion_id
+               FROM rec_apartamento ap
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+               JOIN rec_edificio re ON re.id = pi.edificio_id
+              WHERE ap.id = :a');
+        $st->execute(['a' => $localId]);
+        if ($r = $st->fetch()) {
+            recAuditar('local_registrado', (int)$r['inspeccion_id'], (int)$r['edificio_id'],
+                'Local ' . $r['identificador'] . ' registrado');
+        }
+    } catch (Throwable $e) {}
+}
+
 function recGuardarApartamento(int $apartamentoId, array $d): void
 {
     // Asegurar columnas del jefe de familia y baños (por si falta el SQL).
     recAsegurarColumnasApartamento();
+    recAsegurarLocales();
+
+    // ¿Es un local comercial? Sus ambientes son otros (área de venta,
+    // depósito, baño de local) y se manejan aparte.
+    try {
+        $stL = db()->prepare('SELECT es_local FROM rec_apartamento WHERE id = :a');
+        $stL->execute(['a' => $apartamentoId]);
+        if ((int)$stL->fetchColumn() === 1) {
+            recGuardarLocal($apartamentoId, $d);
+            return;
+        }
+    } catch (Throwable $e) { /* si falla la detección, seguir como apto normal */ }
 
     // Si un campo llega vacío (no enviado), se conserva lo que ya había:
     // un formulario incompleto no debe borrar ambientes con fotos.
@@ -2386,6 +2587,113 @@ function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones):
     }
 }
 
+/**
+ * Revisa si el levantamiento de un edificio está COMPLETO.
+ *
+ * Un levantamiento está completo cuando todo lo marcado "necesita
+ * reparación" tiene sus tres datos: tipo de trabajo, metros y foto.
+ * Esto aplica tanto a los ambientes de los apartamentos como a las
+ * áreas comunes del edificio.
+ *
+ * Devuelve un arreglo con lo que falta (vacío = está completo):
+ *   [ ['donde' => 'Apto 3B · Sala 1', 'falta' => ['metros','foto']], ... ]
+ *
+ * Es la ÚNICA definición de "completo": la usa el cierre para no dejar
+ * cerrar a medias, y el PDF ejecutivo para no contar los incompletos.
+ * Si algún día cambia la regla, se cambia aquí y todo queda alineado.
+ */
+function recLevantamientoIncompleto(int $edificioId): array
+{
+    $faltan = [];
+
+    // --- Ambientes de apartamentos ---
+    try {
+        $st = db()->prepare("
+            SELECT ap.id AS apto_id, ap.identificador, COALESCE(ap.es_local,0) AS es_local,
+                   pi.id AS piso_id, pi.numero_piso,
+                   am.id AS ambiente_id, am.tipo, am.numero,
+                   (SELECT COUNT(*) FROM rec_reparacion rr
+                     WHERE rr.nivel = 'ambiente' AND rr.ref_id = am.id
+                       AND rr.metros_cuadrados > 0) AS con_metros,
+                   (SELECT COUNT(*) FROM rec_reparacion rr2
+                     WHERE rr2.nivel = 'ambiente' AND rr2.ref_id = am.id
+                       AND rr2.tipo_trabajo IS NOT NULL AND rr2.tipo_trabajo <> '') AS con_trabajo,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel = 'ambiente' AND f.ref_id = am.id) AS con_foto
+              FROM rec_ambiente am
+              JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+              JOIN rec_piso pi ON pi.id = ap.piso_id
+             WHERE pi.edificio_id = :e
+               AND am.necesita_reparacion = 1
+             HAVING con_metros = 0 OR con_trabajo = 0 OR con_foto = 0
+             ORDER BY pi.numero_piso, ap.identificador
+        ");
+        $st->execute(['e' => $edificioId]);
+        foreach ($st->fetchAll() as $f) {
+            $que = [];
+            if ((int)$f['con_trabajo'] === 0) $que[] = 'tipo de trabajo';
+            if ((int)$f['con_metros'] === 0)  $que[] = 'metros';
+            if ((int)$f['con_foto'] === 0)    $que[] = 'foto';
+            $esLocal = (int)$f['es_local'] === 1;
+            $faltan[] = [
+                'donde'        => ($esLocal ? 'Local ' : 'Apto ') . $f['identificador']
+                                . ' · ' . $f['tipo'] . ' ' . $f['numero'],
+                'falta'        => $que,
+                'tipo'         => $esLocal ? 'local' : 'ambiente',
+                'apto_id'      => (int)$f['apto_id'],
+                'piso_id'      => (int)$f['piso_id'],
+                'piso_numero'  => (int)$f['numero_piso'],
+                'ambiente_id'  => (int)$f['ambiente_id'],
+                'apto_ident'   => $f['identificador'],
+            ];
+        }
+    } catch (Throwable $e) { /* si falla, se reporta lo que se pudo */ }
+
+    // --- Áreas comunes del edificio ---
+    // Las fotos del área se guardan a nivel 'edificio' con parte = tipo
+    // del área (así las etiqueta subirFotoArea en el formulario).
+    try {
+        $st = db()->prepare("
+            SELECT a.id, a.tipo, a.nombre_libre,
+                   (SELECT COUNT(*) FROM rec_reparacion rr
+                     WHERE rr.nivel = 'area_comun' AND rr.ref_id = a.id
+                       AND rr.metros_cuadrados > 0) AS con_metros,
+                   (SELECT COUNT(*) FROM rec_reparacion rr2
+                     WHERE rr2.nivel = 'area_comun' AND rr2.ref_id = a.id
+                       AND rr2.tipo_trabajo IS NOT NULL AND rr2.tipo_trabajo <> '') AS con_trabajo,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel = 'edificio' AND f.ref_id = a.edificio_id
+                       AND f.parte = a.tipo) AS con_foto
+              FROM rec_area_comun a
+             WHERE a.edificio_id = :e
+               AND a.necesita_reparacion = 1
+             HAVING con_metros = 0 OR con_trabajo = 0 OR con_foto = 0
+             ORDER BY a.id
+        ");
+        $st->execute(['e' => $edificioId]);
+        $tipicas = recAreasComunesTipicas();
+        foreach ($st->fetchAll() as $f) {
+            $que = [];
+            if ((int)$f['con_trabajo'] === 0) $que[] = 'tipo de trabajo';
+            if ((int)$f['con_metros'] === 0)  $que[] = 'metros';
+            if ((int)$f['con_foto'] === 0)    $que[] = 'foto';
+            $nom = !empty($f['nombre_libre'])
+                 ? $f['nombre_libre']
+                 : ($tipicas[$f['tipo']] ?? $f['tipo']);
+            $faltan[] = [
+                'donde'     => 'Área común · ' . $nom,
+                'falta'     => $que,
+                'tipo'      => 'area_comun',
+                'area_id'   => (int)$f['id'],
+                'area_tipo' => $f['tipo'],
+                'area_nom'  => $nom,
+            ];
+        }
+    } catch (Throwable $e) { /* seguir */ }
+
+    return $faltan;
+}
+
 /** Reparaciones de un ambiente o elemento. */
 function recReparaciones(string $nivel, int $refId): array
 {
@@ -2574,6 +2882,135 @@ function recTrabajosDeEdificio(int $edificioId): array
             $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
         }
         return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Trabajos (tipo_trabajo => metros) sumados de UN NÚMERO DE PISO en
+ * TODOS los edificios que el usuario puede ver. Sirve para saber cuánto
+ * material se necesita, por ejemplo, "para todas las plantas bajas" o
+ * "para todos los pisos 3" de la parroquia.
+ *
+ * $numeroPiso: el número de piso a filtrar (0 = planta baja).
+ * $filtros: ['parroquia' => '...'] opcional, además del scope del usuario.
+ *
+ * Reusa exactamente la misma lógica de superficies que
+ * recTrabajosDeEdificio (cada trabajo cuenta solo los metros que le
+ * tocan), pero filtrando por pi.numero_piso en vez de por edificio.
+ * Las áreas comunes no cuelgan de un piso, así que NO se incluyen aquí:
+ * este cálculo es específicamente por piso.
+ */
+function recTrabajosPorPisoGlobal(int $numeroPiso, array $filtros = []): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        // Construir el filtro territorial (estado/parroquia del usuario) y
+        // el de parroquia elegido, aplicados sobre la inspección.
+        $cond = []; $par = [];
+        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($cond, $par, 'i');
+        if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($cond, $par, 'i');
+        if (!empty($filtros['parroquia'])) {
+            $cond[] = 'i.parroquia = :parr';
+            $par['parr'] = $filtros['parroquia'];
+        }
+        $scopeSql = $cond ? (' AND ' . implode(' AND ', $cond)) : '';
+
+        // El número de piso entra como parámetro en cada rama.
+        $par['np1'] = $numeroPiso;
+        $par['np2'] = $numeroPiso;
+
+        $st = db()->prepare("
+            SELECT rr.tipo_trabajo, SUM(rr.metros_cuadrados) AS cantidad
+              FROM rec_reparacion rr
+              JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
+             WHERE rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+               AND rr.metros_cuadrados > 0
+               AND (
+                   tt.aplica_a IS NULL OR tt.aplica_a = ''
+                   OR tt.unidad = 'm3'
+                   OR FIND_IN_SET(rr.tipo_superficie, REPLACE(tt.aplica_a, ' ', '')) > 0
+               )
+               AND (
+                   (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                       SELECT am.id FROM rec_ambiente am
+                         JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                         JOIN rec_piso pi ON pi.id = ap.piso_id
+                         JOIN rec_edificio re ON re.id = pi.edificio_id
+                         JOIN inspecciones i ON i.id = re.inspeccion_id
+                        WHERE pi.numero_piso = :np1 $scopeSql))
+                OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                       SELECT ep.id FROM rec_elemento_piso ep
+                         JOIN rec_piso pi2 ON pi2.id = ep.piso_id
+                         JOIN rec_edificio re2 ON re2.id = pi2.edificio_id
+                         JOIN inspecciones i ON i.id = re2.inspeccion_id
+                        WHERE pi2.numero_piso = :np2 $scopeSql))
+               )
+             GROUP BY rr.tipo_trabajo
+        ");
+        $st->execute($par);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Materiales consolidados de un número de piso en todos los edificios.
+ * Devuelve la misma forma que recResumenMaterialesEdificio: materiales
+ * (nombre+unidad => cantidad) y desglose por trabajo.
+ */
+function recMaterialesPorPisoGlobal(int $numeroPiso, array $filtros = []): array
+{
+    $trabajos = recTrabajosPorPisoGlobal($numeroPiso, $filtros);
+    $materiales = [];
+    $porTrabajo = [];
+    if ($trabajos) {
+        try {
+            $det = recMaterialesPorTrabajo($trabajos);
+            foreach ($det as $mat => $d) {
+                $materiales[$mat . ' (' . $d['unidad'] . ')'] = $d['cantidad'];
+            }
+            $nombres = [];
+            foreach (recTiposTrabajo() as $t) $nombres[$t['clave']] = $t['nombre'];
+            foreach ($trabajos as $clave => $cant) {
+                $porTrabajo[$nombres[$clave] ?? $clave] = round($cant, 2);
+            }
+        } catch (Throwable $e) { /* devolver lo que haya */ }
+    }
+    return [
+        'numero_piso' => $numeroPiso,
+        'materiales'  => $materiales,
+        'por_trabajo' => $porTrabajo,
+    ];
+}
+
+/**
+ * Lista de números de piso existentes en los edificios del scope,
+ * para poblar el selector del filtro.
+ */
+function recNumerosDePisoDisponibles(array $filtros = []): array
+{
+    try {
+        $cond = []; $par = [];
+        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($cond, $par, 'i');
+        if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($cond, $par, 'i');
+        if (!empty($filtros['parroquia'])) {
+            $cond[] = 'i.parroquia = :parr';
+            $par['parr'] = $filtros['parroquia'];
+        }
+        $scopeSql = $cond ? (' WHERE ' . implode(' AND ', $cond)) : '';
+        $st = db()->prepare("
+            SELECT DISTINCT pi.numero_piso
+              FROM rec_piso pi
+              JOIN rec_edificio re ON re.id = pi.edificio_id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+              $scopeSql
+             ORDER BY pi.numero_piso
+        ");
+        $st->execute($par);
+        return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
     } catch (Throwable $e) { return []; }
 }
 
@@ -3195,13 +3632,63 @@ function segTrabajosPorCategoria(array $trabajos): array
     return $out;
 }
 
+/**
+ * Fragmento SQL que deja pasar SOLO los edificios sin datos faltantes.
+ *
+ * Un edificio "no está completo" si tiene algún ambiente o área común
+ * marcada para reparar a la que le falte metros, tipo de trabajo o foto.
+ * Esto complementa a re.completado = 1: aunque el edificio se haya
+ * cerrado (incluso antes de que el cierre bloqueara los incompletos),
+ * si le faltan datos NO entra en el resumen ejecutivo.
+ *
+ * $alias es el alias de rec_edificio en la consulta (normalmente 're').
+ * Se usa dentro de un WHERE: "... AND " . recSqlEdificioCompleto('re').
+ */
+function recSqlEdificioCompleto(string $alias = 're'): string
+{
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias);  // evita inyección en el alias
+    return "
+    NOT EXISTS (
+        SELECT 1
+          FROM rec_ambiente am
+          JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+          JOIN rec_piso pi ON pi.id = ap.piso_id
+         WHERE pi.edificio_id = {$a}.id
+           AND am.necesita_reparacion = 1
+           AND (
+                (SELECT COUNT(*) FROM rec_reparacion rr
+                  WHERE rr.nivel='ambiente' AND rr.ref_id=am.id AND rr.metros_cuadrados>0)=0
+             OR (SELECT COUNT(*) FROM rec_reparacion rr
+                  WHERE rr.nivel='ambiente' AND rr.ref_id=am.id
+                    AND rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo<>'')=0
+             OR (SELECT COUNT(*) FROM rec_foto f
+                  WHERE f.nivel='ambiente' AND f.ref_id=am.id)=0
+           )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+          FROM rec_area_comun ac
+         WHERE ac.edificio_id = {$a}.id
+           AND ac.necesita_reparacion = 1
+           AND (
+                (SELECT COUNT(*) FROM rec_reparacion rr
+                  WHERE rr.nivel='area_comun' AND rr.ref_id=ac.id AND rr.metros_cuadrados>0)=0
+             OR (SELECT COUNT(*) FROM rec_reparacion rr
+                  WHERE rr.nivel='area_comun' AND rr.ref_id=ac.id
+                    AND rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo<>'')=0
+             OR (SELECT COUNT(*) FROM rec_foto f
+                  WHERE f.nivel='edificio' AND f.ref_id=ac.edificio_id AND f.parte=ac.tipo)=0
+           )
+    )";
+}
+
 function segConsolidadoMateriales(float $margen = 0): array
 {
     // El margen viene de la constante global: así todas las pantallas
     // muestran la misma cifra.
     $margen = MARGEN_MATERIALES;
 
-    $conds = ['re.completado = 1'];
+    $conds = ['re.completado = 1', recSqlEdificioCompleto('re')];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
@@ -3240,12 +3727,17 @@ function segConsolidadoMateriales(float $margen = 0): array
         $out['personas']  = (int)($t['personas'] ?? 0);
 
         // --- Apartamentos y ambientes ---
+        // Los locales comerciales (es_local=1) NO cuentan como apartamentos
+        // en las cifras de vivienda, pero SÍ aportan sus ambientes y metros
+        // al cálculo de materiales (eso se suma más abajo, sin filtro).
         $stA = db()->prepare("
-            SELECT COUNT(DISTINCT ap.id) AS aptos,
+            SELECT COUNT(DISTINCT CASE WHEN COALESCE(ap.es_local,0)=0 THEN ap.id END) AS aptos,
                    COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
+                                        AND COALESCE(ap.es_local,0)=0
                                        THEN ap.id END) AS aptos_reparar,
                    COUNT(DISTINCT CASE WHEN am.necesita_reparacion = 1
-                                       THEN am.id END) AS ambientes
+                                       THEN am.id END) AS ambientes,
+                   COUNT(DISTINCT CASE WHEN COALESCE(ap.es_local,0)=1 THEN ap.id END) AS locales
               FROM inspecciones i
               JOIN rec_edificio re ON re.inspeccion_id = i.id
               JOIN rec_piso pi ON pi.edificio_id = re.id
@@ -3258,6 +3750,7 @@ function segConsolidadoMateriales(float $margen = 0): array
         $out['apartamentos']  = (int)($a['aptos'] ?? 0);
         $out['aptos_reparar'] = (int)($a['aptos_reparar'] ?? 0);
         $out['ambientes']     = (int)($a['ambientes'] ?? 0);
+        $out['locales']       = (int)($a['locales'] ?? 0);
 
         // --- Por parroquia ---
         $stP = db()->prepare("
@@ -4143,6 +4636,63 @@ function recAsegurarColumnasAreaComun(): void
     } catch (Throwable $e) {
         // Si no se puede alterar, se ignora: el INSERT lo reportará si aún falla.
     }
+}
+
+/**
+ * Asegura las columnas y tipos que necesitan los locales comerciales.
+ * Idempotente: solo altera lo que falte. Si no se corrió el SQL a mano,
+ * esto lo aplica la primera vez que se usa el formulario.
+ */
+function recAsegurarLocales(): void
+{
+    static $ok = false;
+    if ($ok) return;
+    $ok = true;
+    try {
+        $colsAp = db()->query("SHOW COLUMNS FROM rec_apartamento")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('es_local', $colsAp, true)) {
+            db()->exec("ALTER TABLE rec_apartamento
+                        ADD COLUMN es_local TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('nombre_local', $colsAp, true)) {
+            db()->exec("ALTER TABLE rec_apartamento
+                        ADD COLUMN nombre_local VARCHAR(120) DEFAULT NULL");
+        }
+
+        $colsEd = db()->query("SHOW COLUMNS FROM rec_edificio")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('tiene_locales', $colsEd, true)) {
+            db()->exec("ALTER TABLE rec_edificio
+                        ADD COLUMN tiene_locales TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('num_locales', $colsEd, true)) {
+            db()->exec("ALTER TABLE rec_edificio
+                        ADD COLUMN num_locales INT UNSIGNED DEFAULT 0");
+        }
+
+        // Ampliar el ENUM de tipos de ambiente para incluir los del local.
+        $def = db()->query("SHOW COLUMNS FROM rec_ambiente LIKE 'tipo'")
+                   ->fetch(PDO::FETCH_ASSOC);
+        $tipoActual = strtolower($def['Type'] ?? '');
+        if (strpos($tipoActual, 'área de venta') === false
+         && strpos($tipoActual, 'venta') === false) {
+            db()->exec("ALTER TABLE rec_ambiente
+                MODIFY tipo ENUM(
+                    'Habitación','Sala','Baño','Balcón','Cocina','Otro',
+                    'Área de venta','Depósito','Baño de local'
+                ) NOT NULL DEFAULT 'Habitación'");
+        }
+    } catch (Throwable $e) { /* seguir; si falla, el INSERT lo reportará */ }
+}
+
+/** Ambientes típicos de un local comercial (para generarlos). */
+function recAmbientesLocalTipicos(): array
+{
+    // etiqueta => cuántos por defecto al generar
+    return [
+        'Área de venta' => 1,
+        'Depósito'      => 1,
+        'Baño de local' => 1,
+    ];
 }
 
 /** Guarda (reemplaza) las áreas comunes seleccionadas de un edificio. */

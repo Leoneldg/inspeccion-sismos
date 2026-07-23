@@ -133,6 +133,32 @@
      * Quita de la cola los envíos que tengan esa clave.
      * Evita que el servidor reciba dos veces la misma orden.
      */
+    /**
+     * Reemplaza un id temporal de apartamento (negativo) por el id real
+     * en todos los envíos pendientes. Sin esto, las fotos de un apto
+     * creado sin señal nunca encontrarían su ambiente al subir.
+     */
+    async function remapearAptoEnCola(idLocal, idReal) {
+        const todos = await listarCola(true);
+        for (const it of todos) {
+            if (!it.datos) continue;
+            let cambio = false;
+            // Fotos de ambientes creados offline.
+            if (it.datos.apartamento_id == idLocal) {
+                it.datos.apartamento_id = idReal;
+                cambio = true;
+            }
+            // Cualquier otro envío que referencie el apto por estos campos.
+            if (it.datos.apartamento_id_local == idLocal) {
+                it.datos.apartamento_id_local = idReal;
+                cambio = true;
+            }
+            if (cambio) {
+                try { await tx(ST_COLA, 'readwrite', s => s.put(it)); } catch (e) {}
+            }
+        }
+    }
+
     async function quitarDeCola(clave) {
         if (!clave) return 0;
         const todos = await listarCola(true);
@@ -267,7 +293,18 @@
             const cola = await listarCola();
             // Orden importante: primero los datos (que crean los ambientes
             // en el servidor) y al final las fotos que dependen de ellos.
-            const prioridad = t => (t === 'foto_ambiente_pendiente' ? 2 : (t === 'foto' ? 1 : 0));
+            // Orden de subida:
+            //   1º los datos (avance): crean apartamentos y ambientes.
+            //   2º las fotos: dependen de que su ambiente exista.
+            //   3º el cierre: valida que TODO esté completo, así que debe
+            //      ir al final, cuando ya subió todo lo anterior. Si fuera
+            //      antes, el servidor vería datos faltantes que en realidad
+            //      sí están, solo que aún no habían subido.
+            const prioridad = t => (
+                t === 'cierre' ? 3 :
+                t === 'foto_ambiente_pendiente' ? 2 :
+                t === 'foto' ? 1 : 0
+            );
             cola.sort((a, b) => {
                 const d = prioridad(a.tipo) - prioridad(b.tipo);
                 return d !== 0 ? d : (a.id || 0) - (b.id || 0);
@@ -316,17 +353,39 @@
                     const r = await leerRespuesta(res);
 
                     if (res.ok && r.json && r.json.ok) {
+                        // Si acaba de subir un apartamento creado offline, el
+                        // servidor devolvió su id real. Hay que reemplazar el
+                        // id temporal (negativo) en las fotos que aún esperan
+                        // en la cola, o nunca encontrarían su ambiente.
+                        if (r.json.apartamento_id_real && r.json.apartamento_id_local
+                            && r.json.apartamento_id_local < 0) {
+                            try {
+                                await remapearAptoEnCola(
+                                    r.json.apartamento_id_local,
+                                    r.json.apartamento_id_real);
+                            } catch (e) { /* no interrumpir la subida */ }
+                        }
                         await borrarDeCola(item.id);
                         subidos++;
                         continue;
                     }
 
                     // Caso especial: la foto llegó antes que su ambiente.
-                    // Se deja en cola sin marcarla como error definitivo.
+                    // Se deja en cola sin marcarla como error definitivo…
+                    // pero con un tope: si tras muchos intentos el ambiente
+                    // sigue sin existir (p. ej. su apto nunca se pudo crear),
+                    // se marca para que el técnico lo revise, en vez de
+                    // reintentar en bucle para siempre.
                     if (r.json && r.json.reintentar) {
                         item.intentos = (item.intentos || 0) + 1;
-                        item.ultimoError = 'Esperando que se cree el ambiente';
-                        item.rechazado = false;
+                        if (item.intentos >= 8) {
+                            item.ultimoError = 'El apartamento de esta foto no se pudo crear. '
+                                + 'Revise que el apartamento se haya guardado.';
+                            item.rechazado = true;
+                        } else {
+                            item.ultimoError = 'Esperando que se cree el ambiente';
+                            item.rechazado = false;
+                        }
                         await actualizarEnCola(item);
                         fallidos++;
                         continue;

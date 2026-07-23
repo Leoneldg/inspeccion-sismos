@@ -116,7 +116,16 @@ try {
     $f = $_FILES['foto'];
     $permitidos = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $mime = mime_content_type($f['tmp_name']) ?: '';
-    if (!isset($permitidos[$mime])) jresp(false, 'Formato no válido (use JPG, PNG o WEBP).');
+    if (!isset($permitidos[$mime])) {
+        // HEIC/HEIF es el formato por defecto del iPhone. Si llega hasta
+        // aquí es que el teléfono no lo convirtió. Se da una instrucción
+        // concreta en vez de un error genérico.
+        $esHeic = stripos($mime, 'heic') !== false || stripos($mime, 'heif') !== false;
+        jresp(false, $esHeic
+            ? 'La foto está en formato HEIC. En el iPhone: Ajustes → Cámara → '
+              . 'Formatos → "Más compatible", y vuelva a tomarla.'
+            : 'Formato no válido (use JPG, PNG o WEBP).');
+    }
     // Tope real del servidor, para no prometer más de lo que PHP acepta.
     $topeBytes = min(12 * 1024 * 1024, (int)(ini_get('upload_max_filesize') ? return_bytes(ini_get('upload_max_filesize')) : 12 * 1024 * 1024));
     if ($f['size'] > $topeBytes) {

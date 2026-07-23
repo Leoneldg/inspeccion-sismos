@@ -45,6 +45,9 @@ try {
 } catch (Throwable $e) {}
 $cat   = catalogoDecisionFinal();
 
+// Números de piso disponibles, para el filtro de materiales por piso.
+$pisosDisponibles = recNumerosDePisoDisponibles($parrF !== '' ? ['parroquia' => $parrF] : []);
+
 // Contar por estado.
 $cuenta = ['proceso' => 0, 'incompleto' => 0, 'completo' => 0];
 foreach ($lista as $e) {
@@ -198,6 +201,33 @@ include __DIR__ . '/../includes/header.php';
             </a>
             <?php endif; ?>
         </div>
+    </div>
+
+    <!-- Materiales por piso (global): suma de todos los edificios -->
+    <div id="mat-piso-panel" style="background:#f7f9fd;border:1px solid #dde3f0;
+                border-radius:10px;padding:14px 16px;margin:12px 0 4px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="field" style="margin:0;">
+                <label class="text-sm" style="font-weight:700;color:#22366F;">
+                    <i class="bi bi-boxes"></i> Materiales por piso (todos los edificios<?= $parrF ? ' de ' . e($parrF) : '' ?>)
+                </label>
+                <select id="mat-piso-sel" class="form-control" style="width:220px;"
+                        onchange="cargarMaterialesPiso()">
+                    <option value="">— Elija un piso —</option>
+                    <?php foreach ($pisosDisponibles as $np): ?>
+                    <option value="<?= (int)$np ?>">
+                        <?= (int)$np === 0 ? 'Planta baja' : 'Piso ' . (int)$np ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="font-size:12px;color:#5b6478;flex:1;min-width:200px;">
+                Suma cuánto material se necesita para ese mismo piso en todas
+                las edificaciones<?= $parrF ? '' : ' de tu alcance' ?>. Útil para
+                comprar por lote (p. ej. todas las plantas bajas juntas).
+            </div>
+        </div>
+        <div id="mat-piso-resultado" style="margin-top:12px;display:none;"></div>
     </div>
 
     <div id="rc-lista">
@@ -356,6 +386,84 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+// ---- Materiales por piso (global) ----
+async function cargarMaterialesPiso() {
+    const sel = document.getElementById('mat-piso-sel');
+    const cont = document.getElementById('mat-piso-resultado');
+    if (!sel || !cont) return;
+    const piso = sel.value;
+    if (piso === '') { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+
+    cont.style.display = 'block';
+    cont.innerHTML = '<div style="color:#5b6478;font-size:13px;">'
+        + '<i class="bi bi-arrow-repeat"></i> Calculando…</div>';
+
+    const parr = <?= json_encode($parrF) ?>;
+    let url = '<?= APP_URL_BASE ?>seguimiento/materiales_por_piso.php?piso='
+        + encodeURIComponent(piso);
+    if (parr) url += '&parroquia=' + encodeURIComponent(parr);
+
+    try {
+        const res = await fetch(url, { credentials: 'same-origin' });
+        const d = await res.json();
+        if (!d.ok) {
+            cont.innerHTML = '<div style="color:#A61C1C;font-size:13px;">'
+                + (d.mensaje || 'No se pudo calcular.') + '</div>';
+            return;
+        }
+        pintarMaterialesPiso(cont, d);
+    } catch (e) {
+        cont.innerHTML = '<div style="color:#A61C1C;font-size:13px;">'
+            + 'Error de conexión. Intente de nuevo.</div>';
+    }
+}
+
+function pintarMaterialesPiso(cont, d) {
+    const mats = d.materiales || {};
+    const claves = Object.keys(mats);
+    if (!claves.length) {
+        cont.innerHTML = '<div style="color:#5b6478;font-size:13px;padding:6px 0;">'
+            + 'No hay materiales registrados para ' + esc(d.etiqueta.toLowerCase())
+            + ' todavía.</div>';
+        return;
+    }
+
+    let html = '<div style="font-weight:700;color:#22366F;margin-bottom:8px;">'
+        + '<i class="bi bi-clipboard-check"></i> ' + esc(d.etiqueta)
+        + ' · total de materiales</div>';
+
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
+        + '<thead><tr style="background:#22366F;color:#fff;">'
+        + '<th style="text-align:left;padding:7px 10px;">Material</th>'
+        + '<th style="text-align:right;padding:7px 10px;">Cantidad</th></tr></thead><tbody>';
+    claves.forEach((k, i) => {
+        const val = mats[k];
+        const num = (Math.round(val * 100) / 100).toString().replace('.', ',');
+        html += '<tr style="border-bottom:1px solid #e5e8f0;'
+            + (i % 2 ? 'background:#fff;' : 'background:#fafbfe;') + '">'
+            + '<td style="padding:6px 10px;">' + esc(k) + '</td>'
+            + '<td style="padding:6px 10px;text-align:right;font-weight:600;">' + num + '</td>'
+            + '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Desglose por trabajo, para saber de dónde salen los materiales.
+    const trab = d.por_trabajo || {};
+    const tk = Object.keys(trab);
+    if (tk.length) {
+        html += '<div style="margin-top:10px;font-size:12px;color:#5b6478;">'
+            + '<b>Trabajos que suman a este piso:</b> '
+            + tk.map(k => esc(k) + ' (' + String(trab[k]).replace('.', ',') + ' m²)').join(' · ')
+            + '</div>';
+    }
+    cont.innerHTML = html;
+}
+
+function esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /**
  * Borra el levantamiento de una edificación.
  * Pide doble confirmación porque no se puede deshacer: se pierden

@@ -24,6 +24,30 @@ try {
         resp(true, ['ambientes' => recAmbientes((int)$_GET['ambientes_de'])]);
     }
 
+    // Locales comerciales de un edificio, con sus conteos de ambientes
+    // ya calculados para poder precargar el formulario.
+    if (isset($_GET['locales_de'])) {
+        $locales = recLocalesEdificio((int)$_GET['locales_de']);
+        foreach ($locales as &$lc) {
+            $lid = (int)$lc['id'];
+            $cuenta = function ($tipo) use ($lid) {
+                try {
+                    $st = db()->prepare('SELECT COUNT(*) FROM rec_ambiente
+                                          WHERE apartamento_id = :a AND tipo = :t');
+                    $st->execute(['a' => $lid, 't' => $tipo]);
+                    return (int)$st->fetchColumn();
+                } catch (Throwable $e) { return 0; }
+            };
+            // Mismos nombres que espera pintarApartamento en modo local.
+            $lc['num_venta']      = $cuenta('Área de venta');
+            $lc['num_deposito']   = $cuenta('Depósito');
+            $lc['num_banoslocal'] = $cuenta('Baño de local');
+            $lc['es_local']       = 1;
+        }
+        unset($lc);
+        resp(true, ['locales' => $locales]);
+    }
+
     // Fotos de un ambiente (con URL completa)
     if (isset($_GET['fotos_de'])) {
         $fotos = recFotos('ambiente', (int)$_GET['fotos_de']);

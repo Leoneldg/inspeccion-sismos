@@ -42,6 +42,9 @@ if ($soloLectura) $puedeEditar = false;
 $autor = $edificioIdActual > 0 ? recAutorLevantamiento($edificioIdActual) : [];
 
 $pisos = recPisos((int)$ed['id']);
+// Locales comerciales del edificio (planta baja). Se levantan igual que
+// un apartamento, pero se muestran en su propio panel.
+$locales = $edificioIdActual ? recLocalesEdificio($edificioIdActual) : [];
 // Plan de tiempo (fase 3): se lee para precargar las fechas. Sin esto,
 // los campos salían siempre vacíos aunque ya se hubieran guardado.
 $planEd = $edificioIdActual ? recPlan($edificioIdActual) : null;
@@ -396,6 +399,37 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
         </div>
 
+        <?php if (!$esCasa): ?>
+        <!-- Locales comerciales (normalmente en planta baja) -->
+        <?php
+            $tieneLoc = !empty($ed['tiene_locales']);
+            $numLoc   = (int)($ed['num_locales'] ?? 0);
+        ?>
+        <div style="margin-top:12px;padding:12px 14px;background:#f7f9fd;border-radius:10px;">
+            <label class="seg-radio" style="font-weight:600;color:#22366F;">
+                <input type="checkbox" id="tiene-locales" <?= $tieneLoc ? 'checked' : '' ?>
+                       onchange="toggleLocales(this)">
+                <i class="bi bi-shop"></i> El edificio tiene locales comerciales
+            </label>
+            <div id="locales-detalle" style="margin-top:10px;display:<?= $tieneLoc ? 'block' : 'none' ?>;">
+                <div class="flex gap-8" style="flex-wrap:wrap;align-items:flex-end;">
+                    <div class="field" style="flex:1;min-width:180px;">
+                        <label class="text-sm">¿Cuántos locales? (planta baja)</label>
+                        <input type="number" id="num_locales" class="form-control" min="0" max="60"
+                               value="<?= $numLoc ?: '' ?>" placeholder="Ej: 4">
+                    </div>
+                    <div class="field" style="flex:2;min-width:200px;">
+                        <div style="font-size:12px;color:#5b6478;">
+                            Cada local se levanta aparte en el paso 2, con sus
+                            propios ambientes (área de venta, depósito, baño) y
+                            sus reparaciones, igual que un apartamento.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div style="margin-top:8px;">
             <label class="text-sm" style="font-weight:600;display:block;margin-bottom:8px;"><i class="bi bi-columns-gap"></i> Áreas comunes del edificio</label>
             <p class="sub" style="margin:0 0 10px;">Marque "Reparar" en las áreas que necesitan intervención. Se le pedirá una foto y qué trabajo requiere.</p>
@@ -591,6 +625,24 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
+
+        <?php if (!empty($ed['tiene_locales']) && $locales): ?>
+        <!-- Panel de locales comerciales -->
+        <div class="piso-card" style="margin-bottom:16px;border:1px solid #C9A22755;">
+            <div class="piso-head" style="cursor:default;background:#fbf8ef;">
+                <span style="font-weight:700;color:#8a6d1a;">
+                    <i class="bi bi-shop"></i> Locales comerciales (<?= count($locales) ?>)
+                </span>
+            </div>
+            <div style="padding:12px 14px;">
+                <p class="sub" style="margin:0 0 10px;">
+                    Cada local se levanta como un espacio aparte: indique sus
+                    ambientes (área de venta, depósito, baño) y sus reparaciones.
+                </p>
+                <div class="apto-lista" id="locales-lista" data-locales="1"></div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <?php foreach ($pisos as $piso):
             $elems = recElementosPiso((int)$piso['id']);
@@ -905,6 +957,7 @@ function irPaso(n) {
         document.getElementById('paso-'+i).classList.toggle('hidden', i !== n);
         document.getElementById('tab-'+i).classList.toggle('activo', i === n);
     });
+    if (n === 2) { try { cargarLocales(); } catch (e) {} }
     if (n === 3) cargarResumen();
     window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -1312,6 +1365,15 @@ document.querySelectorAll('.area-trabajo').forEach(sel => {
 
 // ================= PASO 1: DATOS DEL EDIFICIO =================
 // Campo calculado: total de apartamentos = pisos × apartamentos por piso.
+function toggleLocales(chk) {
+    const det = document.getElementById('locales-detalle');
+    if (det) det.style.display = chk.checked ? 'block' : 'none';
+    if (!chk.checked) {
+        const n = document.getElementById('num_locales');
+        if (n) n.value = '';
+    }
+}
+
 function calcularTotalAptos() {
     const pisos = parseInt(document.getElementById('num_pisos').value) || 0;
     const app = parseInt(document.getElementById('aptos_por_piso').value) || 0;
@@ -1326,6 +1388,8 @@ async function guardarEdificio(ev) {
         num_pisos: document.getElementById('num_pisos').value,
         aptos_por_piso: document.getElementById('aptos_por_piso').value,
         tiene_areas_comunes: 1,
+        tiene_locales: document.getElementById('tiene-locales')?.checked ? 1 : 0,
+        num_locales: parseInt(document.getElementById('num_locales')?.value) || 0,
         areas_comunes: [],
     };
     // Areas marcadas pero sin datos: se avisa antes de guardar.
@@ -1574,6 +1638,23 @@ function mostrarPisoLocal() {
 
 // ================= PASO 2: PISOS =================
 // Muestra solo el piso seleccionado en el dropdown.
+// Cargar los locales comerciales del edificio y pintarlos.
+async function cargarLocales() {
+    const lista = document.getElementById('locales-lista');
+    if (!lista || lista.dataset.cargado) return;
+    lista.dataset.cargado = '1';
+    try {
+        const res = await fetch(URL_BASE + 'listar_rec_aptos.php?locales_de=' + EDIFICIO_ID);
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.locales)) {
+            data.locales.forEach(lc => {
+                lc.es_local = 1;               // marca para pintar en modo local
+                pintarApartamento(lc, lista);
+            });
+        }
+    } catch (e) { /* si falla, se reintenta al reabrir el paso */ }
+}
+
 function mostrarPisoSeleccionado() {
     const pisoId = document.getElementById('selector-piso').value;
     document.querySelectorAll('.piso-panel').forEach(p => p.classList.add('hidden'));
@@ -1873,9 +1954,13 @@ function pintarApartamento(a, lista) {
     // campos nuevos nacen habilitados.
     const card = document.createElement('div');
     card.className = 'apto-card';
+    // Datos para poder saltar directo a este apartamento cuando el
+    // cierre reporta que le falta algo.
+    if (a.id) card.dataset.aptoId = a.id;
+    card.dataset.ident = a.identificador || '';
     card.innerHTML = `
         <div class="apto-head" onclick="abrirApto(this)">
-            <i class="bi bi-door-open"></i> ${ES_CASA ? 'Nivel ' + a.identificador : 'Apartamento ' + a.identificador}
+            <i class="bi ${a.es_local ? 'bi-shop' : 'bi-door-open'}"></i> ${a.es_local ? 'Local ' + escHtml(a.identificador) : (ES_CASA ? 'Nivel ' + escHtml(a.identificador) : 'Apartamento ' + escHtml(a.identificador))}
         </div>
         <div class="apto-body hidden">
             <!-- Primero: ¿se puede hacer el levantamiento? -->
@@ -1916,28 +2001,31 @@ function pintarApartamento(a, lista) {
             <!-- Datos del jefe de familia (obligatorios) -->
             <?php // En casas se piden una sola vez, en el primer nivel. ?>
             <div class="bloque-jefe" style="background:#f7f9fd;border-radius:9px;padding:12px 14px;margin-bottom:14px;">
-                <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> Jefe de familia</div>
+                <div class="bloque-tit" style="margin:0 0 10px;"><i class="bi bi-person-vcard"></i> ${a.es_local ? 'Responsable del local' : 'Jefe de familia'}</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <div class="field jefe-field" style="flex:2;min-width:180px;">
                         <label class="text-sm">Nombre completo *</label>
-                        <input type="text" class="form-control jefe-nombre" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_nombre||''}" placeholder="Nombre y apellido">
+                        <input type="text" class="form-control jefe-nombre" onchange="guardarJefe(${a.id}, this)" value="${escHtml(a.jefe_nombre||'')}" placeholder="Nombre y apellido">
                     </div>
                     <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Cédula *</label>
-                        <input type="text" class="form-control jefe-cedula" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_cedula||''}" placeholder="V-12345678" inputmode="numeric">
+                        <input type="text" class="form-control jefe-cedula" onchange="guardarJefe(${a.id}, this)" value="${escHtml(a.jefe_cedula||'')}" placeholder="V-12345678" inputmode="numeric">
                     </div>
                     <div class="field jefe-field" style="flex:1;min-width:120px;">
                         <label class="text-sm">Teléfono *</label>
-                        <input type="tel" class="form-control jefe-telefono" onchange="guardarJefe(${a.id}, this)" value="${a.jefe_telefono||''}" placeholder="0412-1234567" inputmode="tel">
+                        <input type="tel" class="form-control jefe-telefono" onchange="guardarJefe(${a.id}, this)" value="${escHtml(a.jefe_telefono||'')}" placeholder="0412-1234567" inputmode="tel">
                     </div>
                 </div>
             </div>
             <!-- Cantidad de ambientes -->
-            <div class="bloque-tit" style="margin:0 0 8px;"><i class="bi bi-grid-3x3-gap"></i> Ambientes del apartamento</div>
+            <div class="bloque-tit" style="margin:0 0 8px;"><i class="bi bi-grid-3x3-gap"></i> ${a.es_local ? 'Ambientes del local' : 'Ambientes del apartamento'}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                ${['habitaciones','salas','banos','cocinas','balcones'].map(t => `
-                    <div class="field" style="width:95px;">
-                        <label class="text-sm" style="text-transform:capitalize;">${t==='banos'?'Baños':t}</label>
+                ${(a.es_local
+                    ? [['venta','Área de venta'],['deposito','Depósitos'],['banoslocal','Baños']]
+                    : [['habitaciones','Habitaciones'],['salas','Salas'],['banos','Baños'],['cocinas','Cocinas'],['balcones','Balcones']]
+                  ).map(([t,lbl]) => `
+                    <div class="field" style="width:110px;">
+                        <label class="text-sm">${lbl}</label>
                         <input type="number" min="0" max="30" class="form-control amb-${t}" value="${a['num_'+t]||0}">
                     </div>`).join('')}
                 <button type="button" class="btn btn-primary btn-sm" onclick="guardarApto(this, ${a.id})">
@@ -2114,7 +2202,8 @@ async function guardarApto(btn, aptoId) {
     const cedula = cont.querySelector('.jefe-cedula').value.trim();
     const telefono = cont.querySelector('.jefe-telefono').value.trim();
     if (!nombre || !cedula || !telefono) {
-        alert('Complete los datos del jefe de familia (nombre, cédula y teléfono) antes de continuar.');
+        const quien = cont.querySelector('.amb-venta') ? 'del responsable del local' : 'del jefe de familia';
+        alert('Complete los datos ' + quien + ' (nombre, cédula y teléfono) antes de continuar.');
         return;
     }
 
@@ -2171,7 +2260,19 @@ async function guardarApto(btn, aptoId) {
         return;
     }
 
-    const payload = {
+    // Un local comercial tiene otros campos de conteo. Se detecta por la
+    // presencia del contenedor de venta.
+    const esLocal = !!cont.querySelector('.amb-venta');
+    const numDe = sel => { const el = cont.querySelector(sel); return el ? el.value : ''; };
+
+    const payload = esLocal ? {
+        accion:'guardar_apto', apartamento_id: aptoId,
+        jefe_nombre: nombre, jefe_cedula: cedula, jefe_telefono: telefono,
+        nombre_local: (cont.querySelector('.nombre-local')?.value || '').trim(),
+        num_venta:      numDe('.amb-venta'),
+        num_deposito:   numDe('.amb-deposito'),
+        num_banoslocal: numDe('.amb-banoslocal'),
+    } : {
         accion:'guardar_apto', apartamento_id: aptoId,
         jefe_nombre: nombre, jefe_cedula: cedula, jefe_telefono: telefono,
         num_habitaciones: cont.querySelector('.amb-habitaciones').value,
@@ -2180,6 +2281,18 @@ async function guardarApto(btn, aptoId) {
         num_cocinas:      cont.querySelector('.amb-cocinas').value,
         num_balcones:     cont.querySelector('.amb-balcones').value,
     };
+    // Datos para poder reconstruir este apartamento en el servidor si se
+    // creó sin señal (id negativo). El id temporal por sí solo no basta.
+    const cardEl = btn.closest('.apto-card');
+    const panelEl = cardEl ? cardEl.closest('.piso-panel') : null;
+    const localesPanel = cardEl ? cardEl.closest('#locales-lista') : null;
+    payload.identificador = cardEl ? (cardEl.dataset.ident || '') : '';
+    payload.piso_id = panelEl ? parseInt(panelEl.dataset.piso) || 0 : 0;
+    payload.es_local = (esLocal || localesPanel) ? 1 : 0;
+    // Un local vive en la planta baja: si no hay panel de piso, se resuelve
+    // en el servidor con el piso de menor número del edificio.
+    payload.edificio_id = (typeof EDIFICIO_ID !== 'undefined') ? EDIFICIO_ID : 0;
+
     // Guardar copia local ANTES de enviar: si se cae la señal, no se pierde.
     guardarBorrador(aptoId, payload);
 
@@ -2379,10 +2492,39 @@ function respaldarTodo() {
 
         const serial = JSON.stringify(estado);
         if (serial === _ultimoRespaldo) return;   // sin cambios, no reescribir
-        _ultimoRespaldo = serial;
-        localStorage.setItem('respaldo_lev_' + INSPECCION_ID, serial);
-        mostrarSelloRespaldo();
-    } catch (e) { /* si no hay espacio, seguir trabajando igual */ }
+        try {
+            localStorage.setItem('respaldo_lev_' + INSPECCION_ID, serial);
+            _ultimoRespaldo = serial;
+            mostrarSelloRespaldo();
+            avisarAlmacenamiento(false);   // si antes falló, quitar el aviso
+        } catch (err) {
+            // El teléfono se quedó sin espacio. NO se puede fallar en
+            // silencio: si el técnico sigue llenando creyendo que se
+            // respalda, y el navegador se cierra, pierde el trabajo.
+            // Se le avisa de forma visible y persistente.
+            avisarAlmacenamiento(true);
+        }
+    } catch (e) { /* un error de lectura no debe tumbar el respaldo */ }
+}
+
+/**
+ * Aviso persistente de almacenamiento lleno. Le dice al técnico que
+ * sincronice para liberar espacio, porque el respaldo automático dejó
+ * de funcionar y podría perder lo que siga escribiendo.
+ */
+function avisarAlmacenamiento(lleno) {
+    let el = document.getElementById('aviso-almacenamiento');
+    if (!lleno) { if (el) el.remove(); return; }
+    if (el) return;   // ya está mostrado
+    el = document.createElement('div');
+    el.id = 'aviso-almacenamiento';
+    el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'background:#A61C1C;color:#fff;padding:11px 14px;font-size:13px;'
+        + 'font-weight:600;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.3);';
+    el.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> '
+        + 'El teléfono se quedó sin espacio. Conéctese y sincronice YA para '
+        + 'no perder datos. Mientras tanto, el respaldo automático está detenido.';
+    document.body.appendChild(el);
 }
 
 // Sello discreto que confirma que hay respaldo local.
@@ -2766,6 +2908,9 @@ function leerAmbientesLocales(aptoId) {
 function pintarAmbientesLocales(cont, datos, aptoId) {
     const lista = cont.querySelector('.amb-lista');
     if (!lista) return;
+    // Autoguardado por ambiente: saber a qué apartamento pertenece.
+    lista.dataset.apto = aptoId;
+    window._aptoActivo = aptoId;
 
     const guardado = leerAmbientesLocales(aptoId);
     const ambientes = guardado ? guardado.ambientes : [];
@@ -2945,6 +3090,73 @@ function fotoAmbienteLocal(ambLocalId, etiqueta, aptoId) {
 }
 
 // ---- Borradores locales: lo escrito no se pierde aunque se corte todo ----
+
+/**
+ * Autoguardado de un ambiente en el teléfono, en CADA cambio.
+ *
+ * Antes, el trabajo/metros/reparación de un ambiente solo se guardaba al
+ * pulsar "Guardar apartamento". Si el técnico refrescaba, cerraba sesión
+ * o se le caía todo antes de ese botón, perdía lo escrito en los
+ * ambientes. Ahora, apenas cambia un campo, se persiste aquí — y
+ * restaurarAmbientesLocales() lo vuelve a pintar al reabrir.
+ *
+ * Guarda en el MISMO borrador del apartamento (borrador_apto_<id>),
+ * dentro de datos.ambientes[], con la forma que espera la restauración.
+ */
+function autoguardarAmbiente(row) {
+    try {
+        if (!row) return;
+        const ambId = row.getAttribute('data-amb');
+        if (ambId === null) return;
+
+        // Encontrar el apartamento dueño de este ambiente.
+        const card = row.closest('.apto-card');
+        let aptoId = card && card.dataset.aptoId ? card.dataset.aptoId : null;
+        if (aptoId === null) {
+            // Apto local: la lista de ambientes cuelga de un contenedor con
+            // el id en el DOM; si no, se usa el que dejó pintarAmbientes.
+            aptoId = row.closest('.amb-lista')?.dataset.apto
+                  || card?.dataset.ident
+                  || window._aptoActivo;
+        }
+        if (aptoId === null || aptoId === undefined) return;
+
+        // Estado actual del ambiente.
+        const chk  = row.querySelector('.amb-reparar');
+        const selT = row.querySelector('.amb-trabajo');
+        const g = {
+            amb: isNaN(parseInt(ambId)) ? ambId : parseInt(ambId),
+            repara: chk ? (chk.checked ? 1 : 0) : 0,
+            trabajo: selT ? selT.value : '',
+            metros: {},
+            extras: [],
+        };
+        row.querySelectorAll('[data-sup]').forEach(inp => {
+            if (inp.closest('.partida-extra')) return;
+            const v = aNumero(inp.value);
+            if (v > 0) g.metros[inp.dataset.sup] = inp.value;
+        });
+        row.querySelectorAll('.partida-extra').forEach(bl => {
+            const st = bl.querySelector('.part-trabajo');
+            const ex = { trabajo: st ? st.value : '', metros: {} };
+            bl.querySelectorAll('[data-sup]').forEach(inp => {
+                const v = aNumero(inp.value);
+                if (v > 0) ex.metros[inp.dataset.sup] = inp.value;
+            });
+            if (ex.trabajo || Object.keys(ex.metros).length) g.extras.push(ex);
+        });
+
+        // Mezclar en el borrador existente sin pisar otros campos.
+        const b = leerBorrador(aptoId);
+        const datos = (b && b.datos) ? b.datos : {};
+        if (!Array.isArray(datos.ambientes)) datos.ambientes = [];
+        const i = datos.ambientes.findIndex(x => String(x.amb) === String(g.amb));
+        if (i >= 0) datos.ambientes[i] = g; else datos.ambientes.push(g);
+
+        guardarBorrador(aptoId, datos);
+    } catch (e) { /* nunca interrumpir el llenado por un fallo de guardado */ }
+}
+
 function guardarBorrador(aptoId, datos) {
     try {
         localStorage.setItem('borrador_apto_' + aptoId, JSON.stringify({
@@ -2996,6 +3208,10 @@ function marcarAptoPendiente(cont, texto) {
 }
 
 async function cargarAmbientes(aptoId, contenedor) {
+    // Marcar el contenedor con su apartamento: el autoguardado por
+    // ambiente lo necesita para saber en qué borrador escribir.
+    if (contenedor) contenedor.dataset.apto = aptoId;
+    window._aptoActivo = aptoId;
     const res = await fetch(URL_BASE + 'listar_rec_aptos.php?ambientes_de=' + aptoId);
     const data = await res.json();
     if (data.ok) pintarAmbientes(data.ambientes, contenedor);
@@ -3376,6 +3592,12 @@ function actualizarTotalM2(row) {
         caja.style.borderColor = suma > 0 ? '#C9A22755' : '#e5e8f0';
         caja.style.background  = suma > 0 ? '#fffdf5' : '#fff';
     }
+
+    // Autoguardado mientras escribe (con pequeño retardo para no saturar
+    // el teléfono en cada tecla). Así ni un refresco a media palabra
+    // pierde los metros.
+    clearTimeout(row._autosaveT);
+    row._autosaveT = setTimeout(() => autoguardarAmbiente(row), 400);
 }
 
 /**
@@ -3427,6 +3649,10 @@ function agregarPartida(btn, ambId) {
 
 /** Guarda el tipo de trabajo elegido para un ambiente. */
 async function guardarTrabajo(ambId, sel) {
+    // Guardar en el teléfono SIEMPRE y primero: si algo pasa después
+    // (refresco, sesión caída), lo escrito ya está a salvo.
+    autoguardarAmbiente(sel.closest('.amb-row'));
+
     const payload = { accion:'guardar_trabajo', ambiente_id: ambId, tipo_trabajo: sel.value };
     // Ambiente aún no creado en el servidor: se queda en el borrador local.
     if (ambId < 0) return;
@@ -3518,6 +3744,9 @@ async function toggleReparar(chk, ambId) {
     const bloque = row.querySelector('.amb-reparacion');
     if (bloque) bloque.style.display = chk.checked ? 'block' : 'none';
 
+    // Guardar en el teléfono de inmediato, pase lo que pase después.
+    autoguardarAmbiente(row);
+
     const payload = { accion:'guardar_ambiente', ambiente_id: ambId,
                       necesita_reparacion: chk.checked?1:0 };
 
@@ -3545,6 +3774,11 @@ async function toggleReparar(chk, ambId) {
 
 async function guardarReparacion(ambId, input) {
     const row = input.closest('.amb-row');
+
+    // Guardar en el teléfono de inmediato: los metros no se pierden
+    // aunque el ambiente aún no exista en el servidor o se caiga la señal.
+    autoguardarAmbiente(row);
+
     const reparaciones = [];
 
     // Trabajo principal del ambiente.
@@ -3893,8 +4127,152 @@ function pedirParte(callback) {
     ov.querySelector('#pp-cancel').onclick = () => document.body.removeChild(ov);
 }
 
+/**
+ * Comprime una foto antes de guardarla o subirla.
+ *
+ * Las cámaras de los teléfonos sacan fotos de 3–8 MB. Sin comprimir,
+ * un edificio de 100 apartamentos con varias fotos por ambiente son
+ * cientos de MB que el técnico paga de su plan de datos, que le drenan
+ * la batería y que con mala señal tardan muchísimo (y fallan a la mitad).
+ *
+ * Se reduce el lado mayor a 1600 px y se guarda como JPEG al 72 %. Una
+ * foto de 5 MB baja a ~250–400 KB: 10–20 veces menos, sin perder el
+ * detalle que hace falta para evaluar un daño.
+ *
+ * Es a prueba de fallos: si algo sale mal (formato raro, sin canvas,
+ * memoria), devuelve el archivo original para NUNCA perder la foto.
+ */
+async function comprimirFoto(archivo) {
+    const MAX_LADO = 1600;
+    const CALIDAD  = 0.72;
+    // Formatos que el servidor acepta tal cual (sin recomprimir).
+    const ACEPTADOS = ['image/jpeg', 'image/png', 'image/webp'];
+
+    try {
+        if (!archivo || !archivo.type || archivo.type.indexOf('image/') !== 0) {
+            return archivo;
+        }
+
+        const yaAceptado = ACEPTADOS.indexOf(archivo.type) !== -1;
+
+        // Si ya es pequeña Y de un formato aceptado, no vale la pena tocarla.
+        if (yaAceptado && archivo.size && archivo.size < 600 * 1024) return archivo;
+
+        const bitmap = await cargarImagen(archivo);
+
+        // No se pudo decodificar (típico: HEIC de iPhone en un navegador
+        // que no lo entiende). NO se puede devolver el original: el
+        // servidor solo acepta JPEG/PNG/WEBP y lo rechazaría, dejando al
+        // técnico sin poder subir la foto. Se marca el fallo para avisar.
+        if (!bitmap) {
+            if (!yaAceptado) {
+                const err = new Error('No se pudo convertir la foto (formato ' + archivo.type + ').');
+                err.formatoNoSoportado = true;
+                throw err;
+            }
+            // Es un formato aceptado pero no se pudo decodificar para
+            // reducirla: se sube tal cual (grande, pero válida).
+            return archivo;
+        }
+
+        let width = bitmap.width, height = bitmap.height;
+        if (width > MAX_LADO || height > MAX_LADO) {
+            if (width >= height) { height = Math.round(height * MAX_LADO / width); width = MAX_LADO; }
+            else                 { width = Math.round(width * MAX_LADO / height); height = MAX_LADO; }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return yaAceptado ? archivo : convertirOFallar(archivo);
+        // Fondo blanco: si el original tenía transparencia (PNG), al pasar
+        // a JPEG no queda negra.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        if (bitmap.close) { try { bitmap.close(); } catch (e) {} }
+
+        const blob = await new Promise(res => {
+            try { canvas.toBlob(res, 'image/jpeg', CALIDAD); }
+            catch (e) { res(null); }
+        });
+        if (!blob || blob.size === 0) {
+            // No se pudo generar el JPEG. Si el original ya era aceptado,
+            // se usa; si no (HEIC), se avisa.
+            if (yaAceptado) return archivo;
+            const err = new Error('No se pudo procesar la foto.');
+            err.formatoNoSoportado = true;
+            throw err;
+        }
+
+        // Si la "comprimida" pesa más que el original Y el original ya era
+        // un formato aceptado, quedarse con el original.
+        if (yaAceptado && archivo.size && blob.size >= archivo.size) return archivo;
+
+        const base = (archivo.name || 'foto.jpg').replace(/\.(png|webp|heic|heif|jpeg|jpg)$/i, '');
+        return new File([blob], base + '.jpg',
+            { type: 'image/jpeg', lastModified: Date.now() });
+    } catch (e) {
+        if (e && e.formatoNoSoportado) throw e;   // se maneja arriba
+        console.warn('No se pudo comprimir la foto, se usa el original:', e);
+        return archivo;
+    }
+}
+
+/** Último intento de convertir un formato no aceptado; si no, lanza. */
+function convertirOFallar(archivo) {
+    const err = new Error('No se pudo convertir la foto.');
+    err.formatoNoSoportado = true;
+    throw err;
+}
+
+/** Decodifica un archivo de imagen a algo que el canvas pueda dibujar. */
+async function cargarImagen(archivo) {
+    // Se prueba primero con <img>: en iOS decodifica HEIC nativo, cosa
+    // que createImageBitmap no siempre hace. Si <img> falla, se intenta
+    // createImageBitmap como respaldo (más rápido en fotos grandes).
+    const porImg = await new Promise(resolve => {
+        const url = URL.createObjectURL(archivo);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            // Algunos navegadores "cargan" pero sin dimensiones: no sirve.
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) resolve(img);
+            else resolve(null);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+        img.src = url;
+    });
+    if (porImg) return porImg;
+
+    if (window.createImageBitmap) {
+        try { return await createImageBitmap(archivo); }
+        catch (e) { /* formato no soportado: se rinde */ }
+    }
+    return null;
+}
+
 async function enviarFoto(archivo, destino, parte, desdeCamara) {
     const cont = destino.cont;
+
+    // Comprimir ANTES de respaldar y encolar: así el respaldo local, la
+    // cola y la subida usan todos la versión ligera. Un solo punto.
+    try {
+        archivo = await comprimirFoto(archivo);
+    } catch (e) {
+        if (e && e.formatoNoSoportado) {
+            // Típico en iPhone: la foto es HEIC y el navegador no la pudo
+            // convertir. El servidor no la aceptaría. Se avisa claro y NO
+            // se encola, para no llenar la cola de fotos que serán
+            // rechazadas. La solución del lado del técnico es cambiar el
+            // formato de cámara del iPhone a "Más compatible".
+            alert('Esta foto está en un formato (HEIC) que no se pudo convertir '
+                + 'en este teléfono.\n\nEn iPhone: Ajustes → Cámara → Formatos → '
+                + '"Más compatible", y vuelva a tomarla.');
+            return;
+        }
+        console.warn('Fallo al comprimir, se intenta con el original:', e);
+    }
 
     // RESPALDO en el teléfono antes de intentar subirla.
     // Es imprescindible en las de CÁMARA: esas no quedan en la galería
@@ -4196,9 +4574,11 @@ async function guardarCierre(ev) {
     guardarBorrador('cierre_' + INSPECCION_ID, payload);
 
     if (window.ObrasOffline && !navigator.onLine) {
-        await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+        await ObrasOffline.encolar('cierre', URL_BASE + 'guardar_rec_edificio.php', payload,
             'Cierre del levantamiento');
-        alert('Sin señal: el cierre quedó guardado en el teléfono y se enviará al recuperar la conexión.');
+        alert('Sin señal: el cierre quedó guardado en el teléfono y se enviará al '
+            + 'recuperar la conexión.\n\nSi al enviarse falta algún dato, el sistema '
+            + 'se lo mostrará para completarlo. Nada se pierde.');
         ofrecerComprobante();
         return false;
     }
@@ -4213,7 +4593,7 @@ async function guardarCierre(ev) {
         try { data = JSON.parse(texto); }
         catch (e) {
             if (window.ObrasOffline) {
-                await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+                await ObrasOffline.encolar('cierre', URL_BASE + 'guardar_rec_edificio.php', payload,
                     'Cierre del levantamiento');
                 alert('El servidor no respondió bien. El cierre quedó guardado y se reintentará.');
             }
@@ -4223,29 +4603,16 @@ async function guardarCierre(ev) {
             borrarBorrador('cierre_' + INSPECCION_ID);
             cargarResumen();
             ofrecerComprobante();
-        } else if (data.puede_confirmar) {
-            // Faltan datos, pero el técnico puede cerrar igual si lo decide.
-            if (confirm(data.mensaje)) {
-                payload.confirmar_incompleto = 1;
-                const res2 = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify(payload), credentials:'same-origin'
-                });
-                const d2 = await res2.json();
-                if (d2.ok) {
-                    borrarBorrador('cierre_' + INSPECCION_ID);
-                    cargarResumen();
-                    ofrecerComprobante();
-                } else {
-                    alert(d2.mensaje || 'No se pudo cerrar.');
-                }
-            }
+        } else if (Array.isArray(data.faltantes) && data.faltantes.length) {
+            // Faltan datos. NO se cerró y NO se borró nada: se guía al
+            // técnico punto por punto para que complete cada reparación.
+            mostrarGuiaFaltantes(data.faltantes);
         } else {
             alert(data.mensaje || 'Error al guardar.');
         }
     } catch (e) {
         if (window.ObrasOffline) {
-            await ObrasOffline.encolar('avance', URL_BASE + 'guardar_rec_edificio.php', payload,
+            await ObrasOffline.encolar('cierre', URL_BASE + 'guardar_rec_edificio.php', payload,
                 'Cierre del levantamiento');
             alert('Se perdió la conexión. El cierre quedó guardado en el teléfono.');
             ofrecerComprobante();
@@ -4260,6 +4627,192 @@ async function guardarCierre(ev) {
  * Al cerrar, ofrece descargar el comprobante en PDF.
  * Queda en el teléfono como respaldo de todo lo registrado.
  */
+
+/**
+ * Guía de datos faltantes al intentar cerrar.
+ *
+ * En lugar de un alert con toda la lista (que el técnico no puede seguir
+ * y que asusta como si se hubiera borrado algo), muestra un panel fijo
+ * con cada reparación incompleta y un botón "Ir" que lo lleva justo a
+ * ese apartamento o área. NADA se borra: el levantamiento sigue igual,
+ * solo falta completar estos puntos.
+ */
+let _faltantesPendientes = [];
+
+function mostrarGuiaFaltantes(faltantes) {
+    _faltantesPendientes = faltantes.slice();
+
+    // Quitar un panel anterior si lo hubiera.
+    const viejo = document.getElementById('guia-faltantes');
+    if (viejo) viejo.remove();
+
+    const cont = document.createElement('div');
+    cont.id = 'guia-faltantes';
+    cont.style.cssText =
+        'position:fixed;left:0;right:0;bottom:0;z-index:9999;'
+        + 'background:#fff;border-top:3px solid #C9A227;'
+        + 'box-shadow:0 -8px 24px rgba(0,0,0,.18);'
+        + 'max-height:62vh;display:flex;flex-direction:column;';
+
+    let filas = '';
+    faltantes.forEach((f, i) => {
+        const falta = (f.falta || []).join(', ');
+        filas +=
+            '<div class="gf-item" data-idx="' + i + '" '
+            + 'style="display:flex;align-items:center;gap:10px;padding:11px 14px;'
+            + 'border-bottom:1px solid #f0f2f7;">'
+            + '<span style="flex-shrink:0;width:22px;height:22px;border-radius:50%;'
+            + 'background:#A61C1C;color:#fff;font-size:12px;font-weight:700;'
+            + 'display:flex;align-items:center;justify-content:center;">' + (i + 1) + '</span>'
+            + '<div style="flex:1;min-width:0;">'
+            + '<div style="font-weight:600;font-size:13px;color:#2a3140;">' + escHtml(f.donde) + '</div>'
+            + '<div style="font-size:11.5px;color:#A61C1C;">Falta: ' + escHtml(falta) + '</div>'
+            + '</div>'
+            + '<button type="button" class="btn btn-primary btn-sm" '
+            + 'style="flex-shrink:0;" onclick="irAFaltante(' + i + ')">Ir <i class="bi bi-arrow-right"></i></button>'
+            + '</div>';
+    });
+
+    cont.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:space-between;'
+        + 'padding:12px 14px;border-bottom:1px solid #eef0f5;">'
+        + '<div style="font-weight:800;color:#22366F;font-size:14px;">'
+        + '<i class="bi bi-list-check"></i> Faltan ' + faltantes.length + ' por completar</div>'
+        + '<button type="button" onclick="cerrarGuiaFaltantes()" '
+        + 'style="border:0;background:none;font-size:20px;color:#767c94;cursor:pointer;">&times;</button>'
+        + '</div>'
+        + '<div style="padding:8px 14px;background:#fbf8ef;font-size:12px;color:#8a6d1a;">'
+        + '<i class="bi bi-shield-check"></i> Tranquilo: no se borró nada. '
+        + 'Toque <b>Ir</b> en cada punto, complete lo que falta y vuelva a cerrar.'
+        + '</div>'
+        + '<div style="overflow-y:auto;flex:1;">' + filas + '</div>';
+
+    document.body.appendChild(cont);
+    // Espacio para que el panel no tape el contenido al final.
+    document.body.style.paddingBottom = '62vh';
+}
+
+function cerrarGuiaFaltantes() {
+    const c = document.getElementById('guia-faltantes');
+    if (c) c.remove();
+    document.body.style.paddingBottom = '';
+}
+
+/** Lleva la pantalla justo al punto que le falta datos. */
+async function irAFaltante(idx) {
+    const f = _faltantesPendientes[idx];
+    if (!f) return;
+
+    if (f.tipo === 'area_comun') {
+        // Las áreas comunes están en el Paso 1.
+        irPaso(1);
+        setTimeout(() => {
+            const row = document.querySelector('.area-row[data-area="' + f.area_tipo + '"]');
+            if (row) {
+                const chk = row.querySelector('.area-reparar');
+                if (chk && !chk.checked) chk.checked = true;
+                const det = row.querySelector('.area-detalle');
+                if (det) det.style.display = 'block';
+                resaltar(row);
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 250);
+        return;
+    }
+
+    if (f.tipo === 'local') {
+        // Los locales están en su panel del Paso 2.
+        irPaso(2);
+        try { await cargarLocales(); } catch (e) {}
+        const card = await esperarApto(f.apto_id, f.apto_ident);
+        if (!card) {
+            alert('Abra el panel de locales comerciales y busque ' + (f.apto_ident || '')
+                + ' para completar los datos.');
+            return;
+        }
+        const body = card.querySelector('.apto-body');
+        if (body && body.classList.contains('hidden')) {
+            const head = card.querySelector('.apto-head');
+            if (head) head.click();
+        }
+        setTimeout(() => {
+            const amb = card.querySelector('.amb-row[data-amb="' + f.ambiente_id + '"]');
+            const destino = amb || card;
+            resaltar(destino);
+            destino.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 300);
+        return;
+    }
+
+    // Ambiente de apartamento: está en el Paso 2, dentro de su piso.
+    irPaso(2);
+
+    // Seleccionar el piso correcto y esperar a que carguen sus aptos.
+    const sel = document.getElementById('selector-piso');
+    if (sel && f.piso_id) {
+        sel.value = f.piso_id;
+        mostrarPisoSeleccionado();
+    }
+
+    // El piso carga sus apartamentos por red; se espera a que aparezca
+    // la tarjeta del apartamento buscado (hasta ~3 s).
+    const card = await esperarApto(f.apto_id, f.apto_ident);
+    if (!card) {
+        alert('Abra el piso ' + (f.piso_numero || '') + ' y busque el apto '
+            + (f.apto_ident || '') + ' para completar los datos.');
+        return;
+    }
+
+    // Abrir el apartamento si está cerrado.
+    const body = card.querySelector('.apto-body');
+    if (body && body.classList.contains('hidden')) {
+        const head = card.querySelector('.apto-head');
+        if (head) head.click();
+    }
+
+    setTimeout(() => {
+        const amb = card.querySelector('.amb-row[data-amb="' + f.ambiente_id + '"]');
+        const destino = amb || card;
+        resaltar(destino);
+        destino.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+}
+
+/** Espera a que exista la tarjeta de un apartamento tras cargar el piso. */
+function esperarApto(aptoId, ident, intentos = 15) {
+    return new Promise(resolve => {
+        const buscar = () => {
+            let card = aptoId
+                ? document.querySelector('.apto-card[data-apto-id="' + aptoId + '"]')
+                : null;
+            if (!card && ident) {
+                card = Array.from(document.querySelectorAll('.apto-card'))
+                    .find(c => (c.dataset.ident || '') === String(ident)) || null;
+            }
+            if (card) return resolve(card);
+            if (--intentos <= 0) return resolve(null);
+            setTimeout(buscar, 200);
+        };
+        buscar();
+    });
+}
+
+/** Resalta un momento el bloque al que se saltó, para ubicarlo rápido. */
+function resaltar(el) {
+    if (!el) return;
+    const antes = el.style.boxShadow;
+    el.style.transition = 'box-shadow .3s';
+    el.style.boxShadow = '0 0 0 3px #C9A227';
+    setTimeout(() => { el.style.boxShadow = antes; }, 1800);
+}
+
+/** Escape mínimo para el texto que va al panel. */
+function escHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 /**
  * Comprobante generado EN EL TELÉFONO, sin necesidad de servidor.
  * Abre una ventana lista para imprimir o guardar como PDF.
@@ -4290,10 +4843,10 @@ function comprobanteLocal() {
                           + (parseInt(a.num_balcones)||0);
                 totAmb += amb;
                 filas += '<tr>'
-                    + '<td style="font-weight:700;color:#22366F;">' + (a.identificador||'') + '</td>'
-                    + '<td>' + (a.jefe_nombre || '— sin registrar —') + '</td>'
-                    + '<td>' + (a.jefe_cedula || '—') + '</td>'
-                    + '<td>' + (a.jefe_telefono || '—') + '</td>'
+                    + '<td style="font-weight:700;color:#22366F;">' + escHtml(a.identificador||'') + '</td>'
+                    + '<td>' + escHtml(a.jefe_nombre || '— sin registrar —') + '</td>'
+                    + '<td>' + escHtml(a.jefe_cedula || '—') + '</td>'
+                    + '<td>' + escHtml(a.jefe_telefono || '—') + '</td>'
                     + '<td style="text-align:center;">' + amb + '</td>'
                     + '<td style="text-align:center;color:#8a6d1a;font-size:10px;">pendiente</td>'
                     + '</tr>';

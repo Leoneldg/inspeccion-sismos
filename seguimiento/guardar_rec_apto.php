@@ -42,10 +42,66 @@ try {
     // --- Guardar las cantidades de ambientes de un apartamento ---
     if ($accion === 'guardar_apto') {
         $aptoId = (int)($b['apartamento_id'] ?? 0);
-        if ($aptoId <= 0) resp(false, 'Apartamento no válido.');
+
+        // Apartamento creado SIN señal: llega con un id negativo temporal.
+        // Hay que resolverlo a un apartamento real (buscándolo por piso e
+        // identificador, o creándolo) ANTES de guardar. Sin esto, todo lo
+        // que el técnico llenó en la calle se rechazaba y se perdía.
+        if ($aptoId <= 0) {
+            $pisoId = (int)($b['piso_id'] ?? 0);
+            $ident  = trim($b['identificador'] ?? '');
+            $esLocal = !empty($b['es_local']) ? 1 : 0;
+
+            // Un local creado offline puede no traer piso: se ubica en la
+            // planta baja (piso de menor número) del edificio.
+            if ($pisoId <= 0 && $esLocal && !empty($b['edificio_id'])) {
+                try {
+                    $stPB = db()->prepare('SELECT id FROM rec_piso
+                                            WHERE edificio_id = :e
+                                            ORDER BY numero_piso ASC LIMIT 1');
+                    $stPB->execute(['e' => (int)$b['edificio_id']]);
+                    $pisoId = (int)$stPB->fetchColumn();
+                } catch (Throwable $e) {}
+            }
+
+            if ($pisoId <= 0 || $ident === '') {
+                resp(false, 'Faltan datos del apartamento sin conexión (piso o identificador).',
+                     ['reintentar' => false]);
+            }
+
+            // Verificar que el piso exista (por si el edificio cambió).
+            $stP = db()->prepare('SELECT COUNT(*) FROM rec_piso WHERE id = :p');
+            $stP->execute(['p' => $pisoId]);
+            if ((int)$stP->fetchColumn() === 0) {
+                resp(false, 'El piso de este apartamento ya no existe.', ['reintentar' => false]);
+            }
+
+            recAsegurarLocales();
+            // ¿Ya existe (por identificador en ese piso)? Reusarlo.
+            $stB = db()->prepare('SELECT id FROM rec_apartamento
+                                   WHERE piso_id = :p AND identificador = :i
+                                     AND COALESCE(es_local,0) = :l');
+            $stB->execute(['p' => $pisoId, 'i' => $ident, 'l' => $esLocal]);
+            $real = (int)$stB->fetchColumn();
+
+            if ($real <= 0) {
+                db()->prepare('INSERT INTO rec_apartamento (piso_id, identificador, es_local)
+                               VALUES (:p, :i, :l)')
+                    ->execute(['p' => $pisoId, 'i' => $ident, 'l' => $esLocal]);
+                $real = (int)db()->lastInsertId();
+            }
+            $aptoId = $real;
+        }
+
+        if ($aptoId <= 0) resp(false, 'Apartamento no válido.', ['reintentar' => false]);
         recGuardarApartamento($aptoId, $b);
-        // Devolver los ambientes generados (con sus ids) para poder subirles fotos.
-        resp(true, 'Apartamento guardado.', ['ambientes' => recAmbientes($aptoId)]);
+        // Devolver el id REAL y los ambientes (con sus ids) para que el
+        // teléfono reasigne las fotos que quedaron con el id temporal.
+        resp(true, 'Apartamento guardado.', [
+            'apartamento_id_real' => $aptoId,
+            'apartamento_id_local' => (int)($b['apartamento_id'] ?? 0),
+            'ambientes' => recAmbientes($aptoId),
+        ]);
     }
 
     // --- Datos del jefe de familia, guardado inmediato ---

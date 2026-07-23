@@ -124,58 +124,21 @@ try {
     }
 
     if (($b['accion'] ?? '') === 'cierre') {
-        // Comprobar que los ambientes marcados como "necesita reparación"
-        // tengan metros cuadrados. Sin ese dato no hay cálculo de materiales.
-        // Un ambiente a reparar necesita tres cosas: metros, tipo de
-        // trabajo y foto del daño. Sin eso el levantamiento queda incompleto
-        // y no se pueden calcular materiales ni justificar la reparación.
+        // No se puede cerrar el levantamiento con datos faltantes.
+        // "Completo" = todo lo marcado para reparar (ambientes Y áreas
+        // comunes) tiene tipo de trabajo, metros y foto. La regla vive
+        // en recLevantamientoIncompleto(): la misma que usa el PDF.
         try {
-            $stM = db()->prepare("
-                SELECT ap.identificador, am.tipo, am.numero,
-                       (SELECT COUNT(*) FROM rec_reparacion rr
-                         WHERE rr.nivel = 'ambiente' AND rr.ref_id = am.id
-                           AND rr.metros_cuadrados > 0) AS con_metros,
-                       (SELECT COUNT(*) FROM rec_reparacion rr2
-                         WHERE rr2.nivel = 'ambiente' AND rr2.ref_id = am.id
-                           AND rr2.tipo_trabajo IS NOT NULL AND rr2.tipo_trabajo <> '') AS con_trabajo,
-                       (SELECT COUNT(*) FROM rec_foto f
-                         WHERE f.nivel = 'ambiente' AND f.ref_id = am.id) AS con_foto
-                  FROM rec_ambiente am
-                  JOIN rec_apartamento ap ON ap.id = am.apartamento_id
-                  JOIN rec_piso pi ON pi.id = ap.piso_id
-                 WHERE pi.edificio_id = :e
-                   AND am.necesita_reparacion = 1
-                 HAVING con_metros = 0 OR con_trabajo = 0 OR con_foto = 0
-                 ORDER BY pi.numero_piso, ap.identificador
-                 LIMIT 20
-            ");
-            $stM->execute(['e' => $edificioId]);
-            $faltan = $stM->fetchAll();
-
-            // Si faltan datos se avisa, pero NO se bloquea el cierre cuando
-            // el usuario ya confirmó: puede haber casos legítimos (un
-            // ambiente inaccesible, por ejemplo). Lo importante es que
-            // quede constancia de qué falta.
-            if ($faltan && empty($b['confirmar_incompleto'])) {
-                $lista = [];
-                foreach ($faltan as $f) {
-                    $que = [];
-                    if ((int)$f['con_trabajo'] === 0) $que[] = 'tipo de trabajo';
-                    if ((int)$f['con_metros'] === 0)  $que[] = 'metros';
-                    if ((int)$f['con_foto'] === 0)    $que[] = 'foto';
-                    $lista[] = 'Apto ' . $f['identificador'] . ' · ' . $f['tipo'] . ' ' . $f['numero']
-                             . ' → falta ' . implode(', ', $que);
-                }
-                resp(false, "Hay ambientes de reparación sin completar:\n\n· "
-                    . implode("\n· ", $lista)
-                    . "\n\n¿Desea cerrar el levantamiento de todos modos?",
-                    ['puede_confirmar' => true, 'incompletos' => count($faltan)]);
-            }
-
-            // Si cerró con datos faltantes, dejar constancia.
-            if ($faltan && !empty($b['confirmar_incompleto'])) {
-                recAuditar('cierre_incompleto', $inspeccionId, $edificioId,
-                    count($faltan) . ' ambiente(s) sin completar al cerrar');
+            $faltan = recLevantamientoIncompleto($edificioId);
+            if ($faltan) {
+                resp(false,
+                    'Faltan datos en ' . count($faltan) . ' reparación(es). '
+                    . 'No se borró nada: complete cada punto y vuelva a cerrar.',
+                    [
+                        'incompletos'    => count($faltan),
+                        'puede_confirmar'=> false,
+                        'faltantes'      => $faltan,   // lista detallada para la guía
+                    ]);
             }
         } catch (Throwable $e) { /* si la consulta falla, no bloquear el cierre */ }
 
@@ -207,12 +170,16 @@ try {
 
     // --- Modo PASO 1: datos básicos + generar pisos ---
     // NO marca completado: eso ocurre solo al cerrar el levantamiento (paso 3).
+    recAsegurarLocales();   // columnas y tipos de local, por si faltan
     db()->prepare(
-        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac WHERE id=:id'
+        'UPDATE rec_edificio SET num_pisos=:np, aptos_por_piso=:app, tiene_areas_comunes=:tac,
+            tiene_locales=:tl, num_locales=:nl WHERE id=:id'
     )->execute([
         'np'  => ($b['num_pisos'] ?? '') !== '' ? (int)$b['num_pisos'] : null,
         'app' => ($b['aptos_por_piso'] ?? '') !== '' ? (int)$b['aptos_por_piso'] : null,
         'tac' => !empty($b['tiene_areas_comunes']) ? 1 : 0,
+        'tl'  => !empty($b['tiene_locales']) ? 1 : 0,
+        'nl'  => max(0, (int)($b['num_locales'] ?? 0)),
         'id'  => $edificioId,
     ]);
 
@@ -231,6 +198,14 @@ try {
             foreach (recPisos($edificioId) as $piso) {
                 recGenerarApartamentos((int)$piso['id'], $aptosPorPiso, (int)$piso['numero_piso']);
             }
+        }
+    }
+
+    // Generar los locales comerciales en la planta baja (piso 1).
+    if (!empty($b['tiene_locales'])) {
+        $numLoc = max(0, (int)($b['num_locales'] ?? 0));
+        if ($numLoc > 0 && $numLoc <= 60) {
+            recGenerarLocales($edificioId, $numLoc);
         }
     }
 
