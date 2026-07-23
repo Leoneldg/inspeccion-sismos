@@ -103,10 +103,14 @@ function techPorCantidadPisos(array $filtros = []): array
 }
 
 /**
- * Por edificio: metros² de trabajo, daño estructural (colapso) y pisos.
- * Ordenado por más metros de trabajo (los que más obra requieren).
+ * Por edificio: metros² de trabajo, daño estructural (colapso), pisos y
+ * cantidad de apartamentos.
+ *
+ * $orden:
+ *   'obra'       → los que más metros de trabajo requieren (por defecto).
+ *   'aptos_asc'  → los de menos apartamentos primero (los más livianos).
  */
-function techPorEdificio(array $filtros = [], int $limite = 40): array
+function techPorEdificio(array $filtros = [], int $limite = 40, string $orden = 'obra'): array
 {
     [$where, $par] = techScopeWhere($filtros);
     $filas = [];
@@ -115,7 +119,12 @@ function techPorEdificio(array $filtros = [], int $limite = 40): array
             SELECT i.id, i.nombre_edificio, i.parroquia,
                    COALESCE(i.num_pisos,0) AS num_pisos,
                    COALESCE(i.colapso_estructura,'No') AS colapso,
-                   re.id AS edificio_id
+                   re.id AS edificio_id,
+                   (SELECT COUNT(*)
+                      FROM rec_apartamento ap
+                      JOIN rec_piso pi ON pi.id = ap.piso_id
+                     WHERE pi.edificio_id = re.id
+                       AND COALESCE(ap.es_local,0) = 0) AS num_apartamentos
               FROM inspecciones i
               JOIN rec_edificio re ON re.inspeccion_id = i.id
               $where
@@ -134,14 +143,26 @@ function techPorEdificio(array $filtros = [], int $limite = 40): array
         } catch (Throwable $ex) {}
         if ($m2 <= 0) continue;   // sólo los que tienen obra registrada
         $filas[] = [
-            'nombre'    => $e['nombre_edificio'] ?: 'Sin nombre',
-            'parroquia' => $e['parroquia'] ?: 'Sin parroquia',
-            'num_pisos' => (int)$e['num_pisos'],
-            'colapso'   => $e['colapso'],
-            'm2'        => round($m2, 2),
+            'nombre'            => $e['nombre_edificio'] ?: 'Sin nombre',
+            'parroquia'         => $e['parroquia'] ?: 'Sin parroquia',
+            'num_pisos'         => (int)$e['num_pisos'],
+            'num_apartamentos'  => (int)$e['num_apartamentos'],
+            'colapso'           => $e['colapso'],
+            'm2'                => round($m2, 2),
         ];
     }
-    usort($filas, fn($a, $b) => $b['m2'] <=> $a['m2']);
+
+    // Ordenar según lo pedido. Por defecto, los que más obra requieren;
+    // en 'aptos_asc', los de menos apartamentos primero (a igualdad de
+    // apartamentos, el de menos metros de trabajo va antes).
+    if ($orden === 'aptos_asc') {
+        usort($filas, function ($a, $b) {
+            return [$a['num_apartamentos'], $a['m2']]
+               <=> [$b['num_apartamentos'], $b['m2']];
+        });
+    } else {
+        usort($filas, fn($a, $b) => $b['m2'] <=> $a['m2']);
+    }
     return array_slice($filas, 0, $limite);
 }
 
@@ -177,7 +198,7 @@ function techDanoEstructural(array $filtros = []): array
  * Reúne todo el dashboard técnico en un llamado.
  * Reutiliza segConsolidadoMateriales para materiales/trabajos/parroquias.
  */
-function techDashboard(array $filtros = []): array
+function techDashboard(array $filtros = [], string $ordenEdificios = 'obra'): array
 {
     // segConsolidadoMateriales respeta el scope del usuario pero NO el
     // filtro de parroquia por argumento; si se filtró por parroquia,
@@ -189,7 +210,7 @@ function techDashboard(array $filtros = []): array
     return [
         'consolidado' => $cons,                        // materiales, trabajos, m2, parroquias
         'pisos'       => techPorCantidadPisos($filtros),
-        'edificios'   => techPorEdificio($filtros),
+        'edificios'   => techPorEdificio($filtros, 40, $ordenEdificios),
         'dano'        => techDanoEstructural($filtros),
         'filtros'     => $filtros,
     ];
