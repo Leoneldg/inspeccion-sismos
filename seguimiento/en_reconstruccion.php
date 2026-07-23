@@ -419,44 +419,61 @@ async function cargarMaterialesPiso() {
 }
 
 function pintarMaterialesPiso(cont, d) {
-    const mats = d.materiales || {};
-    const claves = Object.keys(mats);
+    const total = d.total || {};
+    const claves = Object.keys(total);
     if (!claves.length) {
         cont.innerHTML = '<div style="color:#5b6478;font-size:13px;padding:6px 0;">'
-            + 'No hay materiales registrados para ' + esc(d.etiqueta.toLowerCase())
+            + 'No hay materiales registrados para ' + esc((d.etiqueta||'').toLowerCase())
             + ' todavía.</div>';
         return;
     }
 
+    // --- Total general (para comprar por lote) ---
     let html = '<div style="font-weight:700;color:#22366F;margin-bottom:8px;">'
         + '<i class="bi bi-clipboard-check"></i> ' + esc(d.etiqueta)
-        + ' · total de materiales</div>';
+        + ' · TOTAL de todos los edificios</div>';
+    html += tablaMateriales(total, '#22366F');
 
-    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
-        + '<thead><tr style="background:#22366F;color:#fff;">'
-        + '<th style="text-align:left;padding:7px 10px;">Material</th>'
-        + '<th style="text-align:right;padding:7px 10px;">Cantidad</th></tr></thead><tbody>';
+    // --- Desglose por edificio ---
+    const porEd = d.por_edificio || [];
+    if (porEd.length) {
+        html += '<div style="font-weight:700;color:#22366F;margin:16px 0 8px;">'
+            + '<i class="bi bi-buildings"></i> Qué necesita cada edificio</div>';
+        porEd.forEach(ed => {
+            html += '<div style="margin-bottom:12px;border:1px solid #dde3f0;'
+                + 'border-radius:8px;overflow:hidden;">'
+                + '<div style="background:#eef2fb;padding:7px 12px;font-weight:600;'
+                + 'color:#22366F;font-size:13px;">'
+                + '<i class="bi bi-building"></i> ' + esc(ed.nombre) + '</div>'
+                + tablaMateriales(ed.materiales, '#5b6478', true)
+                + '</div>';
+        });
+    }
+
+    cont.innerHTML = html;
+}
+
+// Construye una tabla de materiales. Si compacta=true, sin cabecera de color.
+function tablaMateriales(mats, colorCabecera, compacta) {
+    const claves = Object.keys(mats);
+    let html = '<div style="overflow-x:auto;"><table style="width:100%;'
+        + 'border-collapse:collapse;font-size:13px;">';
+    if (!compacta) {
+        html += '<thead><tr style="background:' + colorCabecera + ';color:#fff;">'
+            + '<th style="text-align:left;padding:7px 10px;">Material</th>'
+            + '<th style="text-align:right;padding:7px 10px;">Cantidad</th></tr></thead>';
+    }
+    html += '<tbody>';
     claves.forEach((k, i) => {
-        const val = mats[k];
-        const num = (Math.round(val * 100) / 100).toString().replace('.', ',');
-        html += '<tr style="border-bottom:1px solid #e5e8f0;'
+        const num = (Math.round(mats[k] * 100) / 100).toString().replace('.', ',');
+        html += '<tr style="border-bottom:1px solid #eceef4;'
             + (i % 2 ? 'background:#fff;' : 'background:#fafbfe;') + '">'
             + '<td style="padding:6px 10px;">' + esc(k) + '</td>'
             + '<td style="padding:6px 10px;text-align:right;font-weight:600;">' + num + '</td>'
             + '</tr>';
     });
     html += '</tbody></table></div>';
-
-    // Desglose por trabajo, para saber de dónde salen los materiales.
-    const trab = d.por_trabajo || {};
-    const tk = Object.keys(trab);
-    if (tk.length) {
-        html += '<div style="margin-top:10px;font-size:12px;color:#5b6478;">'
-            + '<b>Trabajos que suman a este piso:</b> '
-            + tk.map(k => esc(k) + ' (' + String(trab[k]).replace('.', ',') + ' m²)').join(' · ')
-            + '</div>';
-    }
-    cont.innerHTML = html;
+    return html;
 }
 
 function esc(s) {

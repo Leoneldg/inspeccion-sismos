@@ -42,18 +42,18 @@ try {
     }
     $filtros = $parroquia !== '' ? ['parroquia' => $parroquia] : [];
 
-    $res = recMaterialesPorPisoGlobal($numeroPiso, $filtros);
+    $res = recMaterialesPorPisoConDesglose($numeroPiso, $filtros);
 
-    // Ordenar materiales por nombre para una lectura estable.
-    $materiales = $res['materiales'] ?? [];
-    ksort($materiales, SORT_NATURAL | SORT_FLAG_CASE);
+    // Ordenar el total por nombre para una lectura estable.
+    $total = $res['total'] ?? [];
+    ksort($total, SORT_NATURAL | SORT_FLAG_CASE);
 
     jr(true, [
         'numero_piso'  => $numeroPiso,
         'etiqueta'     => $numeroPiso === 0 ? 'Planta baja' : ('Piso ' . $numeroPiso),
         'parroquia'    => $parroquia,
-        'materiales'   => $materiales,
-        'por_trabajo'  => $res['por_trabajo'] ?? [],
+        'total'        => $total,
+        'por_edificio' => $res['por_edificio'] ?? [],
     ]);
 } catch (Throwable $e) {
     jr(false, ['mensaje' => APP_DEBUG ? $e->getMessage() : 'No se pudo calcular.']);

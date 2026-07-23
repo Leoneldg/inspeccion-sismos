@@ -2910,16 +2910,37 @@ function recTrabajosPorPisoGlobal(int $numeroPiso, array $filtros = []): array
     try {
         // Construir el filtro territorial (estado/parroquia del usuario) y
         // el de parroquia elegido, aplicados sobre la inspección.
-        $cond = []; $par = [];
-        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($cond, $par, 'i');
-        if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($cond, $par, 'i');
+        //
+        // OJO: el filtro aparece en DOS subconsultas (ambientes y
+        // elementos de piso). Con PDO en modo no-emulado NO se puede
+        // repetir el mismo nombre de parámetro (:scope_estado) en dos
+        // lugares, o la consulta entera falla y no devuelve nada. Por eso
+        // cada rama recibe su propia copia de los parámetros, con sufijo.
+        $cond = []; $parBase = [];
+        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($cond, $parBase, 'i');
+        if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($cond, $parBase, 'i');
         if (!empty($filtros['parroquia'])) {
             $cond[] = 'i.parroquia = :parr';
-            $par['parr'] = $filtros['parroquia'];
+            $parBase['parr'] = $filtros['parroquia'];
         }
-        $scopeSql = $cond ? (' AND ' . implode(' AND ', $cond)) : '';
+        $scopeSqlBase = $cond ? (' AND ' . implode(' AND ', $cond)) : '';
 
-        // El número de piso entra como parámetro en cada rama.
+        // Se generan DOS versiones del scope, con sufijos _a (ambientes) y
+        // _e (elementos), para no repetir nombres de parámetro.
+        $par = [];
+        $hacerRama = function (string $sufijo) use ($scopeSqlBase, $parBase, &$par): string {
+            $sql = $scopeSqlBase;
+            foreach ($parBase as $nombre => $valor) {
+                $nuevo = $nombre . $sufijo;
+                // Reemplazar :nombre por :nombre+sufijo cuidando límites.
+                $sql = preg_replace('/:' . preg_quote($nombre, '/') . '\b/', ':' . $nuevo, $sql);
+                $par[$nuevo] = $valor;
+            }
+            return $sql;
+        };
+        $scopeA = $hacerRama('_a');
+        $scopeE = $hacerRama('_e');
+
         $par['np1'] = $numeroPiso;
         $par['np2'] = $numeroPiso;
 
@@ -2941,17 +2962,130 @@ function recTrabajosPorPisoGlobal(int $numeroPiso, array $filtros = []): array
                          JOIN rec_piso pi ON pi.id = ap.piso_id
                          JOIN rec_edificio re ON re.id = pi.edificio_id
                          JOIN inspecciones i ON i.id = re.inspeccion_id
-                        WHERE pi.numero_piso = :np1 $scopeSql))
+                        WHERE pi.numero_piso = :np1 $scopeA))
                 OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
                        SELECT ep.id FROM rec_elemento_piso ep
                          JOIN rec_piso pi2 ON pi2.id = ep.piso_id
                          JOIN rec_edificio re2 ON re2.id = pi2.edificio_id
                          JOIN inspecciones i ON i.id = re2.inspeccion_id
-                        WHERE pi2.numero_piso = :np2 $scopeSql))
+                        WHERE pi2.numero_piso = :np2 $scopeE))
                )
              GROUP BY rr.tipo_trabajo
         ");
         $st->execute($par);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
+        }
+        return $out;
+    } catch (Throwable $e) { return []; }
+}
+
+/**
+ * Igual que recMaterialesPorPisoGlobal, pero además desglosado por
+ * edificio: devuelve el total general Y qué necesita cada construcción
+ * para ese piso. Así se ve el total para comprar por lote y, a la vez,
+ * cuánto asignar a cada edificio.
+ */
+function recMaterialesPorPisoConDesglose(int $numeroPiso, array $filtros = []): array
+{
+    // Edificios que tienen ese número de piso, dentro del scope.
+    $edificios = [];
+    try {
+        $cond = []; $par = [];
+        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($cond, $par, 'i');
+        if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($cond, $par, 'i');
+        if (!empty($filtros['parroquia'])) {
+            $cond[] = 'i.parroquia = :parr';
+            $par['parr'] = $filtros['parroquia'];
+        }
+        $cond[] = 'pi.numero_piso = :np';
+        $par['np'] = $numeroPiso;
+        $where = ' WHERE ' . implode(' AND ', $cond);
+        $st = db()->prepare("
+            SELECT DISTINCT re.id AS edificio_id,
+                   COALESCE(NULLIF(TRIM(i.nombre_edificio), ''), i.codigo, CONCAT('Edificio #', re.id)) AS nombre
+              FROM rec_piso pi
+              JOIN rec_edificio re ON re.id = pi.edificio_id
+              JOIN inspecciones i ON i.id = re.inspeccion_id
+              $where
+             ORDER BY nombre
+        ");
+        $st->execute($par);
+        $edificios = $st->fetchAll() ?: [];
+    } catch (Throwable $e) { $edificios = []; }
+
+    // Materiales de cada edificio para ese piso (reusa la función por
+    // edificio, filtrando el piso).
+    $porEdificio = [];
+    $totalMat = [];
+    foreach ($edificios as $ed) {
+        $edId = (int)$ed['edificio_id'];
+        $trabajos = recTrabajosDeEdificioPorPiso($edId, $numeroPiso);
+        if (!$trabajos) continue;
+        $mats = [];
+        try {
+            $det = recMaterialesPorTrabajo($trabajos);
+            foreach ($det as $mat => $d) {
+                $clave = $mat . ' (' . $d['unidad'] . ')';
+                $mats[$clave] = $d['cantidad'];
+                $totalMat[$clave] = ($totalMat[$clave] ?? 0) + $d['cantidad'];
+            }
+        } catch (Throwable $e) {}
+        if ($mats) {
+            ksort($mats, SORT_NATURAL | SORT_FLAG_CASE);
+            $porEdificio[] = [
+                'edificio_id' => $edId,
+                'nombre'      => $ed['nombre'],
+                'materiales'  => $mats,
+            ];
+        }
+    }
+    ksort($totalMat, SORT_NATURAL | SORT_FLAG_CASE);
+
+    return [
+        'numero_piso'  => $numeroPiso,
+        'total'        => $totalMat,
+        'por_edificio' => $porEdificio,
+    ];
+}
+
+/**
+ * Trabajos de UN edificio pero SOLO de un número de piso.
+ * (recTrabajosDeEdificio suma todos los pisos; esta acota a uno.)
+ */
+function recTrabajosDeEdificioPorPiso(int $edificioId, int $numeroPiso): array
+{
+    recAsegurarTablasTrabajo();
+    try {
+        $st = db()->prepare("
+            SELECT rr.tipo_trabajo, SUM(rr.metros_cuadrados) AS cantidad
+              FROM rec_reparacion rr
+              JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
+             WHERE rr.tipo_trabajo IS NOT NULL AND rr.tipo_trabajo <> ''
+               AND rr.metros_cuadrados > 0
+               AND (
+                   tt.aplica_a IS NULL OR tt.aplica_a = ''
+                   OR tt.unidad = 'm3'
+                   OR FIND_IN_SET(rr.tipo_superficie, REPLACE(tt.aplica_a, ' ', '')) > 0
+               )
+               AND (
+                   (rr.nivel = 'ambiente' AND rr.ref_id IN (
+                       SELECT am.id FROM rec_ambiente am
+                         JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+                         JOIN rec_piso pi ON pi.id = ap.piso_id
+                        WHERE pi.edificio_id = :e1 AND pi.numero_piso = :np1))
+                OR (rr.nivel = 'elemento_piso' AND rr.ref_id IN (
+                       SELECT ep.id FROM rec_elemento_piso ep
+                         JOIN rec_piso pi2 ON pi2.id = ep.piso_id
+                        WHERE pi2.edificio_id = :e2 AND pi2.numero_piso = :np2))
+               )
+             GROUP BY rr.tipo_trabajo
+        ");
+        $st->execute([
+            'e1' => $edificioId, 'np1' => $numeroPiso,
+            'e2' => $edificioId, 'np2' => $numeroPiso,
+        ]);
         $out = [];
         foreach ($st->fetchAll() as $r) {
             $out[$r['tipo_trabajo']] = (float)$r['cantidad'];
