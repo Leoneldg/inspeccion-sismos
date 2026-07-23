@@ -4172,7 +4172,14 @@ function segConsolidadoMateriales(float $margen = 0): array
     // muestran la misma cifra.
     $margen = MARGEN_MATERIALES;
 
-    $conds = ['re.completado = 1', recSqlEdificioCompleto('re')];
+    // Se cuentan los levantamientos CERRADOS (completado = 1). Antes se
+    // exigía además que toda reparación tuviera metros+trabajo+foto
+    // (recSqlEdificioCompleto), pero eso dejaba fuera levantamientos que
+    // ya se habían cerrado cuando el sistema aún permitía cerrar sin foto.
+    // El criterio nuevo ya impide cerrar incompletos, así que "cerrado"
+    // basta. Las reparaciones a medias no inflan los materiales porque
+    // sus metros son 0 y no suman al total.
+    $conds = ['re.completado = 1'];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');

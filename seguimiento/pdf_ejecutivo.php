@@ -55,7 +55,10 @@ $c = segConsolidadoMateriales();
 // Clasificación por color, de los levantamientos cerrados.
 $porColor = [];
 try {
-    $conds = ['re.completado = 1', recSqlEdificioCompleto('re')];
+    // Clasificación por color de los levantamientos CERRADOS (completado=1).
+    // No se re-exige la validación estricta de reparaciones: los cerrados
+    // antes del criterio nuevo también deben contar.
+    $conds = ['re.completado = 1'];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');

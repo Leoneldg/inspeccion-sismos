@@ -15,15 +15,14 @@ require_once __DIR__ . '/seguimiento.php';
 
 /**
  * WHERE con el scope del usuario + filtro de parroquia opcional.
- * Sólo edificaciones con levantamiento cerrado y completo, igual que
- * segConsolidadoMateriales, para que las cifras cuadren.
+ * Sólo edificaciones con levantamiento CERRADO (completado = 1), igual
+ * que segConsolidadoMateriales, para que las cifras cuadren. No se
+ * re-exige la validación estricta de reparaciones: los levantamientos
+ * cerrados antes del criterio nuevo también cuentan.
  */
 function techScopeWhere(array $filtros = []): array
 {
     $conds = ['re.completado = 1'];
-    if (function_exists('recSqlEdificioCompleto')) {
-        $conds[] = recSqlEdificioCompleto('re');
-    }
     $par = [];
     if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($conds, $par, 'i');
     if (function_exists('aplicarScopeParroquia')) aplicarScopeParroquia($conds, $par, 'i');
