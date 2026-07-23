@@ -2929,27 +2929,49 @@ function segMaterialPorEtapa(array $trabajos): array
     // clasificada por etapa. Así "Materiales y rendimientos" es la
     // única fuente de verdad, en vez de tener números repetidos y
     // desincronizados en el código.
+    // La regla de negocio es en cascada:
+    //   demoler       -> demolición + construcción + revestimiento
+    //   reconstruir   -> construcción + revestimiento
+    //   revestir      -> solo revestimiento
+    //
+    // Antes, tres trabajos rompían la cascada: 'demoler_reconstruir_*'
+    // y 'mamposteria_bloque_*' levantaban pared con 'rev' => 0.0, así
+    // que el sistema pedía los bloques pero nunca el friso ni la
+    // pintura de esa pared nueva. Y 'demolicion_mamposteria' dejaba la
+    // cara vista sin frisar. Ahora todos siguen la misma regla.
     $reparto = [
+        // --- Demoler y volver a levantar: las tres etapas ---
         'demoler_pared_completa_concreto' => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
         'demoler_pared_completa_arcilla'  => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
         'demolicion_parcial_concreto'     => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
         'demolicion_parcial_arcilla'      => ['dem' => 1.2, 'con' => 1.0, 'rev' => 2.0],
+        'demoler_reconstruir_concreto'    => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+        'demoler_reconstruir_arcilla'     => ['dem' => 1.0, 'con' => 1.0, 'rev' => 2.0],
+
+        // --- Solo demoler: la cara que queda a la vista se frisa ---
+        'demolicion_mamposteria'          => ['dem' => 1.0, 'con' => 0.0, 'rev' => 1.0],
+        'demolicion_estructura'           => ['dem' => 1.0, 'con' => 0.0, 'rev' => 1.0],
+
+        // --- Levantar pared nueva: construcción + su revestimiento ---
         'pared_completa_concreto'         => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
         'pared_completa_arcilla'          => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+        'mamposteria_bloque_concreto'     => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+        'mamposteria_bloque_arcilla'      => ['dem' => 0.0, 'con' => 1.0, 'rev' => 2.0],
+        'vaciado_losa'                    => ['dem' => 0.0, 'con' => 1.0, 'rev' => 1.0],
+        'vaciado_estructura'              => ['dem' => 0.0, 'con' => 1.0, 'rev' => 1.0],
+
+        // --- Solo revestimiento ---
         'friso_completo_dos_caras'        => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
+        'friso_pintura_dos_caras'         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
         'friso_completo'                  => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
         'friso_reparacion'                => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
         'friso_pintura_una_cara'          => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
-        'friso_pintura_dos_caras'         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 2.0],
+        'friso_techo'                     => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'reparacion_estructural'          => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'impermeabilizacion'              => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
+        'piso_cemento'                    => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
         'solo_pintura'                    => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
         'pintura'                         => ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0],
-        // Estas tres ya estaban en segTrabajosPorCategoria() pero nunca
-        // se habían agregado aquí: los edificios con estos trabajos
-        // quedaban con material en $0 en el resumen ejecutivo aunque sí
-        // tuvieran m² registrados.
-        'demoler_reconstruir_arcilla'     => ['dem' => 1.0, 'con' => 1.0, 'rev' => 0.0],
-        'mamposteria_bloque_arcilla'      => ['dem' => 0.0, 'con' => 1.0, 'rev' => 0.0],
-        'demolicion_mamposteria'          => ['dem' => 1.0, 'con' => 0.0, 'rev' => 0.0],
     ];
 
     $M3_POR_M2  = 0.15;   // escombro que genera un m² demolido
@@ -2971,8 +2993,14 @@ function segMaterialPorEtapa(array $trabajos): array
 
     foreach ($trabajos as $clave => $m2) {
         $m2 = (float)$m2;
-        if ($m2 <= 0 || !isset($reparto[$clave])) continue;
-        $r = $reparto[$clave];
+        if ($m2 <= 0) continue;
+
+        // Un trabajo que no esté en la tabla de arriba (uno nuevo que
+        // cargue el ingeniero, por ejemplo) ya no se descarta: se trata
+        // como revestimiento, que es lo más conservador, y su receta
+        // sigue mandando. Antes se hacía 'continue' y esos metros
+        // desaparecían del cálculo sin ningún aviso.
+        $r = $reparto[$clave] ?? ['dem' => 0.0, 'con' => 0.0, 'rev' => 1.0];
 
         // --- Demolición: volumen de escombro, no viene de receta ---
         if ($r['dem'] > 0) {
@@ -4001,6 +4029,32 @@ function recAsegurarAreasPartidas(): void
         if (!in_array('partida', $cols2, true)) {
             db()->exec("ALTER TABLE rec_reparacion ADD COLUMN partida INT NOT NULL DEFAULT 1");
         }
+
+        // El nivel de rec_reparacion nació como ENUM('ambiente','elemento_piso').
+        // Las áreas comunes guardan con nivel='area_comun', que NO estaba en
+        // el ENUM: MySQL lo rechaza (o lo mete como '' en modo no estricto),
+        // así que la reparación del área nunca se guardaba y, al reabrir el
+        // formulario, todo salía vacío. Este es el motivo real por el que
+        // "se borraba" lo del paso 1. Se amplía el ENUM para admitirlo.
+        try {
+            $defNivel = db()->query(
+                "SHOW COLUMNS FROM rec_reparacion LIKE 'nivel'"
+            )->fetch(PDO::FETCH_ASSOC);
+            $tipoActual = strtolower($defNivel['Type'] ?? '');
+            if (strpos($tipoActual, 'area_comun') === false) {
+                db()->exec(
+                    "ALTER TABLE rec_reparacion
+                        MODIFY nivel ENUM('ambiente','elemento_piso','area_comun')
+                        NOT NULL DEFAULT 'ambiente'"
+                );
+            }
+        } catch (Throwable $e) { /* seguir */ }
+
+        // tipo_trabajo aquí también nació corto (varchar 40). Las claves
+        // reales llegan a 31, pero por seguridad se iguala a 60.
+        try {
+            db()->exec("ALTER TABLE rec_reparacion MODIFY tipo_trabajo VARCHAR(60) DEFAULT NULL");
+        } catch (Throwable $e) { /* seguir */ }
     } catch (Throwable $e) { /* seguir */ }
 }
 
@@ -4096,6 +4150,8 @@ function recGuardarAreasComunes(int $edificioId, array $areas): void
 {
     // Asegurar que existan las columnas nuevas (por si no se corrió el SQL).
     recAsegurarColumnasAreaComun();
+    // Y que rec_reparacion admita nivel='area_comun' (ENUM ampliado).
+    recAsegurarAreasPartidas();
 
     // Catálogo fijo de áreas. Las de nombre libre ("Otros") se añaden
     // más abajo, en $tiposValidos.
@@ -4925,18 +4981,8 @@ function recAsegurarIngeniero(): void
 /** Ingenieros activos, para el selector del levantamiento. */
 function recIngenierosActivos(): array
 {
-    // Se incluye la profesion (si la columna existe) para poder distinguir
-    // en el selector a los responsables que no son ingenieros.
-    $tieneProf = false;
     try {
-        $cols = db()->query('SHOW COLUMNS FROM ingenieros')
-                    ->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        $tieneProf = in_array('profesion', $cols, true);
-    } catch (Throwable $e) { $tieneProf = false; }
-
-    try {
-        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula"
-                          . ($tieneProf ? ", profesion" : "") . "
+        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula
                              FROM ingenieros
                             WHERE activo = 1
                             ORDER BY nombre_completo");
@@ -4948,27 +4994,11 @@ function recIngenierosActivos(): array
 function recIngenieroDe(int $edificioId): ?array
 {
     recAsegurarIngeniero();
-
-    // Solo se piden las columnas que existan de verdad: en instalaciones
-    // antiguas `profesion` o `foto` pueden faltar y la consulta entera
-    // fallaria, dejando la ficha sin responsable.
-    $colsIng = [];
     try {
-        $colsIng = db()->query('SHOW COLUMNS FROM ingenieros')
-                       ->fetchAll(PDO::FETCH_COLUMN) ?: [];
-    } catch (Throwable $e) { $colsIng = []; }
-    $extraSel = '';
-    if (in_array('profesion', $colsIng, true)) $extraSel .= ", ing.profesion";
-    if (in_array('foto', $colsIng, true))      $extraSel .= ", ing.foto";
-
-    try {
-        // Se traen tambien profesion y foto: el responsable puede no ser
-        // ingeniero (se registra desde el paso 1 con el interruptor
-        // "No es ingeniero") y esos datos hacen falta para mostrarlo bien.
         $st = db()->prepare("SELECT ing.id,
                                     ing.nombre_completo AS nombre,
                                     ing.cedula,
-                                    ing.telefono" . $extraSel . "
+                                    ing.telefono
                                FROM rec_edificio re
                                JOIN ingenieros ing ON ing.id = re.ingeniero_id
                               WHERE re.id = :e");

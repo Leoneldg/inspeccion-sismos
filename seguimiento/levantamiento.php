@@ -42,6 +42,9 @@ if ($soloLectura) $puedeEditar = false;
 $autor = $edificioIdActual > 0 ? recAutorLevantamiento($edificioIdActual) : [];
 
 $pisos = recPisos((int)$ed['id']);
+// Plan de tiempo (fase 3): se lee para precargar las fechas. Sin esto,
+// los campos salían siempre vacíos aunque ya se hubieran guardado.
+$planEd = $edificioIdActual ? recPlan($edificioIdActual) : null;
 $tiposElem = recTiposElementoPiso();
 
 // Color/decisión de la edificación para la intro.
@@ -69,20 +72,6 @@ include __DIR__ . '/../includes/header.php';
     .wz-panel h3 { margin:0 0 4px; color:#22366F; font-size:16px; }
     .wz-panel .sub { color:#767c94; font-size:13px; margin:0 0 18px; }
     .hidden { display:none; }
-
-    /* ---- Interruptor "No es ingeniero" ---- */
-    .sw { position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0; }
-    .sw input { position:absolute; opacity:0; width:0; height:0; }
-    .sw-pista { position:absolute; inset:0; background:#c8cddb; border-radius:24px;
-                transition:background .18s; display:block; }
-    .sw-bolita { position:absolute; top:3px; left:3px; width:18px; height:18px;
-                 background:#fff; border-radius:50%; transition:transform .18s;
-                 box-shadow:0 1px 3px rgba(0,0,0,.28); display:block; }
-    .sw input:checked + .sw-pista { background:#22366F; }
-    .sw input:checked + .sw-pista .sw-bolita { transform:translateX(20px); }
-    .sw input:focus-visible + .sw-pista { outline:2px solid #22366F; outline-offset:2px; }
-    .sw input:disabled + .sw-pista { opacity:.5; cursor:not-allowed; }
-
     .campo-estado { margin:12px 0; }
     .campo-estado .tit { display:block; font-weight:600; font-size:13px; color:#2a3140; margin-bottom:5px; }
     .seg-radio { display:inline-flex; align-items:center; gap:5px; margin-right:14px; font-size:13px; color:#2a3140; cursor:pointer; }
@@ -278,30 +267,6 @@ include __DIR__ . '/../includes/header.php';
     recAsegurarIngeniero();
     $ingenieros = recIngenierosActivos();
     $ingActual  = $ed['ingeniero_id'] ?? null;
-
-    // Datos del responsable ya asignado (puede no ser ingeniero).
-    $respActual = null;
-    try { $respActual = recIngenieroDe((int)$ed['id']); } catch (Throwable $e) {}
-
-    // Profesiones para el desplegable: las fijas del sistema mas las que
-    // se hayan ido agregando en el catalogo. Se usa la misma lista que
-    // admin/ingenieros.php para que no haya dos catalogos distintos.
-    $profesionesFijas = ['Ingeniero', 'Arquitecto', 'Bombero', 'Protección Civil',
-                         'Psicólogo', 'Psiquiatra', 'Antropólogo', 'Politólogo'];
-    $profesionesCat = [];
-    try { $profesionesCat = catalogoProfesiones(); } catch (Throwable $e) {}
-    $profesiones = $profesionesFijas;
-    foreach ($profesionesCat as $pc) {
-        $pc = trim((string)$pc);
-        if ($pc !== '' && !in_array($pc, $profesiones, true)) $profesiones[] = $pc;
-    }
-    sort($profesiones, SORT_NATURAL | SORT_FLAG_CASE);
-
-    // El interruptor arranca activado si el responsable guardado tiene una
-    // profesion distinta de "Ingeniero": significa que se registro por aqui.
-    $profResp = trim((string)($respActual['profesion'] ?? ''));
-    $esNoIngeniero = ($respActual !== null && $profResp !== ''
-                      && mb_strtolower($profResp, 'UTF-8') !== 'ingeniero');
     ?>
     <div style="background:#f7f9fd;border:1px solid #22366F22;border-radius:9px;
                 padding:12px 14px;margin-bottom:14px;">
@@ -311,152 +276,29 @@ include __DIR__ . '/../includes/header.php';
             <span style="color:#A61C1C;">*</span>
         </label>
 
-        <!-- Interruptor: el responsable no es ingeniero -->
-        <label class="sw-wrap" style="display:flex;align-items:center;gap:9px;
-               cursor:pointer;margin-bottom:10px;user-select:none;">
-            <span class="sw">
-                <input type="checkbox" id="no-es-ingeniero"
-                       <?= $esNoIngeniero ? 'checked' : '' ?>
-                       onchange="toggleNoIngeniero(this)">
-                <span class="sw-pista"><span class="sw-bolita"></span></span>
-            </span>
-            <span style="font-size:12.5px;font-weight:600;color:#22366F;">
-                No es ingeniero
-            </span>
-        </label>
-
-        <!-- ========== A) Selector normal de ingeniero ========== -->
-        <div id="bloque-ingeniero" style="<?= $esNoIngeniero ? 'display:none;' : '' ?>">
-            <?php if ($ingenieros): ?>
-            <select id="ingeniero-id" class="form-control" style="width:100%;max-width:420px;"
-                    onchange="guardarIngeniero(this)">
-                <option value="">— Seleccione el ingeniero a cargo —</option>
-                <?php foreach ($ingenieros as $ing): ?>
-                <option value="<?= (int)$ing['id'] ?>"
-                        <?= ((int)$ingActual === (int)$ing['id']) ? 'selected' : '' ?>>
-                    <?= e($ing['nombre']) ?><?= !empty($ing['cedula']) ? ' · ' . e($ing['cedula']) : '' ?><?php
-                        $pIng = trim((string)($ing['profesion'] ?? ''));
-                        if ($pIng !== '' && mb_strtolower($pIng, 'UTF-8') !== 'ingeniero') {
-                            echo ' (' . e($pIng) . ')';
-                        }
-                    ?>
-                </option>
-                <?php endforeach; ?>
-            </select>
-            <div class="text-sm" style="color:#5b6478;margin-top:5px;font-size:11.5px;">
-                Queda registrado en el informe de la edificación.
-            </div>
-            <?php else: ?>
-            <div style="font-size:12.5px;color:#8a6d1a;">
-                No hay ingenieros registrados.
-                <?php if (usuarioEsMaster() || puede('configuracion','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" target="_blank"
-                   style="color:#22366F;font-weight:600;">Agréguelos aquí</a>.
-                <?php endif; ?>
-                <br>Si el responsable no es ingeniero, active el interruptor de arriba.
-            </div>
+        <?php if ($ingenieros): ?>
+        <select id="ingeniero-id" class="form-control" style="width:100%;max-width:420px;"
+                onchange="guardarIngeniero(this)">
+            <option value="">— Seleccione el ingeniero a cargo —</option>
+            <?php foreach ($ingenieros as $ing): ?>
+            <option value="<?= (int)$ing['id'] ?>"
+                    <?= ((int)$ingActual === (int)$ing['id']) ? 'selected' : '' ?>>
+                <?= e($ing['nombre']) ?><?= !empty($ing['cedula']) ? ' · ' . e($ing['cedula']) : '' ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+        <div class="text-sm" style="color:#5b6478;margin-top:5px;font-size:11.5px;">
+            Queda registrado en el informe de la edificación.
+        </div>
+        <?php else: ?>
+        <div style="font-size:12.5px;color:#8a6d1a;">
+            No hay ingenieros registrados.
+            <?php if (usuarioEsMaster() || puede('configuracion','ver')): ?>
+            <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" target="_blank"
+               style="color:#22366F;font-weight:600;">Agréguelos aquí</a>.
             <?php endif; ?>
         </div>
-
-        <!-- ========== B) Datos del profesional que no es ingeniero ========== -->
-        <div id="bloque-profesional" style="<?= $esNoIngeniero ? '' : 'display:none;' ?>">
-            <div style="font-size:11.5px;color:#5b6478;margin-bottom:9px;">
-                Registre los datos de la persona responsable.
-                Los campos con <span style="color:#A61C1C;">*</span> son obligatorios.
-            </div>
-
-            <input type="hidden" id="prof-id"
-                   value="<?= $esNoIngeniero ? (int)($respActual['id'] ?? 0) : '' ?>">
-
-            <!-- Foto (opcional) -->
-            <div style="margin-bottom:11px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
-                    Foto <span style="color:#5b6478;font-weight:400;">(opcional)</span>
-                </label>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                    <div id="prof-foto-previa"
-                         style="width:64px;height:64px;border-radius:9px;border:1px solid #d8dce6;
-                                background:#fff center/cover no-repeat;display:flex;
-                                align-items:center;justify-content:center;color:#aab;font-size:22px;
-                                <?php if ($esNoIngeniero && !empty($respActual['foto'])): ?>
-                                background-image:url('<?= APP_URL_BASE . e(ltrim($respActual['foto'], '/')) ?>');
-                                <?php endif; ?>">
-                        <?php if (!($esNoIngeniero && !empty($respActual['foto']))): ?>
-                        <i class="bi bi-person"></i>
-                        <?php endif; ?>
-                    </div>
-                    <input type="file" id="prof-foto" accept="image/*"
-                           onchange="previsualizarFotoProf(this)"
-                           style="font-size:12px;max-width:230px;">
-                </div>
-            </div>
-
-            <!-- Nombre -->
-            <div style="margin-bottom:9px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
-                    Nombre completo <span style="color:#A61C1C;">*</span>
-                </label>
-                <input type="text" id="prof-nombre" class="form-control" maxlength="150"
-                       style="max-width:420px;" placeholder="Nombre y apellido"
-                       value="<?= $esNoIngeniero ? e((string)($respActual['nombre'] ?? '')) : '' ?>">
-            </div>
-
-            <!-- Cedula -->
-            <div style="margin-bottom:9px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
-                    Cédula <span style="color:#A61C1C;">*</span>
-                </label>
-                <input type="text" id="prof-cedula" class="form-control" maxlength="30"
-                       style="max-width:260px;" placeholder="V-12345678"
-                       value="<?= $esNoIngeniero ? e((string)($respActual['cedula'] ?? '')) : '' ?>">
-            </div>
-
-            <!-- Telefono -->
-            <div style="margin-bottom:9px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
-                    Número de teléfono <span style="color:#A61C1C;">*</span>
-                </label>
-                <input type="tel" id="prof-telefono" class="form-control" maxlength="40"
-                       style="max-width:260px;" placeholder="0412-1234567"
-                       value="<?= $esNoIngeniero ? e((string)($respActual['telefono'] ?? '')) : '' ?>">
-            </div>
-
-            <!-- Profesion: desplegable con opcion de agregar una nueva -->
-            <div style="margin-bottom:11px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">
-                    Profesión <span style="color:#A61C1C;">*</span>
-                </label>
-                <?php
-                // Si la profesion guardada no esta en la lista, se muestra
-                // como "Otra" con el texto ya escrito.
-                $profEsOtra = ($esNoIngeniero && $profResp !== ''
-                               && !in_array($profResp, $profesiones, true));
-                ?>
-                <select id="prof-profesion" class="form-control" style="max-width:420px;"
-                        onchange="cambiarProfesion(this)">
-                    <option value="">— Seleccione la profesión —</option>
-                    <?php foreach ($profesiones as $pf): ?>
-                    <option value="<?= e($pf) ?>"
-                            <?= ($esNoIngeniero && $profResp === $pf) ? 'selected' : '' ?>>
-                        <?= e($pf) ?>
-                    </option>
-                    <?php endforeach; ?>
-                    <option value="__otra__" <?= $profEsOtra ? 'selected' : '' ?>>
-                        + Agregar otra profesión…
-                    </option>
-                </select>
-                <input type="text" id="prof-profesion-nueva" class="form-control" maxlength="100"
-                       placeholder="Escriba la nueva profesión"
-                       style="margin-top:7px;max-width:420px;<?= $profEsOtra ? '' : 'display:none;' ?>"
-                       value="<?= $profEsOtra ? e($profResp) : '' ?>">
-            </div>
-
-            <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-prof"
-                    onclick="guardarProfesional(this)">
-                <i class="bi bi-check2-circle"></i> Guardar responsable
-            </button>
-            <div id="prof-aviso" style="margin-top:7px;font-size:12px;"></div>
-        </div>
+        <?php endif; ?>
     </div>
 
     <!-- Algunas edificaciones no tienen etiqueta: hay que poder dejarlo asentado -->
@@ -881,11 +723,13 @@ include __DIR__ . '/../includes/header.php';
         <div class="flex gap-8" style="flex-wrap:wrap;">
             <div class="field" style="flex:1;min-width:160px;">
                 <label class="text-sm">Fecha de inicio estimada</label>
-                <input type="date" name="fecha_inicio_estimada" class="form-control">
+                <input type="date" name="fecha_inicio_estimada" class="form-control"
+                       value="<?= e($planEd['fecha_inicio_estimada'] ?? '') ?>">
             </div>
             <div class="field" style="flex:1;min-width:160px;">
                 <label class="text-sm">Fecha de fin estimada</label>
-                <input type="date" name="fecha_fin_estimada" class="form-control">
+                <input type="date" name="fecha_fin_estimada" class="form-control"
+                       value="<?= e($planEd['fecha_fin_estimada'] ?? '') ?>">
             </div>
         </div>
 
@@ -932,197 +776,6 @@ const EDIFICIO_ID = <?= (int)$ed['id'] ?>;
 const URL_BASE = '<?= APP_URL_BASE ?>seguimiento/';
 const PUEDE_EDITAR = <?= $puedeEditar ? 'true' : 'false' ?>;
 const SOLO_LECTURA = <?= $soloLectura ? 'true' : 'false' ?>;
-
-/* ===================================================================
- * RESPONSABLE DEL LEVANTAMIENTO
- *
- * Puede ser un ingeniero del directorio, o cualquier otro profesional
- * que se registra aqui mismo con el interruptor "No es ingeniero".
- *
- * En los dos casos el responsable termina guardado igual: en la tabla
- * `ingenieros` y referenciado desde rec_edificio.ingeniero_id. No se
- * crea ninguna tabla ni columna nueva.
- * =================================================================== */
-
-/** Asigna un ingeniero del directorio (selector normal). */
-async function guardarIngeniero(sel) {
-    if (!PUEDE_EDITAR) return;
-    const valor = sel.value || null;
-    sel.disabled = true;
-    try {
-        const res = await fetch(URL_BASE + 'guardar_rec_edificio.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                accion: 'ingeniero',
-                inspeccion_id: INSPECCION_ID,
-                edificio_id: EDIFICIO_ID,
-                ingeniero_id: valor,
-            }),
-            credentials: 'same-origin'
-        });
-        const texto = await res.text();
-        let d;
-        try { d = JSON.parse(texto); }
-        catch (err) {
-            console.error('Respuesta del servidor:', texto);
-            alert('El servidor devolvió una respuesta inesperada.');
-            return;
-        }
-        if (!d.ok) alert(d.mensaje || 'No se pudo guardar el ingeniero.');
-    } catch (e) {
-        alert('No se pudo guardar el ingeniero. Revise su conexión.');
-    } finally {
-        sel.disabled = false;
-    }
-}
-
-/** Muestra el selector de ingeniero o el formulario del profesional. */
-function toggleNoIngeniero(chk) {
-    const bIng  = document.getElementById('bloque-ingeniero');
-    const bProf = document.getElementById('bloque-profesional');
-    if (!bIng || !bProf) return;
-
-    if (chk.checked) {
-        bIng.style.display  = 'none';
-        bProf.style.display = '';
-    } else {
-        bIng.style.display  = '';
-        bProf.style.display = 'none';
-        const aviso = document.getElementById('prof-aviso');
-        if (aviso) aviso.innerHTML = '';
-    }
-}
-
-/** Al elegir "Agregar otra profesión…" se muestra el campo de texto. */
-function cambiarProfesion(sel) {
-    const otra = document.getElementById('prof-profesion-nueva');
-    if (!otra) return;
-    if (sel.value === '__otra__') {
-        otra.style.display = '';
-        otra.focus();
-    } else {
-        otra.style.display = 'none';
-        otra.value = '';
-    }
-}
-
-/** Vista previa de la foto antes de subirla. */
-function previsualizarFotoProf(input) {
-    const caja = document.getElementById('prof-foto-previa');
-    if (!caja) return;
-    const f = input.files && input.files[0];
-    if (!f) return;
-
-    // Aviso temprano: el servidor rechaza lo que pase de 8 MB.
-    if (f.size > 8 * 1024 * 1024) {
-        alert('La foto pesa más de 8 MB. Elija una más liviana.');
-        input.value = '';
-        return;
-    }
-    const lector = new FileReader();
-    lector.onload = e => {
-        caja.style.backgroundImage = 'url(' + e.target.result + ')';
-        caja.innerHTML = '';
-    };
-    lector.readAsDataURL(f);
-}
-
-/** Profesión elegida, ya sea del desplegable o escrita a mano. */
-function profesionElegida() {
-    const sel = document.getElementById('prof-profesion');
-    if (!sel) return '';
-    if (sel.value === '__otra__') {
-        const otra = document.getElementById('prof-profesion-nueva');
-        return otra ? otra.value.trim() : '';
-    }
-    return sel.value.trim();
-}
-
-/** Guarda al profesional que no es ingeniero y lo deja como responsable. */
-async function guardarProfesional(btn) {
-    if (!PUEDE_EDITAR) return;
-
-    const aviso = document.getElementById('prof-aviso');
-    const pinta = (txt, color) => {
-        if (aviso) {
-            aviso.innerHTML = txt;
-            aviso.style.color = color;
-        }
-    };
-
-    const nombre    = (document.getElementById('prof-nombre').value || '').trim();
-    const cedula    = (document.getElementById('prof-cedula').value || '').trim();
-    const telefono  = (document.getElementById('prof-telefono').value || '').trim();
-    const profesion = profesionElegida();
-
-    // Los cuatro son obligatorios; la foto no.
-    const faltan = [];
-    if (!nombre)    faltan.push('nombre completo');
-    if (!cedula)    faltan.push('cédula');
-    if (!telefono)  faltan.push('número de teléfono');
-    if (!profesion) faltan.push('profesión');
-
-    if (faltan.length) {
-        pinta('Falta completar: ' + faltan.join(', ') + '.', '#A61C1C');
-        const primero = !nombre ? 'prof-nombre'
-                      : !cedula ? 'prof-cedula'
-                      : !telefono ? 'prof-telefono'
-                      : 'prof-profesion';
-        const el = document.getElementById(primero);
-        if (el) el.focus();
-        return;
-    }
-
-    const datos = new FormData();
-    datos.append('inspeccion_id', INSPECCION_ID);
-    datos.append('edificio_id', EDIFICIO_ID);
-    datos.append('nombre', nombre);
-    datos.append('cedula', cedula);
-    datos.append('telefono', telefono);
-    datos.append('profesion', profesion);
-
-    const idPrev = document.getElementById('prof-id');
-    if (idPrev && idPrev.value) datos.append('profesional_id', idPrev.value);
-
-    const foto = document.getElementById('prof-foto');
-    if (foto && foto.files && foto.files[0]) datos.append('foto', foto.files[0]);
-
-    btn.disabled = true;
-    const htmlPrev = btn.innerHTML;
-    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Guardando…';
-    pinta('', '');
-
-    try {
-        const res = await fetch(URL_BASE + 'guardar_profesional_rec.php', {
-            method: 'POST', body: datos, credentials: 'same-origin'
-        });
-        const texto = await res.text();
-        let d;
-        try { d = JSON.parse(texto); }
-        catch (err) {
-            console.error('Respuesta del servidor:', texto);
-            pinta('El servidor devolvió una respuesta inesperada.', '#A61C1C');
-            return;
-        }
-
-        if (!d.ok) {
-            pinta(d.mensaje || 'No se pudo guardar.', '#A61C1C');
-            return;
-        }
-
-        // Queda el id para que un segundo guardado actualice en vez de duplicar.
-        if (idPrev && d.profesional_id) idPrev.value = d.profesional_id;
-        if (foto) foto.value = '';
-        pinta('<i class="bi bi-check-circle-fill"></i> ' + (d.mensaje || 'Guardado.'), '#2E7D32');
-
-    } catch (e) {
-        pinta('No se pudo guardar. Revise su conexión.', '#A61C1C');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = htmlPrev;
-    }
-}
 
 // Cuántos pisos tiene ya el servidor. Si son más de cero, la copia
 // local del teléfono sobra y se descarta para no duplicar.
@@ -4498,10 +4151,30 @@ async function guardarCierre(ev) {
         const nom = lbl ? lbl.textContent.trim() : 'un área común';
 
         const selT = row.querySelector('.area-trabajo');
-        if (selT && !selT.value) faltaArea.push('· ' + nom + ': qué trabajo hacer');
 
-        const m2 = row.querySelector('.area-m2');
-        if (m2 && aNumero(m2.value) <= 0) faltaArea.push('· ' + nom + ': los metros');
+        // Los metros se suman de los campos reales, no del campo oculto:
+        // ese solo se rellena cuando corre calcularMatArea(), y si el
+        // técnico escribió los metros sin que se disparara (o la fila se
+        // restauró de un borrador), quedaba vacío y el cierre se bloqueaba
+        // aunque los datos estuvieran completos.
+        let m2Area = 0;
+        row.querySelectorAll('.area-sup').forEach(i => { m2Area += aNumero(i.value); });
+
+        // Un trabajo adicional con sus metros también vale: el área puede
+        // tener todo cargado en la partida extra.
+        let m2Extra = 0;
+        let hayTrabajoExtra = false;
+        row.querySelectorAll('.partida-area').forEach(bl => {
+            const st = bl.querySelector('.part-area-trabajo');
+            if (st && st.value) hayTrabajoExtra = true;
+            bl.querySelectorAll('.part-area-m2').forEach(i => { m2Extra += aNumero(i.value); });
+        });
+
+        const hayTrabajo = (selT && selT.value) || hayTrabajoExtra;
+        const hayMetros  = (m2Area + m2Extra) > 0;
+
+        if (!hayTrabajo) faltaArea.push('· ' + nom + ': qué trabajo hacer');
+        if (!hayMetros)  faltaArea.push('· ' + nom + ': los metros');
     });
     if (faltaArea.length) {
         alert('En las áreas comunes falta:\n\n' + faltaArea.join('\n')
