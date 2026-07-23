@@ -2112,7 +2112,12 @@ function recGenerarLocales(int $edificioId, int $cantidad): array
     } catch (Throwable $e) { return []; }
 }
 
-
+/**
+ * Elimina un apartamento con todo lo que cuelga de él:
+ * ambientes, avances, reparaciones y fotos (incluidos los archivos
+ * en disco). Se usa al regenerar o reducir apartamentos/locales.
+ */
+function recEliminarApartamento(int $apartamentoId): void
 {
     $pdo = db();
     try {
@@ -2145,11 +2150,6 @@ function recGenerarLocales(int $edificioId, int $cantidad): array
     } catch (Throwable $e) { /* no interrumpir la regeneración */ }
 }
 
-/** Actualiza las cantidades de ambientes de un apartamento y los genera. */
-/**
- * Asegura que rec_apartamento tenga las columnas del jefe de familia y baños.
- * Si faltan, las crea. También asegura que rec_ambiente.tipo acepte 'Baño'.
- */
 /**
  * Asegura las columnas para dejar constancia de que una edificación
  * no tiene etiqueta. Se crean solas si falta correr el SQL.
@@ -2173,6 +2173,10 @@ function recAsegurarColumnasEtiqueta(): void
     } catch (Throwable $e) { /* seguir */ }
 }
 
+/**
+ * Asegura que rec_apartamento tenga las columnas del jefe de familia y baños.
+ * Si faltan, las crea. También asegura que rec_ambiente.tipo acepte 'Baño'.
+ */
 function recAsegurarColumnasApartamento(): void
 {
     static $verificado = false;
