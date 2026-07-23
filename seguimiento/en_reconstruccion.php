@@ -190,6 +190,17 @@ include __DIR__ . '/../includes/header.php';
                title="Listado detallado de los levantamientos">
                 <i class="bi bi-file-earmark-pdf-fill"></i> Listado
             </a>
+            <button type="button" class="btn btn-outline btn-sm"
+                    onclick="abrirPlanilla()"
+                    title="Planilla en blanco para llenar a mano en la calle">
+                <i class="bi bi-printer"></i> Planilla para imprimir
+            </button>
+            <a href="<?= APP_URL_BASE ?>seguimiento/materiales_multi.php<?= $parrF ? '?parroquia=' . urlencode($parrF) : '' ?>"
+               class="btn btn-outline btn-sm"
+               style="border-color:#2E7D3255;color:#2E7D32;"
+               title="Elegir varios edificios y sacar el material por piso">
+                <i class="bi bi-clipboard-check-fill"></i> Materiales de varios edificios
+            </a>
             <?php
             $rolAct = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
             if (usuarioEsMaster() || str_contains($rolAct, 'administrador')): ?>
@@ -386,6 +397,21 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+// Abre la planilla en blanco para imprimir, preguntando cuántas hojas.
+function abrirPlanilla() {
+    const aptos = prompt('¿Cuántas hojas de apartamento/local quiere imprimir?\n'
+        + '(una por cada apartamento o local a levantar)', '10');
+    if (aptos === null) return;
+    const n = Math.max(1, Math.min(40, parseInt(aptos) || 6));
+    const amb = prompt('¿Cuántas filas de ambientes por apartamento?\n'
+        + '(habitaciones, baños, sala, cocina…)', '6');
+    if (amb === null) return;
+    const m = Math.max(1, Math.min(12, parseInt(amb) || 5));
+    const url = '<?= APP_URL_BASE ?>seguimiento/planilla_levantamiento.php?aptos='
+        + n + '&ambientes=' + m;
+    window.open(url, '_blank');
+}
+
 // ---- Materiales por piso (global) ----
 async function cargarMaterialesPiso() {
     const sel = document.getElementById('mat-piso-sel');
@@ -429,9 +455,20 @@ function pintarMaterialesPiso(cont, d) {
     }
 
     // --- Total general (para comprar por lote) ---
-    let html = '<div style="font-weight:700;color:#22366F;margin-bottom:8px;">'
+    const parr = <?= json_encode($parrF) ?>;
+    let pdfUrl = '<?= APP_URL_BASE ?>seguimiento/pdf_materiales_por_piso.php?piso='
+        + encodeURIComponent(d.numero_piso);
+    if (parr) pdfUrl += '&parroquia=' + encodeURIComponent(parr);
+
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;'
+        + 'margin-bottom:8px;gap:10px;flex-wrap:wrap;">'
+        + '<div style="font-weight:700;color:#22366F;">'
         + '<i class="bi bi-clipboard-check"></i> ' + esc(d.etiqueta)
-        + ' · TOTAL de todos los edificios</div>';
+        + ' · TOTAL de todos los edificios</div>'
+        + '<a href="' + pdfUrl + '" target="_blank" class="btn btn-outline btn-sm" '
+        + 'style="border-color:#A61C1C55;color:#A61C1C;white-space:nowrap;">'
+        + '<i class="bi bi-file-earmark-pdf-fill"></i> Exportar PDF</a>'
+        + '</div>';
     html += tablaMateriales(total, '#22366F');
 
     // --- Desglose por edificio ---
