@@ -15,6 +15,12 @@ try {
     // Apartamentos de un piso
     if (isset($_GET['piso_id'])) {
         $aptos = recApartamentos((int)$_GET['piso_id']);
+        // Se adjunta el estado de cada uno (vacío, visita, incompleto,
+        // completo) para poder pintarlo cerrado y con su marca al recargar.
+        foreach ($aptos as &$ap) {
+            $ap['_estado'] = recEstadoApartamento($ap);
+        }
+        unset($ap);
         resp(true, ['apartamentos' => $aptos]);
     }
 
@@ -22,6 +28,20 @@ try {
     if (isset($_GET['ambientes_de'])) {
 
         resp(true, ['ambientes' => recAmbientes((int)$_GET['ambientes_de'])]);
+    }
+
+    // Estado de un solo apartamento (para colapsarlo tras guardar, con
+    // su marca y lo que le falte). Devuelve el mismo '_estado' que la
+    // lista del piso.
+    if (isset($_GET['estado_de'])) {
+        $aptoId = (int)$_GET['estado_de'];
+        try {
+            $st = db()->prepare('SELECT * FROM rec_apartamento WHERE id = :id');
+            $st->execute(['id' => $aptoId]);
+            $ap = $st->fetch() ?: null;
+        } catch (Throwable $e) { $ap = null; }
+        if (!$ap) resp(false, ['mensaje' => 'Apartamento no encontrado.']);
+        resp(true, ['estado' => recEstadoApartamento($ap)]);
     }
 
     // Locales comerciales de un edificio, con sus conteos de ambientes

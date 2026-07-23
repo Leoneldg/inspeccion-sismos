@@ -371,6 +371,12 @@ include __DIR__ . '/../includes/header.php';
                        title="Descargar el levantamiento en PDF">
                         <i class="bi bi-file-earmark-pdf-fill"></i>
                     </a>
+                    <a href="<?= APP_URL_BASE ?>seguimiento/requisicion.php?inspeccion=<?= (int)$e['id'] ?>"
+                       class="btn btn-outline btn-sm"
+                       style="border-color:#22366F55;color:#22366F;"
+                       title="Requisición de material: electricidad, plomería, cal...">
+                        <i class="bi bi-file-earmark-text"></i>
+                    </a>
                     <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
                        class="btn btn-outline btn-sm" title="Abrir la ficha">
                         <i class="bi bi-arrow-right"></i>

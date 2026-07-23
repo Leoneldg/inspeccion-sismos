@@ -35,7 +35,9 @@ try {
         if ($pisoId <= 0) resp(false, 'Piso no válido.');
         if ($cantidad < 1 || $cantidad > 100) resp(false, 'Cantidad de apartamentos fuera de rango (1–100).');
 
-        $aptos = recGenerarApartamentos($pisoId, $cantidad, $numPiso);
+        // El botón "Regenerar" ya avisó al técnico y pidió confirmación,
+        // así que aquí sí se permite reducir borrando los sobrantes.
+        $aptos = recGenerarApartamentos($pisoId, $cantidad, $numPiso, true);
         resp(true, 'Apartamentos generados.', ['apartamentos' => $aptos]);
     }
 

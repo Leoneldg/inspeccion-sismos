@@ -125,32 +125,59 @@ try {
 
     if (($b['accion'] ?? '') === 'cierre') {
         // No se puede cerrar el levantamiento con datos faltantes.
-        // "Completo" = todo lo marcado para reparar (ambientes Y áreas
-        // comunes) tiene tipo de trabajo, metros y foto. La regla vive
-        // en recLevantamientoIncompleto(): la misma que usa el PDF.
+        //
+        // "Completo" ya no es solo que las reparaciones tengan sus datos:
+        // ahora se exige que TODO esté lleno (apartamentos atendidos,
+        // reparaciones con metros/trabajo/foto y el cierre). La regla vive
+        // en recProgresoLevantamiento(): la misma que alimenta la barra de
+        // avance del formulario. Así no se cierra mientras aún cargan.
+        //
+        // Los datos del cierre que vienen en ESTA petición se guardan
+        // primero, para que cuenten en el porcentaje antes de revisar.
+        $estadosCierre = ['Buena','Regular','Requiere reparación','No aplica'];
+        $normCierre = fn($v) => in_array($v, $estadosCierre, true) ? $v : null;
+        // La impermeabilización es un sí/no: se guarda "Requiere" si está
+        // marcada, o null si no. No pasa por $normCierre.
+        $normImper = fn($v) => (trim((string)$v) !== '') ? 'Requiere' : null;
         try {
-            $faltan = recLevantamientoIncompleto($edificioId);
-            if ($faltan) {
+            db()->prepare(
+                'UPDATE rec_edificio SET azotea_estado=:ae, tanques_estado=:te,
+                    impermeabilizacion_estado=:ie WHERE id=:id'
+            )->execute([
+                'ae' => $normCierre($b['azotea_estado'] ?? null),
+                'te' => $normCierre($b['tanques_estado'] ?? null),
+                'ie' => $normImper($b['impermeabilizacion_estado'] ?? null),
+                'id' => $edificioId,
+            ]);
+        } catch (Throwable $e) { /* se vuelve a guardar más abajo */ }
+
+        try {
+            $prog = recProgresoLevantamiento($edificioId);
+            if (!$prog['completo']) {
                 resp(false,
-                    'Faltan datos en ' . count($faltan) . ' reparación(es). '
-                    . 'No se borró nada: complete cada punto y vuelva a cerrar.',
+                    'El levantamiento está al ' . $prog['porcentaje'] . '%. '
+                    . 'Faltan ' . $prog['faltan'] . ' dato(s) por completar. '
+                    . 'No se borró nada: complete lo que falta y vuelva a cerrar.',
                     [
-                        'incompletos'    => count($faltan),
-                        'puede_confirmar'=> false,
-                        'faltantes'      => $faltan,   // lista detallada para la guía
+                        'incompletos'     => $prog['faltan'],
+                        'porcentaje'      => $prog['porcentaje'],
+                        'puede_confirmar' => false,
+                        'faltantes'       => $prog['bloqueos'], // lista detallada para la guía
                     ]);
             }
         } catch (Throwable $e) { /* si la consulta falla, no bloquear el cierre */ }
 
         $estados = ['Buena','Regular','Requiere reparación','No aplica'];
         $norm = fn($v) => in_array($v, $estados, true) ? $v : null;
+        // Impermeabilización = sí/no de la azotea: "Requiere" o null.
+        $normImp = fn($v) => (trim((string)$v) !== '') ? 'Requiere' : null;
         db()->prepare(
             'UPDATE rec_edificio SET azotea_estado=:ae, azotea_obs=:ao, tanques_estado=:te, tanques_obs=:to,
                 impermeabilizacion_estado=:ie, impermeabilizacion_obs=:io WHERE id=:id'
         )->execute([
             'ae'=>$norm($b['azotea_estado'] ?? null), 'ao'=>trim($b['azotea_obs'] ?? '') ?: null,
             'te'=>$norm($b['tanques_estado'] ?? null), 'to'=>trim($b['tanques_obs'] ?? '') ?: null,
-            'ie'=>$norm($b['impermeabilizacion_estado'] ?? null), 'io'=>trim($b['impermeabilizacion_obs'] ?? '') ?: null,
+            'ie'=>$normImp($b['impermeabilizacion_estado'] ?? null), 'io'=>trim($b['impermeabilizacion_obs'] ?? '') ?: null,
             'id'=>$edificioId,
         ]);
         // Guardar el plan de tiempo estimado.

@@ -2021,8 +2021,135 @@ function recLocalesEdificio(int $edificioId): array
     } catch (Throwable $e) { return []; }
 }
 
-/** Genera los apartamentos de un piso según una cantidad (si no existen ya). */
-function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): array
+/**
+ * Estado de un apartamento para pintarlo al recargar, sin abrirlo.
+ *
+ * Devuelve:
+ *   'estado'  => 'vacio' | 'visita' | 'incompleto' | 'completo'
+ *   'motivo'  => texto del motivo de visita (si aplica)
+ *   'faltan'  => lista de lo que le falta (si está incompleto)
+ *
+ * Con esto, al entrar a un piso se ve de un vistazo qué apartamentos
+ * ya se trabajaron y cuáles quedan pendientes, sin abrir uno por uno.
+ */
+function recEstadoApartamento(array $ap): array
+{
+    $aptoId = (int)($ap['id'] ?? 0);
+    $ev = trim((string)($ap['estado_visita'] ?? ''));
+
+    // Marcado con un motivo de visita (no estaba, sin daño, etc.).
+    if ($ev !== '' && $ev !== 'levantado') {
+        $textos = [
+            'sin_dano'         => 'Inspeccionado · sin daño',
+            'cuenta_propia'    => 'Repara por cuenta propia',
+            'no_esta'          => 'Ocupante no se encuentra',
+            'permiso_denegado' => 'No dejó entrar',
+            'no_requiere'      => 'No requiere ayuda',
+        ];
+        return ['estado' => 'visita', 'motivo' => $textos[$ev] ?? $ev, 'faltan' => []];
+    }
+
+    // ¿Tiene datos del jefe? Si ni eso, está vacío.
+    $tieneJefe = trim((string)($ap['jefe_nombre'] ?? '')) !== ''
+              || trim((string)($ap['jefe_cedula'] ?? '')) !== ''
+              || trim((string)($ap['jefe_telefono'] ?? '')) !== '';
+    $completado = (int)($ap['completado'] ?? 0) === 1;
+
+    if (!$tieneJefe && !$completado) {
+        return ['estado' => 'vacio', 'motivo' => '', 'faltan' => []];
+    }
+
+    // Tiene datos: revisar si algún ambiente marcado para reparar le
+    // falta metros, trabajo o foto.
+    $faltan = [];
+    try {
+        $st = db()->prepare("
+            SELECT am.id, am.tipo, am.numero,
+                   (SELECT COUNT(*) FROM rec_reparacion rr
+                     WHERE rr.nivel='ambiente' AND rr.ref_id=am.id
+                       AND rr.metros_cuadrados > 0) AS con_metros,
+                   (SELECT COUNT(*) FROM rec_reparacion rr2
+                     WHERE rr2.nivel='ambiente' AND rr2.ref_id=am.id
+                       AND rr2.tipo_trabajo IS NOT NULL AND rr2.tipo_trabajo <> '') AS con_trabajo,
+                   (SELECT COUNT(*) FROM rec_foto f
+                     WHERE f.nivel='ambiente' AND f.ref_id=am.id) AS con_foto
+              FROM rec_ambiente am
+             WHERE am.apartamento_id = :a AND am.necesita_reparacion = 1
+        ");
+        $st->execute(['a' => $aptoId]);
+        foreach ($st->fetchAll() as $am) {
+            $que = [];
+            if ((int)$am['con_trabajo'] === 0) $que[] = 'trabajo';
+            if ((int)$am['con_metros'] === 0)  $que[] = 'metros';
+            if ((int)$am['con_foto'] === 0)    $que[] = 'foto';
+            if ($que) {
+                $faltan[] = trim($am['tipo'] . ' ' . $am['numero']) . ': ' . implode(', ', $que);
+            }
+        }
+    } catch (Throwable $e) { /* seguir */ }
+
+    if ($faltan) {
+        return ['estado' => 'incompleto', 'motivo' => '', 'faltan' => $faltan];
+    }
+    return ['estado' => 'completo', 'motivo' => '', 'faltan' => []];
+}
+
+/**
+ * ¿Este apartamento tiene algún dato cargado?
+ *
+ * Se considera "con datos" si ya lo atendieron de cualquier forma:
+ *   - quedó completado (datos del jefe o motivo de visita),
+ *   - tiene un estado de visita,
+ *   - o tiene algún dato del jefe de familia o ambientes.
+ *
+ * Sirve para no borrar por error el trabajo de campo al regenerar.
+ */
+function recApartamentoTieneDatos(int $apartamentoId): bool
+{
+    try {
+        $st = db()->prepare(
+            "SELECT COALESCE(completado,0)        AS c,
+                    COALESCE(estado_visita,'')    AS ev,
+                    COALESCE(jefe_nombre,'')       AS jn,
+                    COALESCE(jefe_cedula,'')       AS jc,
+                    COALESCE(jefe_telefono,'')     AS jt,
+                    COALESCE(num_habitaciones,0)
+                      + COALESCE(num_salas,0) + COALESCE(num_banos,0)
+                      + COALESCE(num_cocinas,0) + COALESCE(num_balcones,0) AS amb
+               FROM rec_apartamento WHERE id = :id"
+        );
+        $st->execute(['id' => $apartamentoId]);
+        $r = $st->fetch();
+        if (!$r) return false;
+        if ((int)$r['c'] === 1) return true;
+        if (trim((string)$r['ev']) !== '') return true;
+        if (trim((string)$r['jn']) !== '' || trim((string)$r['jc']) !== ''
+            || trim((string)$r['jt']) !== '') return true;
+        if ((int)$r['amb'] > 0) return true;
+    } catch (Throwable $e) { /* ante la duda, se trata como con datos */ return true; }
+
+    // Un ambiente marcado para reparar también cuenta como dato.
+    try {
+        $st = db()->prepare('SELECT COUNT(*) FROM rec_ambiente WHERE apartamento_id = :a');
+        $st->execute(['a' => $apartamentoId]);
+        if ((int)$st->fetchColumn() > 0) return true;
+    } catch (Throwable $e) { /* seguir */ }
+
+    return false;
+}
+
+/**
+ * Genera los apartamentos de un piso según una cantidad (si no existen ya).
+ *
+ * $forzarReduccion:
+ *   false (por defecto) → nunca borra apartamentos con datos. Es lo que
+ *          usa el guardado del paso 1, para no perder trabajo de campo.
+ *   true  → permite reducir borrando los sobrantes aunque tengan datos.
+ *          Solo lo usa el botón "Regenerar" de cada piso, que ya pide
+ *          confirmación explícita al técnico.
+ */
+function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso,
+                                bool $forzarReduccion = false): array
 {
     $existentes = recApartamentos($pisoId);
     $n = count($existentes);
@@ -2039,9 +2166,18 @@ function recGenerarApartamentos(int $pisoId, int $cantidad, int $numeroPiso): ar
 
     // Si se redujo la cantidad, eliminar los sobrantes (los últimos)
     // junto con sus ambientes, avances y fotos, para no dejar basura.
+    //
+    // IMPORTANTE: por defecto solo se borran los que NO tienen datos. Un
+    // apartamento ya trabajado nunca se elimina al guardar el paso 1,
+    // aunque el nuevo total sea menor: esto evita perder el trabajo de
+    // campo. Solo el botón "Regenerar" (con confirmación) fuerza la
+    // reducción completa pasando $forzarReduccion = true.
     if ($cantidad < $n) {
         $sobrantes = array_slice($existentes, $cantidad);
         foreach ($sobrantes as $ap) {
+            if (!$forzarReduccion && recApartamentoTieneDatos((int)$ap['id'])) {
+                continue;   // tiene datos y no se forzó: no se toca
+            }
             recEliminarApartamento((int)$ap['id']);
         }
     }
@@ -2589,6 +2725,216 @@ function recGuardarReparaciones(string $nivel, int $refId, array $reparaciones):
             'p' => $partida,
         ]);
     }
+}
+
+/**
+ * PROGRESO COMPLETO DEL LEVANTAMIENTO.
+ *
+ * Mide cuánto falta por llenar en TODO el levantamiento, no solo en las
+ * reparaciones. Antes el sistema marcaba "completo" en cuanto las
+ * reparaciones tenían sus datos, aunque quedaran apartamentos sin visitar
+ * o el cierre sin hacer: por eso se cerraban levantamientos mientras la
+ * gente todavía estaba cargando.
+ *
+ * Ahora se revisan CUATRO grupos de datos, cada uno con su peso:
+ *
+ *   1. Datos básicos del edificio (paso 1): número de pisos, apartamentos
+ *      por piso y si se definió lo de áreas comunes.
+ *   2. Cada apartamento y local atendido: se considera atendido cuando
+ *      quedó `completado = 1` (ya sea con sus datos o con un motivo de
+ *      visita: cerrado, no estaba, repara por su cuenta, etc.).
+ *   3. Cada reparación marcada con sus tres datos: tipo de trabajo,
+ *      metros y foto (ambientes de apartamentos y áreas comunes).
+ *   4. Cierre (paso 3): estado de azotea, tanques e impermeabilización.
+ *
+ * Devuelve:
+ *   [
+ *     'porcentaje'  => 0..100,      // para la barra de avance
+ *     'total'       => N,           // datos posibles
+ *     'hechos'      => M,           // datos ya llenos
+ *     'faltan'      => M<N,         // cuántos faltan
+ *     'completo'    => bool,        // true solo si porcentaje == 100
+ *     'grupos'      => [ ... ],     // desglose por grupo, para la UI
+ *     'bloqueos'    => [ ... ],     // lista de lo que impide cerrar
+ *   ]
+ *
+ * Esta es la fuente única del avance: la usan la barra del formulario,
+ * el porcentaje del listado y el bloqueo del cierre.
+ */
+function recProgresoLevantamiento(int $edificioId): array
+{
+    $grupos = [];
+    $bloqueos = [];
+
+    // Datos del edificio (una sola lectura defensiva).
+    $ed = null;
+    try {
+        $st = db()->prepare('SELECT * FROM rec_edificio WHERE id = :e');
+        $st->execute(['e' => $edificioId]);
+        $ed = $st->fetch() ?: null;
+    } catch (Throwable $e) { $ed = null; }
+    if (!$ed) {
+        return [
+            'porcentaje' => 0, 'total' => 0, 'hechos' => 0, 'faltan' => 0,
+            'completo' => false, 'grupos' => [], 'bloqueos' => [],
+        ];
+    }
+
+    $colsEd = array_keys($ed);
+    $tiene  = fn(string $c) => in_array($c, $colsEd, true);
+
+    // -----------------------------------------------------------------
+    // GRUPO 1 · Datos básicos del edificio (paso 1)
+    // -----------------------------------------------------------------
+    $g1t = 0; $g1h = 0;
+    // Número de pisos: es la base de todo.
+    $g1t++;
+    $numPisos = (int)($ed['num_pisos'] ?? 0);
+    if ($numPisos > 0) $g1h++;
+    else $bloqueos[] = ['donde' => 'Paso 1 · Datos del edificio',
+                        'falta' => ['número de pisos'], 'tipo' => 'edificio', 'paso' => 1];
+
+    // Áreas comunes: basta con haber DEFINIDO si tiene o no (el campo
+    // existe siempre; se cuenta como hecho cuando ya se guardó el paso 1,
+    // es decir cuando hay pisos generados).
+    $g1t++;
+    $hayPisos = 0;
+    try {
+        $stp = db()->prepare('SELECT COUNT(*) FROM rec_piso WHERE edificio_id = :e');
+        $stp->execute(['e' => $edificioId]);
+        $hayPisos = (int)$stp->fetchColumn();
+    } catch (Throwable $e) { $hayPisos = 0; }
+    if ($hayPisos > 0) $g1h++;
+    else $bloqueos[] = ['donde' => 'Paso 1 · Datos del edificio',
+                        'falta' => ['generar los pisos'], 'tipo' => 'edificio', 'paso' => 1];
+
+    $grupos['edificio'] = ['nombre' => 'Datos del edificio', 'total' => $g1t, 'hechos' => $g1h];
+
+    // -----------------------------------------------------------------
+    // GRUPO 2 · Apartamentos y locales atendidos (paso 2)
+    // -----------------------------------------------------------------
+    $g2t = 0; $g2h = 0;
+    try {
+        $st = db()->prepare(
+            "SELECT ap.id, ap.identificador, COALESCE(ap.es_local,0) AS es_local,
+                    COALESCE(ap.completado,0) AS completado,
+                    ap.estado_visita, pi.numero_piso, pi.id AS piso_id
+               FROM rec_apartamento ap
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+              WHERE pi.edificio_id = :e
+           ORDER BY pi.numero_piso, ap.identificador"
+        );
+        $st->execute(['e' => $edificioId]);
+        foreach ($st->fetchAll() as $ap) {
+            $g2t++;
+            // Atendido = completado (datos) o con un motivo de visita.
+            $atendido = ((int)$ap['completado'] === 1)
+                     || (trim((string)($ap['estado_visita'] ?? '')) !== '');
+            if ($atendido) {
+                $g2h++;
+            } else {
+                $esLocal = (int)$ap['es_local'] === 1;
+                $bloqueos[] = [
+                    'donde'       => ($esLocal ? 'Local ' : 'Apto ') . $ap['identificador']
+                                   . ' · Piso ' . $ap['numero_piso'],
+                    'falta'       => ['visitar o registrar'],
+                    'tipo'        => $esLocal ? 'local' : 'apartamento',
+                    'paso'        => 2,
+                    'apto_id'     => (int)$ap['id'],
+                    'piso_id'     => (int)$ap['piso_id'],
+                    'piso_numero' => (int)$ap['numero_piso'],
+                    'apto_ident'  => $ap['identificador'],
+                ];
+            }
+        }
+    } catch (Throwable $e) { /* seguir */ }
+
+    $grupos['apartamentos'] = ['nombre' => 'Apartamentos y locales', 'total' => $g2t, 'hechos' => $g2h];
+
+    // -----------------------------------------------------------------
+    // GRUPO 3 · Reparaciones con sus tres datos (metros, trabajo, foto)
+    //
+    // Se reutiliza recLevantamientoIncompleto(): cada reparación marcada
+    // cuenta como un dato; si le falta algo, es un bloqueo.
+    // -----------------------------------------------------------------
+    $g3t = 0; $g3h = 0;
+    try {
+        // Total de reparaciones marcadas (ambientes + áreas comunes).
+        $stAmb = db()->prepare(
+            "SELECT COUNT(*) FROM rec_ambiente am
+               JOIN rec_apartamento ap ON ap.id = am.apartamento_id
+               JOIN rec_piso pi ON pi.id = ap.piso_id
+              WHERE pi.edificio_id = :e AND am.necesita_reparacion = 1"
+        );
+        $stAmb->execute(['e' => $edificioId]);
+        $g3t += (int)$stAmb->fetchColumn();
+
+        $stAc = db()->prepare(
+            "SELECT COUNT(*) FROM rec_area_comun a
+              WHERE a.edificio_id = :e AND a.necesita_reparacion = 1"
+        );
+        $stAc->execute(['e' => $edificioId]);
+        $g3t += (int)$stAc->fetchColumn();
+    } catch (Throwable $e) { /* seguir */ }
+
+    // Lo que le falta a las reparaciones ya lo dice la función existente.
+    $faltanRep = [];
+    try { $faltanRep = recLevantamientoIncompleto($edificioId); } catch (Throwable $e) { $faltanRep = []; }
+    $g3h = max(0, $g3t - count($faltanRep));
+    foreach ($faltanRep as $f) {
+        $f['paso'] = 2;
+        $bloqueos[] = $f;
+    }
+
+    $grupos['reparaciones'] = ['nombre' => 'Reparaciones (metros, trabajo y foto)',
+                               'total' => $g3t, 'hechos' => $g3h];
+
+    // -----------------------------------------------------------------
+    // GRUPO 4 · Cierre: azotea y tanques (paso 3)
+    //
+    // La impermeabilización NO se cuenta: es un sí/no opcional de la
+    // azotea (marcar o no la casilla), no un dato obligatorio.
+    // -----------------------------------------------------------------
+    $g4t = 0; $g4h = 0;
+    $cierreCampos = [
+        'azotea_estado'  => 'estado de la azotea',
+        'tanques_estado' => 'estado de los tanques',
+    ];
+    foreach ($cierreCampos as $col => $etiqueta) {
+        if (!$tiene($col)) continue;   // instalación antigua sin la columna
+        $g4t++;
+        if (trim((string)($ed[$col] ?? '')) !== '') {
+            $g4h++;
+        } else {
+            $bloqueos[] = ['donde' => 'Paso 3 · Cierre',
+                           'falta' => [$etiqueta], 'tipo' => 'cierre', 'paso' => 3];
+        }
+    }
+    if ($g4t > 0) {
+        $grupos['cierre'] = ['nombre' => 'Cierre (azotea y tanques)',
+                             'total' => $g4t, 'hechos' => $g4h];
+    }
+
+    // -----------------------------------------------------------------
+    // Totales
+    // -----------------------------------------------------------------
+    $total  = 0; $hechos = 0;
+    foreach ($grupos as $g) { $total += $g['total']; $hechos += $g['hechos']; }
+
+    $porcentaje = $total > 0 ? (int)floor($hechos * 100 / $total) : 0;
+    // No mostrar 100% si aún hay algo pendiente por un redondeo.
+    if ($porcentaje >= 100 && $hechos < $total) $porcentaje = 99;
+    $completo = ($total > 0 && $hechos >= $total && count($bloqueos) === 0);
+
+    return [
+        'porcentaje' => $porcentaje,
+        'total'      => $total,
+        'hechos'     => $hechos,
+        'faltan'     => max(0, $total - $hechos),
+        'completo'   => $completo,
+        'grupos'     => $grupos,
+        'bloqueos'   => $bloqueos,
+    ];
 }
 
 /**
@@ -5669,8 +6015,18 @@ function recAsegurarIngeniero(): void
 /** Ingenieros activos, para el selector del levantamiento. */
 function recIngenierosActivos(): array
 {
+    // Se incluye la profesion (si la columna existe) para poder distinguir
+    // en el selector a los responsables que no son ingenieros.
+    $tieneProf = false;
     try {
-        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula
+        $cols = db()->query('SHOW COLUMNS FROM ingenieros')
+                    ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $tieneProf = in_array('profesion', $cols, true);
+    } catch (Throwable $e) { $tieneProf = false; }
+
+    try {
+        $st = db()->query("SELECT id, nombre_completo AS nombre, cedula"
+                          . ($tieneProf ? ", profesion" : "") . "
                              FROM ingenieros
                             WHERE activo = 1
                             ORDER BY nombre_completo");
@@ -5682,11 +6038,27 @@ function recIngenierosActivos(): array
 function recIngenieroDe(int $edificioId): ?array
 {
     recAsegurarIngeniero();
+
+    // Solo se piden las columnas que existan de verdad: en instalaciones
+    // antiguas `profesion` o `foto` pueden faltar y la consulta entera
+    // fallaria, dejando la ficha sin responsable.
+    $colsIng = [];
     try {
+        $colsIng = db()->query('SHOW COLUMNS FROM ingenieros')
+                       ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) { $colsIng = []; }
+    $extraSel = '';
+    if (in_array('profesion', $colsIng, true)) $extraSel .= ", ing.profesion";
+    if (in_array('foto', $colsIng, true))      $extraSel .= ", ing.foto";
+
+    try {
+        // Se traen tambien profesion y foto: el responsable puede no ser
+        // ingeniero (se registra desde el paso 1 con el interruptor
+        // "No es ingeniero") y esos datos hacen falta para mostrarlo bien.
         $st = db()->prepare("SELECT ing.id,
                                     ing.nombre_completo AS nombre,
                                     ing.cedula,
-                                    ing.telefono
+                                    ing.telefono" . $extraSel . "
                                FROM rec_edificio re
                                JOIN ingenieros ing ON ing.id = re.ingeniero_id
                               WHERE re.id = :e");

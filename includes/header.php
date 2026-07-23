@@ -104,6 +104,10 @@ $flashes = obtenerFlashes();
                     <i class="bi bi-hammer"></i> <span>Levantamientos</span>
                 </a>
 
+                <a href="<?= APP_URL_BASE ?>seguimiento/requisiciones.php" class="nav-item <?= $activeModule==='requisiciones'?'active':'' ?>" title="Solicitud de material para la reconstruccion">
+                    <i class="bi bi-file-earmark-text"></i> <span>Requisiciones</span>
+                </a>
+
                 <a href="<?= APP_URL_BASE ?>dashboard/control_gubernamental.php" class="nav-item <?= $activeModule==='control_gub'?'active':'' ?>" title="Panorama técnico de obra: materiales, metros² y daño estructural">
                     <i class="bi bi-bricks"></i> <span>Panorama técnico</span>
                 </a>
