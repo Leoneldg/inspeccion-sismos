@@ -112,6 +112,12 @@ $flashes = obtenerFlashes();
                     <i class="bi bi-bricks"></i> <span>Panorama técnico</span>
                 </a>
 
+                <?php if (!empty($_SESSION['es_master']) || str_contains(mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8'), 'administrador')): ?>
+                <a href="<?= APP_URL_BASE ?>dashboard/panel_directivo.php" class="nav-item <?= $activeModule==='panel_directivo'?'active':'' ?>" title="Avance de la obra de un vistazo, para directivos">
+                    <i class="bi bi-speedometer2"></i> <span>Panel directivo</span>
+                </a>
+                <?php endif; ?>
+
             </div>
         </div>
         <?php endif; ?>

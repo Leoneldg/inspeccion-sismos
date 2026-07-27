@@ -103,6 +103,19 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="fs-wrap">
 
+    <?php if ($puedeCargar): ?>
+    <a href="<?= APP_URL_BASE ?>seguimiento/campo.php?inspeccion=<?= $inspeccionId ?>"
+       style="display:flex;align-items:center;gap:12px;background:#22366F;color:#fff;text-decoration:none;
+              border-radius:12px;padding:14px 18px;margin-bottom:14px;">
+        <i class="bi bi-lightning-charge-fill" style="font-size:24px;"></i>
+        <div style="flex:1;">
+            <div style="font-size:16px;font-weight:700;">Modo campo</div>
+            <div style="font-size:12.5px;opacity:.9;">Tomar fotos y cargar avance rápido, uno por uno</div>
+        </div>
+        <i class="bi bi-chevron-right" style="font-size:20px;"></i>
+    </a>
+    <?php endif; ?>
+
     <!-- Datos de la inspección (actualizados) -->
     <div class="fs-card">
         <div style="background:<?= $colorDec ?>;color:#fff;padding:14px 20px;">

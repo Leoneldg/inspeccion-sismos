@@ -6090,6 +6090,7 @@ function recArbolAvance(int $edificioId): array
     $st = $pdo->prepare(
         "SELECT pi.id AS piso_id, pi.numero_piso,
                 ap.id AS apto_id, ap.identificador,
+                COALESCE(ap.es_local, 0) AS es_local,
                 ap.jefe_nombre, ap.jefe_cedula, ap.jefe_telefono,
                 ap.estado_visita, ap.visita_obs,
                 am.id AS amb_id, am.tipo AS amb_tipo, am.numero AS amb_numero,
@@ -6131,6 +6132,7 @@ function recArbolAvance(int $edificioId): array
             $pisos[$pid]['apartamentos'][] = [
                 'id'            => $aid,
                 'identificador' => $r['identificador'],
+                'es_local'      => (int)($r['es_local'] ?? 0) === 1,
                 'jefe_nombre'   => $r['jefe_nombre'],
                 'jefe_cedula'   => $r['jefe_cedula'],
                 'jefe_telefono' => $r['jefe_telefono'],
@@ -7091,7 +7093,6 @@ function esSistematizador(?int $userId = null): bool
 // =====================================================================
 // MAPA POR PARROQUIA (rendimiento): conteo agregado + puntos bajo demanda
 // =====================================================================
-
 /**
  * Conteo de edificaciones por parroquia (para las burbujas del mapa).
  * Rápido: no trae los puntos, solo cuántos hay por parroquia y su color
