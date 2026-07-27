@@ -46,7 +46,7 @@ try {
         jresp(false, 'No tiene permisos.');
     }
 
-    $nivelesValidos = ['edificio','piso','elemento_piso','apartamento','ambiente'];
+    $nivelesValidos = ['edificio','piso','elemento_piso','apartamento','ambiente','area_comun'];
 
     // --- Eliminar ---
     if (($_POST['accion'] ?? '') === 'eliminar') {

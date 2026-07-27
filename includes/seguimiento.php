@@ -6409,37 +6409,62 @@ function recArbolAvance(int $edificioId): array
                 foreach (recAreasComunesConNombre($edificioId) as $a) {
                     if (empty($a['necesita_reparacion'])) continue;
                     $acId = (int)$a['id'];
-                    // Fotos del área (se guardan a nivel edificio con
-                    // parte = clave del área).
-                    $fotos = [];
+
+                    // Fotos del ANTES: las guardó el levantamiento a nivel
+                    // edificio con parte = clave del área.
+                    $fAntes = [];
                     try {
                         $stF = db()->prepare(
-                            "SELECT id, ruta, parte, descripcion, creado_en
+                            "SELECT id, ruta, descripcion, creado_en
                                FROM rec_foto
                               WHERE nivel = 'edificio' AND ref_id = :e AND parte = :p
                               ORDER BY creado_en");
                         $stF->execute(['e' => $edificioId, 'p' => $a['tipo']]);
                         foreach ($stF->fetchAll() as $f) {
-                            $fotos[] = [
+                            $fAntes[] = [
                                 'id'    => (int)$f['id'],
                                 'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
-                                'parte' => $f['parte'] ?: '',
                                 'fecha' => !empty($f['creado_en'])
                                     ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
                             ];
                         }
-                    } catch (Throwable $e) { /* sin fotos */ }
+                    } catch (Throwable $e) { /* sin fotos del antes */ }
+
+                    // Fotos del DURANTE y DESPUÉS: se guardan a nivel
+                    // area_comun (ref = id del área) para no mezclarlas.
+                    $fDurante = []; $fDespues = [];
+                    try {
+                        $stD = db()->prepare(
+                            "SELECT id, ruta, parte, creado_en
+                               FROM rec_foto
+                              WHERE nivel = 'area_comun' AND ref_id = :r
+                              ORDER BY creado_en");
+                        $stD->execute(['r' => $acId]);
+                        foreach ($stD->fetchAll() as $f) {
+                            $item = [
+                                'id'    => (int)$f['id'],
+                                'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
+                                'fecha' => !empty($f['creado_en'])
+                                    ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
+                            ];
+                            if (($f['parte'] ?? '') === 'despues') $fDespues[] = $item;
+                            else $fDurante[] = $item;
+                        }
+                    } catch (Throwable $e) { /* sin fotos durante/después */ }
 
                     $out[] = [
-                        'id'       => $acId,
-                        'tipo'     => $a['tipo'] ?? '',
-                        'nombre'   => $a['etiqueta'],
-                        'estado'   => $a['estado'] ?? '',
-                        'trabajo'  => $a['tipo_trabajo'] ?? '',
-                        'm2'       => (float)($a['metros_cuadrados'] ?? 0),
-                        'obs'      => $a['observaciones'] ?? '',
-                        'avance'   => $avances[$acId] ?? 0,
-                        'fotos'    => $fotos,
+                        'id'            => $acId,
+                        'tipo'          => $a['tipo'] ?? '',
+                        'nombre'        => $a['etiqueta'],
+                        'estado'        => $a['estado'] ?? '',
+                        'trabajo'       => $a['tipo_trabajo'] ?? '',
+                        'm2'            => (float)($a['metros_cuadrados'] ?? 0),
+                        'obs'           => $a['observaciones'] ?? '',
+                        'avance'        => $avances[$acId] ?? 0,
+                        'fotos_antes'   => $fAntes,
+                        'fotos_durante' => $fDurante,
+                        'fotos_despues' => $fDespues,
+                        'tiene_foto_durante' => count($fDurante) > 0,
                     ];
                 }
                 return $out;

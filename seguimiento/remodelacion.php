@@ -731,8 +731,12 @@ function pintarAreasComunes(areas, cierre) {
     if (lista.length) {
         html += '<div style="display:flex;flex-direction:column;gap:8px;">';
         lista.forEach(a => {
-            html += '<div style="border:1px solid #e5e8f0;border-radius:9px;'
-                + 'padding:10px 13px;">'
+            const av = a.avance || 0;
+            const nAntes = (a.fotos_antes || []).length;
+            const nDurante = (a.fotos_durante || []).length;
+            const nDespues = (a.fotos_despues || []).length;
+
+            html += '<div style="border:1px solid #e5e8f0;border-radius:9px;padding:10px 13px;">'
                 + '<div style="display:flex;justify-content:space-between;'
                 + 'align-items:center;flex-wrap:wrap;gap:8px;">'
                 + '<span style="font-weight:700;color:#2a3140;font-size:13.5px;">'
@@ -751,26 +755,56 @@ function pintarAreasComunes(areas, cierre) {
                     + a.obs + '</div>';
             }
 
-            // Seguimiento del área: barra + control, igual que un ambiente.
-            const av = a.avance || 0;
+            // Botones de fotos: Antes (levantamiento), Durante y Después.
+            const nomJs = (a.nombre || '').replace(/'/g, "\\'");
+            html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;">';
+            html += nAntes > 0
+                ? '<button type="button" class="btn-foto-mini" onclick="verFotosArea(' + a.id + ", '" + nomJs + "', 'antes')" + '">'
+                  + '<i class="bi bi-image"></i> Antes (' + nAntes + ')</button>'
+                : '<span style="font-size:11px;color:#c4c9d6;"><i class="bi bi-image"></i> Sin foto del antes</span>';
+            if (nDurante > 0) {
+                html += '<button type="button" class="btn-foto-mini" style="border-color:#2E7D3255;color:#2E7D32;" '
+                    + 'onclick="verFotosArea(' + a.id + ", '" + nomJs + "', 'durante')" + '">'
+                    + '<i class="bi bi-camera-fill"></i> Durante (' + nDurante + ')</button>';
+            }
+            if (nDespues > 0) {
+                html += '<button type="button" class="btn-foto-mini" style="border-color:#22366F55;color:#22366F;" '
+                    + 'onclick="verFotosArea(' + a.id + ", '" + nomJs + "', 'despues')" + '">'
+                    + '<i class="bi bi-check-circle-fill"></i> Después (' + nDespues + ')</button>';
+            }
+            html += '<span id="estado-ac-' + a.id + '"></span></div>';
+
+            // Control de avance: igual que en los ambientes, exige que ya
+            // exista la foto del "durante" antes de dejar mover la barra.
             let control;
             if (!PUEDE_CARGAR) {
                 control = '<div style="flex:1;min-width:120px;background:#eef0f6;border-radius:20px;'
                     + 'height:12px;overflow:hidden;"><div style="width:' + av + '%;background:'
                     + colorPct(av) + ';height:100%;"></div></div>';
-            } else {
+            } else if (a.tiene_foto_durante) {
                 control = '<input type="range" min="0" max="100" step="5" value="' + av + '" '
                     + 'style="flex:1;min-width:130px;" '
                     + 'oninput="document.getElementById(\'pct-ac-' + a.id + '\').textContent=this.value+\'%\';'
                     + 'document.getElementById(\'pct-ac-' + a.id + '\').style.color=colorPct(+this.value)" '
                     + 'onchange="guardarAvanceArea(' + a.id + ', this.value)">';
+            } else {
+                control = '<button type="button" class="btn btn-outline btn-sm" '
+                    + 'onclick="subirDuranteArea(' + a.id + ')">'
+                    + '<i class="bi bi-camera"></i> Subir foto del durante</button>';
             }
+
             html += '<div style="display:flex;align-items:center;gap:10px;margin-top:9px;">'
                 + control
                 + '<div style="min-width:52px;text-align:right;font-weight:800;font-size:15px;'
                 + 'color:' + colorPct(av) + ';" id="pct-ac-' + a.id + '">' + av + '%</div>'
-                + '<span id="estado-ac-' + a.id + '"></span>'
                 + '</div>';
+
+            // Al llegar a 100%, ofrecer la foto del "después".
+            if (PUEDE_CARGAR && av >= 100) {
+                html += '<button type="button" class="btn btn-outline btn-sm" style="margin-top:8px;" '
+                    + 'onclick="subirDespuesArea(' + a.id + ')">'
+                    + '<i class="bi bi-check-circle"></i> Subir foto del después</button>';
+            }
 
             html += '</div>';
         });
@@ -1585,6 +1619,41 @@ async function guardarAvanceAmbiente(ambienteId, valor, aptoId, pisoId) {
     }
 }
 
+// Subir foto del "durante" de un área común.
+function subirDuranteArea(areaId) {
+    elegirOrigenDurante({ nivel: 'area_comun', id: areaId, parte: 'durante' });
+}
+
+// Subir foto del "después" de un área común (al terminar, 100%).
+function subirDespuesArea(areaId) {
+    elegirOrigenDurante({ nivel: 'area_comun', id: areaId, parte: 'despues' });
+}
+
+// Ver las fotos de un área común (antes, durante o después).
+async function verFotosArea(areaId, nombre, parte) {
+    const cont = document.getElementById('fs-modal-fotos');
+    const cuerpo = document.getElementById('fs-modal-body');
+    const titParte = parte === 'durante' ? 'Durante'
+                   : (parte === 'despues' ? 'Después' : 'Antes');
+    document.getElementById('fs-modal-tit').textContent = nombre + ' · ' + titParte;
+    cont.style.display = 'flex';
+
+    // Las fotos ya vienen en el árbol; se leen de memoria.
+    let area = null;
+    if (_arbol && Array.isArray(_arbol.areas_comunes)) {
+        area = _arbol.areas_comunes.find(x => x.id === areaId);
+    }
+    if (!area) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos.</p>'; return; }
+
+    const lista = parte === 'durante' ? (area.fotos_durante || [])
+                : (parte === 'despues' ? (area.fotos_despues || []) : (area.fotos_antes || []));
+    if (!lista.length) { cuerpo.innerHTML = '<p class="text-muted">Sin fotos registradas.</p>'; return; }
+
+    cuerpo.innerHTML = '<div class="fotos-fila">'
+        + lista.map(f => fotoHTML(f.ruta, nombre, titParte, f.fecha || '', f.id)).join('')
+        + '</div>';
+}
+
 // Guarda el % de avance de un área común y actualiza el total del edificio.
 async function guardarAvanceArea(areaId, valor) {
     const pct = parseInt(valor);
@@ -1622,6 +1691,11 @@ async function guardarAvanceArea(areaId, valor) {
         // Refrescar el % general del edificio si el servidor lo devolvió.
         if (typeof d.avance_edificio === 'number') {
             try { pintarBarraGlobal(d.avance_edificio); } catch (e) {}
+        }
+        // Al llegar a 100%, redibujar para que salga el botón "después".
+        if (pct >= 100) {
+            try { pintarAreasComunes(_arbol.areas_comunes || [], _arbol.cierre || null); }
+            catch (e) {}
         }
         setTimeout(() => marca('', ''), 2500);
     } catch (e) {
@@ -2006,6 +2080,7 @@ async function _onDuranteElegida(input, desdeCamara) {
     const destino = _duranteDestino;
     const nivel = destino.nivel || 'apartamento';
     const refId = destino.id || destino;
+    const parteFoto = destino.parte || 'durante';
     const archivo = input.files[0];
 
     // RESPALDO INMEDIATO: la foto se guarda en el teléfono ANTES de
@@ -2014,15 +2089,15 @@ async function _onDuranteElegida(input, desdeCamara) {
     if (window.ObrasFotos) {
         idLocal = await ObrasFotos.respaldar(archivo, {
             inspeccion_id: INSPECCION_ID, nivel: nivel, ref_id: refId,
-            parte: 'durante', origen: desdeCamara ? 'camara' : 'galeria',
-            descripcion: 'Durante · ' + nivel + ' #' + refId,
+            parte: parteFoto, origen: desdeCamara ? 'camara' : 'galeria',
+            descripcion: parteFoto + ' · ' + nivel + ' #' + refId,
         });
     }
 
     const fd = new FormData();
     fd.append('nivel', nivel);
     fd.append('ref_id', refId);
-    fd.append('parte', 'durante');
+    fd.append('parte', parteFoto);
     fd.append('foto', archivo);
     input.value = '';
 
@@ -2031,7 +2106,7 @@ async function _onDuranteElegida(input, desdeCamara) {
         const archivo = fd.get('foto');
         await ObrasOffline.encolar('foto',
             URL_BASE + 'subir_foto_rec.php',
-            { nivel: nivel, ref_id: refId, parte: 'durante',
+            { nivel: nivel, ref_id: refId, parte: parteFoto,
               foto: archivo, nombre_archivo: archivo && archivo.name || 'foto.jpg' },
             'Foto de ' + nivel + ' #' + refId);
         // Marcar en pantalla para que pueda seguir trabajando.
@@ -2053,7 +2128,7 @@ async function _onDuranteElegida(input, desdeCamara) {
             const archivo = fd.get('foto');
             await ObrasOffline.encolar('foto',
                 URL_BASE + 'subir_foto_rec.php',
-                { nivel: nivel, ref_id: refId, parte: 'durante',
+                { nivel: nivel, ref_id: refId, parte: parteFoto,
                   foto: archivo, nombre_archivo: archivo && archivo.name || 'foto.jpg' },
                 'Foto de ' + nivel + ' #' + refId);
             marcarFotoPendiente(nivel, refId);
@@ -2088,11 +2163,26 @@ async function _onDuranteElegida(input, desdeCamara) {
             (_arbol.pisos || []).forEach(p => (p.apartamentos || []).forEach(a => { if (a.id === aptoId) ap = a; }));
             if (cont && ap) cont.innerHTML = ap.ambientes.map(am => filaAmbiente(am, aptoId, pisoId)).join('');
         }
+    } else if (nivel === 'area_comun') {
+        // Se agregó una foto (durante o después) a un área común.
+        if (_arbol && Array.isArray(_arbol.areas_comunes)) {
+            const a = _arbol.areas_comunes.find(x => x.id === refId);
+            if (a) {
+                const nueva = { id: (data.foto && data.foto.id) || 0,
+                                ruta: (data.foto && data.foto.ruta) || '',
+                                fecha: '' };
+                if (parteFoto === 'despues') {
+                    a.fotos_despues = (a.fotos_despues || []).concat(nueva);
+                } else {
+                    a.fotos_durante = (a.fotos_durante || []).concat(nueva);
+                    a.tiene_foto_durante = true;
+                }
+            }
+        }
+        // Redibujar el panel de áreas comunes con lo nuevo.
+        try { pintarAreasComunes(_arbol.areas_comunes || [], _arbol.cierre || null); }
+        catch (e) {}
     } else {
-        let pisoAfectado = null;
-        (_arbol.pisos || []).forEach(p => p.apartamentos.forEach(a => {
-            if (a.id === refId) { a.tiene_foto_durante = true; pisoAfectado = p.piso_id; }
-        }));
         if (pisoAfectado) {
             const cont = document.getElementById('piso-aptos-' + pisoAfectado);
             const piso = _arbol.pisos.find(p => p.piso_id === pisoAfectado);

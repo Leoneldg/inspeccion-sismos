@@ -33,26 +33,20 @@ try {
     if ($areaId <= 0) jr(false, 'Área común no válida.');
     if ($porcentaje < 0 || $porcentaje > 100) jr(false, 'El porcentaje debe estar entre 0 y 100.');
 
-    // La foto del área se guarda a nivel edificio con parte = clave del
-    // área. Se exige una foto del "durante" antes de registrar avance,
-    // igual que en los ambientes.
-    $st = db()->prepare(
-        "SELECT ac.tipo, ac.edificio_id
-           FROM rec_area_comun ac WHERE ac.id = :a"
-    );
+    // La foto del "durante" del área se guarda a nivel area_comun.
+    // Se exige antes de registrar avance, igual que en los ambientes.
+    $st = db()->prepare("SELECT COUNT(*) FROM rec_area_comun WHERE id = :a");
     $st->execute(['a' => $areaId]);
-    $area = $st->fetch();
-    if (!$area) jr(false, 'El área común ya no existe.');
+    if ((int)$st->fetchColumn() === 0) jr(false, 'El área común ya no existe.');
 
     $stF = db()->prepare(
         "SELECT COUNT(*) FROM rec_foto
-          WHERE nivel = 'edificio' AND ref_id = :e AND parte = :p
-            AND descripcion = 'durante'"
+          WHERE nivel = 'area_comun' AND ref_id = :r AND parte = 'durante'"
     );
-    $stF->execute(['e' => (int)$area['edificio_id'], 'p' => $area['tipo']]);
-    // Nota: si el flujo de fotos "durante" del área no marca descripcion,
-    // no se bloquea el avance (se acepta con cualquier foto del área).
-    // Por eso solo se avisa, no se impide, cuando no hay ninguna foto.
+    $stF->execute(['r' => $areaId]);
+    if ((int)$stF->fetchColumn() === 0) {
+        jr(false, 'Primero suba la foto del "durante" de esta área.');
+    }
 
     $r = recGuardarAvanceAreaComun($areaId, $porcentaje, trim($b['observaciones'] ?? '') ?: null);
 
