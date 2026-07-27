@@ -750,6 +750,28 @@ function pintarAreasComunes(areas, cierre) {
                 html += '<div style="font-size:11.5px;color:#767c94;font-style:italic;">'
                     + a.obs + '</div>';
             }
+
+            // Seguimiento del área: barra + control, igual que un ambiente.
+            const av = a.avance || 0;
+            let control;
+            if (!PUEDE_CARGAR) {
+                control = '<div style="flex:1;min-width:120px;background:#eef0f6;border-radius:20px;'
+                    + 'height:12px;overflow:hidden;"><div style="width:' + av + '%;background:'
+                    + colorPct(av) + ';height:100%;"></div></div>';
+            } else {
+                control = '<input type="range" min="0" max="100" step="5" value="' + av + '" '
+                    + 'style="flex:1;min-width:130px;" '
+                    + 'oninput="document.getElementById(\'pct-ac-' + a.id + '\').textContent=this.value+\'%\';'
+                    + 'document.getElementById(\'pct-ac-' + a.id + '\').style.color=colorPct(+this.value)" '
+                    + 'onchange="guardarAvanceArea(' + a.id + ', this.value)">';
+            }
+            html += '<div style="display:flex;align-items:center;gap:10px;margin-top:9px;">'
+                + control
+                + '<div style="min-width:52px;text-align:right;font-weight:800;font-size:15px;'
+                + 'color:' + colorPct(av) + ';" id="pct-ac-' + a.id + '">' + av + '%</div>'
+                + '<span id="estado-ac-' + a.id + '"></span>'
+                + '</div>';
+
             html += '</div>';
         });
         html += '</div>';
@@ -1558,6 +1580,59 @@ async function guardarAvanceAmbiente(ambienteId, valor, aptoId, pisoId) {
             marcarGuardando(ambienteId, 'pendiente');
         } else {
             marcarGuardando(ambienteId, 'error');
+            alert('No hay conexión.\n\nEl avance NO se guardó. Verifique su señal e intente de nuevo.');
+        }
+    }
+}
+
+// Guarda el % de avance de un área común y actualiza el total del edificio.
+async function guardarAvanceArea(areaId, valor) {
+    const pct = parseInt(valor);
+    const lbl = document.getElementById('pct-ac-' + areaId);
+    if (lbl) { lbl.textContent = pct + '%'; lbl.style.color = colorPct(pct); }
+
+    // Actualizar en memoria para que el promedio siga cuadrando.
+    if (_arbol && Array.isArray(_arbol.areas_comunes)) {
+        const a = _arbol.areas_comunes.find(x => x.id === areaId);
+        if (a) a.avance = pct;
+    }
+
+    const est = document.getElementById('estado-ac-' + areaId);
+    const marca = (txt, color) => { if (est) { est.textContent = txt; est.style.color = color; } };
+
+    // Sin señal: encolar para enviar después.
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('avance',
+            URL_BASE + 'guardar_avance_area.php',
+            { area_comun_id: areaId, porcentaje: pct, edificio_id: EDIFICIO_ID },
+            'Avance de área común #' + areaId + ' → ' + pct + '%');
+        marca(' guardado en el teléfono', '#C9A227');
+        return;
+    }
+
+    marca(' guardando…', '#5b6478');
+    try {
+        const res = await fetch(URL_BASE + 'guardar_avance_area.php', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ area_comun_id: areaId, porcentaje: pct, edificio_id: EDIFICIO_ID })
+        });
+        const d = await res.json();
+        if (!d.ok) { marca(' no se guardó', '#A61C1C'); alert(d.mensaje || 'No se pudo guardar el avance.'); return; }
+        marca(' ✓ guardado', '#2E7D32');
+        // Refrescar el % general del edificio si el servidor lo devolvió.
+        if (typeof d.avance_edificio === 'number') {
+            try { pintarBarraGlobal(d.avance_edificio); } catch (e) {}
+        }
+        setTimeout(() => marca('', ''), 2500);
+    } catch (e) {
+        if (window.ObrasOffline) {
+            await ObrasOffline.encolar('avance',
+                URL_BASE + 'guardar_avance_area.php',
+                { area_comun_id: areaId, porcentaje: pct, edificio_id: EDIFICIO_ID },
+                'Avance de área común #' + areaId + ' → ' + pct + '%');
+            marca(' guardado en el teléfono', '#C9A227');
+        } else {
+            marca(' error', '#A61C1C');
             alert('No hay conexión.\n\nEl avance NO se guardó. Verifique su señal e intente de nuevo.');
         }
     }
