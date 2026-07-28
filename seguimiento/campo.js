@@ -1,419 +1,593 @@
 /* ===================================================================
- * MODO CAMPO · lógica de captura rápida.
+ * MODO CAMPO · fase de intervención.
  *
- * Reutiliza el árbol de arbol_avance.php y los endpoints de foto y
- * avance existentes. Aquí solo vive la NAVEGACIÓN: elegir piso, listar
- * lo pendiente, mostrar un elemento a la vez y saltar al siguiente.
+ * Dos vistas sobre el mismo árbol:
+ *   RESULTADOS · consulta. Indicadores y la tira antes/durante/después.
+ *   REPORTAR   · captura. Piso → apartamento → ambiente → partidas.
  *
- * Un "elemento" del recorrido es un apartamento/local (con sus
- * ambientes) o un área común. Se normalizan a una lista plana por piso
- * para poder recorrerlos de corrido.
+ * El porcentaje NUNCA se escribe: se calcula desde las partidas
+ * reportadas, ponderando por metros cuadrados. ivRecalcular() es el
+ * espejo exacto del cálculo de includes/intervencion.php, para que la
+ * pantalla siga siendo correcta cuando se trabaja sin señal.
  * =================================================================== */
 
-let CM_ARBOL = null;      // árbol crudo del servidor
-let CM_PISOS = [];        // [{ id, etiqueta, items: [...] }]
-let CM_PISO_ACTUAL = null;
-let CM_ITEM_ACTUAL = null;
-let CM_FOTO_DEST = null;  // destino de la foto que se está subiendo
+const IV = {
+    arbol: null,
+    vista: 'resultados',
+    piso: 0,          // índice del piso elegido en Reportar
+    cont: null,       // índice del contenedor (apartamento/grupo)
+    esp: null,        // índice del espacio (ambiente/área/elemento)
+    destino: null,    // partida + fase de la foto que se está subiendo
+    abiertos: {},     // pisos desplegados en Resultados
+};
 
-/* ---- Utilidades de color / texto ---- */
-function cmColor(pct) {
+/* ---------- Utilidades ---------- */
+function ivColor(pct) {
     if (pct >= 100) return '#1D9E75';
     if (pct > 0)    return '#EF9F27';
-    return '#E24B4A';
+    return '#C8CDDB';
 }
-function cmToast(msg) {
-    const t = document.getElementById('cm-toast');
+function esc(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function ivToast(msg) {
+    const t = document.getElementById('iv-toast');
     t.textContent = msg;
     t.classList.add('ver');
     clearTimeout(t._t);
-    t._t = setTimeout(() => t.classList.remove('ver'), 2200);
+    t._t = setTimeout(() => t.classList.remove('ver'), 2600);
+}
+function ivLupa(src) {
+    document.getElementById('iv-lupa-img').src = src;
+    document.getElementById('iv-lupa').style.display = 'flex';
+}
+function ivHoy() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function ivFechaCorta(iso) {
+    const p = String(iso || '').split('-');
+    return p.length === 3 ? (p[2] + '/' + p[1] + '/' + p[0]) : iso;
 }
 
-/* ---- Normalizar el árbol a una lista de items por piso ----
- *
- * Cada item queda con la misma "forma", venga de un apartamento o de un
- * área común, para que el recorrido no tenga que distinguir casos:
- *   { tipo:'apartamento'|'area', id, titulo, sub,
- *     nivel:'ambiente'|'area_comun', refId, avance,
- *     tieneFotoDurante, fotosAntes, fotosDurante, fotosDespues, subitems }
- *
- * Para apartamentos, cada ambiente que necesita reparación es un
- * subitem con su propio avance y foto. Para áreas comunes, el área es
- * el item completo.
+/* ---------- Cálculo (espejo del servidor) ----------
+ * Estado de una partida: 100 si tiene reporte "después", 50 si tiene
+ * "durante", 0 si no tiene nada. El peso es sus m² (1 si no se midieron).
+ * Los niveles superiores son promedios ponderados por ese peso.
  */
-function cmNormalizar(arbol) {
-    const pisos = [];
+function ivRecalcular() {
+    if (!IV.arbol) return;
+    let pesoEd = 0, acumEd = 0, m2Tot = 0, m2Hecho = 0;
+    const cuenta = { sin_iniciar: 0, en_proceso: 0, terminada: 0 };
 
-    (arbol.pisos || []).forEach(p => {
-        const items = [];
-
-        (p.apartamentos || []).forEach(ap => {
-            const esLocal = !!ap.es_local;
-            // Ambientes que requieren reparación = lo que se trabaja.
-            const ambs = (ap.ambientes || []).filter(a => a.necesita_reparacion);
-            const subitems = ambs.map(a => ({
-                nivel: 'ambiente',
-                refId: a.id,
-                titulo: a.etiqueta,
-                avance: a.avance || 0,
-                tieneFotoDurante: !!a.tiene_foto_durante,
-                fotosAntes: a.fotos_antes || 0,
-                fotosDurante: a.fotos_durante || 0,
-            }));
-            // Si el apartamento no tiene ambientes detallados, se trabaja
-            // como una sola unidad (avance del apartamento completo).
-            if (!subitems.length) {
-                subitems.push({
-                    nivel: 'apartamento',
-                    refId: ap.id,
-                    titulo: 'Avance general',
-                    avance: ap.avance || 0,
-                    tieneFotoDurante: !!ap.tiene_foto_durante,
-                    fotosAntes: 0,
-                    fotosDurante: 0,
+    IV.arbol.pisos.forEach(pi => {
+        let pesoP = 0, acumP = 0;
+        pi.contenedores.forEach(co => {
+            let pesoC = 0, acumC = 0;
+            co.espacios.forEach(es => {
+                let pesoE = 0, acumE = 0;
+                es.partidas.forEach(pa => {
+                    const hay = f => (pa.bitacora || []).some(b => b.fase === f);
+                    pa.estado = hay('despues') ? 'terminada' : (hay('durante') ? 'en_proceso' : 'sin_iniciar');
+                    pa.pct = pa.estado === 'terminada' ? 100 : (pa.estado === 'en_proceso' ? 50 : 0);
+                    const peso = pa.m2 > 0 ? pa.m2 : 1;
+                    pesoE += peso; acumE += peso * pa.pct;
+                    m2Tot += pa.m2; m2Hecho += pa.m2 * pa.pct / 100;
                 });
-            }
-            items.push({
-                tipo: esLocal ? 'local' : 'apartamento',
-                id: 'ap' + ap.id,
-                titulo: (esLocal ? 'Local ' : '') + (ap.identificador || ''),
-                sub: subitems.length + (subitems.length === 1 ? ' trabajo' : ' trabajos'),
-                subitems: subitems,
+                es.avance = pesoE > 0 ? Math.round(acumE / pesoE) : 0;
+                es.estado = es.avance >= 100 ? 'terminada' : (es.avance > 0 ? 'en_proceso' : 'sin_iniciar');
+                cuenta[es.estado]++;
+                pesoC += pesoE; acumC += acumE;
             });
+            co.avance = pesoC > 0 ? Math.round(acumC / pesoC) : 0;
+            pesoP += pesoC; acumP += acumC;
         });
+        pi.avance = pesoP > 0 ? Math.round(acumP / pesoP) : 0;
+        pesoEd += pesoP; acumEd += acumP;
+    });
 
-        pisos.push({
-            id: p.piso_id,
-            etiqueta: p.etiqueta || ('Piso ' + p.numero_piso),
-            avance: p.avance || 0,
-            items: items,
+    IV.arbol.avance = pesoEd > 0 ? Math.round(acumEd / pesoEd) : 0;
+    IV.arbol.espacios = {
+        total: cuenta.sin_iniciar + cuenta.en_proceso + cuenta.terminada,
+        sin_iniciar: cuenta.sin_iniciar,
+        en_proceso: cuenta.en_proceso,
+        terminados: cuenta.terminada,
+    };
+    IV.arbol.m2 = { total: Math.round(m2Tot * 100) / 100, intervenido: Math.round(m2Hecho * 100) / 100 };
+    document.getElementById('iv-avance-gen').textContent = IV.arbol.avance + '%';
+}
+
+/* ---------- Cambio de vista ---------- */
+function ivVista(v) {
+    IV.vista = v;
+    const tabR = document.getElementById('iv-tab-res');
+    const tabP = document.getElementById('iv-tab-rep');
+    if (tabR) tabR.classList.toggle('activa', v === 'resultados');
+    if (tabP) tabP.classList.toggle('activa', v === 'reportar');
+    document.getElementById('iv-resultados').classList.toggle('iv-oculto', v !== 'resultados');
+    document.getElementById('iv-reportar').classList.toggle('iv-oculto', v !== 'reportar');
+    if (v === 'resultados') ivPintarResultados(); else ivPintarReportar();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ===================================================================
+ * VISTA 1 · RESULTADOS
+ * =================================================================== */
+function ivPintarResultados() {
+    const cont = document.getElementById('iv-resultados');
+    const a = IV.arbol;
+    if (!a) return;
+
+    if (a.sin_plan) {
+        cont.innerHTML = '<div class="iv-card"><div class="iv-vacio">'
+            + '<i class="bi bi-clipboard-x" style="color:#C9A227;"></i>'
+            + '<div style="font-size:16px;font-weight:700;color:#2a3140;margin-top:10px;">Todavía no hay plan de trabajo</div>'
+            + '<div style="margin-top:6px;font-size:13px;">El levantamiento técnico no dejó ningún ambiente '
+            + 'marcado para reparar. Sin plan no hay nada que intervenir.</div></div></div>';
+        return;
+    }
+
+    const e = a.espacios, m = a.m2;
+    let h = '';
+
+    // --- Avance general ---
+    h += '<div class="iv-card" style="padding:16px 18px;">'
+       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
+       + '<span style="font-size:13px;color:#5b6478;">Avance de la intervención</span>'
+       + '<span style="font-size:26px;font-weight:800;color:' + ivColor(a.avance) + ';">' + a.avance + '%</span>'
+       + '</div>'
+       + '<div class="iv-barra iv-barra-alta"><div style="width:' + Math.max(a.avance, 3) + '%;background:'
+       + ivColor(a.avance) + ';">' + (a.avance >= 12 ? a.avance + '%' : '') + '</div></div>'
+       + '<div class="iv-nota"><i class="bi bi-calculator"></i> Calculado sobre '
+       + m.total.toLocaleString('es-VE') + ' m² del plan. No se edita a mano: sube cuando se reportan partidas.</div>'
+       + '</div>';
+
+    // --- Indicadores ---
+    h += '<div class="iv-card" style="padding:14px 15px;">'
+       + '<div class="iv-kpis">'
+       + '<div class="iv-kpi"><div class="n" style="color:#6b7285;">' + e.sin_iniciar + '</div><div class="t">Sin iniciar</div></div>'
+       + '<div class="iv-kpi" style="background:#FDF3E7;"><div class="n" style="color:#A66A00;">' + e.en_proceso + '</div><div class="t">En proceso</div></div>'
+       + '<div class="iv-kpi" style="background:#E7F4EC;"><div class="n" style="color:#2E7D32;">' + e.terminados + '</div><div class="t">Terminados</div></div>'
+       + '</div>'
+       + '<div class="iv-nota"><strong>' + e.terminados + ' de ' + e.total + '</strong> espacios a reparar terminados · '
+       + m.intervenido.toLocaleString('es-VE') + ' de ' + m.total.toLocaleString('es-VE') + ' m² intervenidos</div>'
+       + '</div>';
+
+    // --- Detalle por piso ---
+    a.pisos.forEach((pi, i) => {
+        const abierto = !!IV.abiertos[i];
+        h += '<div class="iv-card">'
+           + '<div onclick="ivTogglePiso(' + i + ')" style="padding:13px 15px;cursor:pointer;'
+           + 'display:flex;align-items:center;gap:11px;">'
+           + '<i class="bi bi-chevron-' + (abierto ? 'down' : 'right') + '" style="color:#22366F;"></i>'
+           + '<div style="flex:1;min-width:0;">'
+           + '<div style="font-size:14.5px;font-weight:700;color:#22366F;">' + esc(pi.etiqueta) + '</div>'
+           + '<div class="iv-barra" style="margin-top:6px;"><div style="width:' + pi.avance + '%;background:'
+           + ivColor(pi.avance) + ';"></div></div>'
+           + '</div>'
+           + '<div class="iv-pct" style="color:' + ivColor(pi.avance) + ';">' + pi.avance + '%</div>'
+           + '</div>';
+
+        if (abierto) {
+            h += '<div style="border-top:1px solid #eef0f5;">';
+            pi.contenedores.forEach(co => {
+                h += '<div style="padding:9px 15px 4px;font-size:11.5px;font-weight:700;color:#767c94;'
+                   + 'text-transform:uppercase;letter-spacing:.4px;background:#fafbfe;">'
+                   + esc(co.titulo) + ' · ' + co.avance + '%</div>';
+                co.espacios.forEach(es => { h += ivBloqueEspacio(es); });
+            });
+            h += '</div>';
+        }
+        h += '</div>';
+    });
+
+    cont.innerHTML = h;
+}
+
+function ivTogglePiso(i) {
+    IV.abiertos[i] = !IV.abiertos[i];
+    ivPintarResultados();
+}
+
+/* Bloque de un espacio en Resultados: título, % y la tira de tres fases
+ * con todas las fotos que existan de cada una. */
+function ivBloqueEspacio(es) {
+    const antes = [], durante = [], despues = [];
+    (es.fotos_generales || []).forEach(f => antes.push(f));
+    (es.partidas || []).forEach(pa => {
+        (pa.fotos_antes || []).forEach(f => antes.push(f));
+        (pa.bitacora || []).forEach(b => {
+            (b.fotos || []).forEach(f => (b.fase === 'despues' ? despues : durante).push(f));
         });
     });
 
-    // Áreas comunes: no cuelgan de un piso. Se agrupan en un "piso"
-    // virtual al final para que también entren en el recorrido.
-    const areas = (arbol.areas_comunes || []);
-    if (areas.length) {
-        const items = areas.map(a => ({
-            tipo: 'area',
-            id: 'ac' + a.id,
-            titulo: a.nombre,
-            sub: (a.m2 ? a.m2 + ' m²' : 'Área común'),
-            subitems: [{
-                nivel: 'area_comun',
-                refId: a.id,
-                titulo: a.nombre,
-                avance: a.avance || 0,
-                tieneFotoDurante: !!a.tiene_foto_durante,
-                fotosAntes: (a.fotos_antes || []).length,
-                fotosDurante: (a.fotos_durante || []).length,
-                fotosDespues: (a.fotos_despues || []).length,
-            }],
-        }));
-        pisos.push({ id: 'areas', etiqueta: 'Áreas comunes', avance: 0, items: items, esAreas: true });
-    }
-
-    return pisos;
-}
-
-/* ---- % de un item = promedio de sus subitems ---- */
-function cmAvanceItem(item) {
-    if (!item.subitems.length) return 0;
-    const s = item.subitems.reduce((a, x) => a + (x.avance || 0), 0);
-    return Math.round(s / item.subitems.length);
-}
-/* Un item está pendiente si no llegó al 100%. */
-function cmPendiente(item) { return cmAvanceItem(item) < 100; }
-
-/* ---- Pintar la fila de pisos ---- */
-function cmPintarPisos() {
-    const cont = document.getElementById('cm-pisos');
-    cont.innerHTML = CM_PISOS.map(p => {
-        const pend = p.items.filter(cmPendiente).length;
-        const act = (CM_PISO_ACTUAL && CM_PISO_ACTUAL.id === p.id) ? ' activo' : '';
-        const nota = pend > 0 ? (pend + ' por trabajar') : 'listo';
-        return '<button class="cm-piso-btn' + act + '" onclick="cmElegirPiso(\'' + p.id + '\')">'
-            + p.etiqueta
-            + '<span class="cm-mini">' + nota + '</span></button>';
-    }).join('');
-}
-
-/* ---- Elegir piso: muestra el primer pendiente de ese piso ---- */
-function cmElegirPiso(pisoId) {
-    CM_PISO_ACTUAL = CM_PISOS.find(p => String(p.id) === String(pisoId)) || null;
-    cmPintarPisos();
-    if (!CM_PISO_ACTUAL) return;
-    const prox = CM_PISO_ACTUAL.items.find(cmPendiente) || CM_PISO_ACTUAL.items[0];
-    cmMostrarItem(prox);
-}
-
-/* ---- Buscar el siguiente pendiente DENTRO del piso actual ---- */
-function cmSiguientePendiente(desdeItem) {
-    if (!CM_PISO_ACTUAL) return null;
-    const items = CM_PISO_ACTUAL.items;
-    const i = items.indexOf(desdeItem);
-    for (let k = 1; k <= items.length; k++) {
-        const cand = items[(i + k) % items.length];
-        if (cmPendiente(cand)) return cand;
-    }
-    return null;   // no queda nada pendiente en este piso
-}
-
-/* ---- Chips de los elementos del piso ---- */
-function cmChips() {
-    if (!CM_PISO_ACTUAL) return '';
-    return '<div class="cm-chips">' + CM_PISO_ACTUAL.items.map(it => {
-        const pct = cmAvanceItem(it);
-        let cls = 'cm-chip';
-        if (CM_ITEM_ACTUAL && CM_ITEM_ACTUAL.id === it.id) cls += ' actual';
-        else if (pct >= 100) cls += ' ok';
-        else if (pct > 0) cls += ' proceso';
-        const marca = pct >= 100 ? ' ✓' : (pct > 0 ? ' ' + pct + '%' : '');
-        return '<span class="' + cls + '" onclick="cmMostrarItemId(\'' + it.id + '\')">'
-            + it.titulo + marca + '</span>';
-    }).join('') + '</div>';
-}
-
-function cmMostrarItemId(id) {
-    const it = CM_PISO_ACTUAL.items.find(x => x.id === id);
-    if (it) cmMostrarItem(it);
-}
-
-/* ---- Pintar el panel de UN item ---- */
-function cmMostrarItem(item) {
-    CM_ITEM_ACTUAL = item;
-    const panel = document.getElementById('cm-panel');
-    panel.classList.remove('cm-hidden');
-    document.getElementById('cm-cargando').classList.add('cm-hidden');
-
-    if (!item) { panel.innerHTML = ''; return; }
-
-    // Por simplicidad de campo se trabaja el PRIMER subitem pendiente
-    // (o el primero si todos están listos). El resto se ve en los chips.
-    const sub = item.subitems.find(s => (s.avance || 0) < 100) || item.subitems[0];
-
-    const fase = f => {
-        if (f === 'antes')   return sub.fotosAntes > 0 ? 'ok' : '';
-        if (f === 'durante') return sub.tieneFotoDurante ? 'ok' : 'activa';
-        if (f === 'despues') return (sub.avance >= 100) ? 'activa' : '';
-        return '';
-    };
-
-    let control;
-    if (!CM_PUEDE) {
-        control = '<div class="cm-barra-piso"><div style="width:' + (sub.avance||0) + '%;background:'
-            + cmColor(sub.avance||0) + ';"></div></div>';
-    } else if (sub.tieneFotoDurante) {
-        control =
-            '<div class="cm-slider-wrap" id="cm-slider">'
-            + '<div class="cm-slider-row"><span>Avance de este trabajo</span>'
-            + '<b id="cm-pct">' + (sub.avance||0) + '%</b></div>'
-            + '<input type="range" class="cm-range" min="0" max="100" step="5" value="' + (sub.avance||0) + '" '
-            + 'oninput="cmMoverSlider(this.value)" onchange="cmGuardar(this.value)">'
-            + ((sub.avance >= 100 && sub.nivel === 'area_comun')
-                ? '<button class="cm-btn-sec" style="width:100%;margin-top:10px;" onclick="cmFoto(\'despues\')">'
-                  + '<i class="bi bi-check-circle"></i> Subir foto del después</button>'
-                : '')
-            + '</div>';
-    } else {
-        control =
-            '<button class="cm-btn-cam" onclick="cmFoto(\'durante\')">'
-            + '<i class="bi bi-camera"></i> Tomar foto del durante</button>';
-    }
-
-    panel.innerHTML =
-        '<div class="cm-card">'
-        + cmChips()
-        + '<div style="padding:14px;">'
-        + '<div style="font-size:13px;color:#5b6478;">' + item.titulo + '</div>'
-        + '<div style="font-size:18px;font-weight:700;color:#2a3140;margin-bottom:4px;">' + sub.titulo + '</div>'
-
-        + '<div class="cm-fases">'
-        + '<div class="cm-fase ' + fase('antes') + '"><i class="bi bi-image"></i>'
-        + '<div class="cm-fase-txt">Antes' + (sub.fotosAntes>0?' ✓':'') + '</div></div>'
-        + '<div class="cm-fase ' + fase('durante') + '"><i class="bi bi-camera"></i>'
-        + '<div class="cm-fase-txt">Durante' + (sub.tieneFotoDurante?' ✓':'') + '</div></div>'
-        + '<div class="cm-fase ' + fase('despues') + '"><i class="bi bi-check-circle"></i>'
-        + '<div class="cm-fase-txt">Después</div></div>'
-        + '</div>'
-
-        + (sub.fotosAntes > 0
-            ? '<button class="cm-btn-sec" style="width:100%;margin-bottom:12px;" onclick="cmVerAntes()">'
-              + '<i class="bi bi-image"></i> Ver foto(s) del antes (' + sub.fotosAntes + ')</button>'
-            : '<div style="font-size:12px;color:#9aa1b4;margin-bottom:12px;"><i class="bi bi-image"></i> '
-              + 'Sin foto del antes en el levantamiento</div>')
-
-        + control
-
-        + '<div class="cm-nav">'
-        + '<button class="cm-btn-sec" onclick="cmSaltar()">Saltar</button>'
-        + '<button class="cm-btn-prim" onclick="cmSiguiente()">Siguiente pendiente <i class="bi bi-arrow-right"></i></button>'
-        + '</div>'
-
+    const tira = (titulo, cls, fotos) =>
+        '<div class="iv-fase ' + cls + '">'
+        + '<div class="iv-fase-cab">' + titulo + '</div>'
+        + '<div class="iv-fase-cuerpo">'
+        + (fotos.length
+            ? fotos.slice(0, 6).map(f => '<img src="' + esc(f.ruta) + '" alt="' + titulo
+                + '" onclick="ivLupa(\'' + esc(f.ruta) + '\')">').join('')
+            : '<div class="iv-fase-vacia">Sin fotos</div>')
         + '</div></div>';
 
-    CM_ITEM_ACTUAL._sub = sub;   // recordar el subitem en foco
+    return '<div style="padding:12px 15px;border-bottom:1px solid #eef0f5;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">'
+        + '<div style="font-size:14px;font-weight:600;color:#2a3140;">' + esc(es.titulo) + '</div>'
+        + '<div style="font-size:14px;font-weight:800;color:' + ivColor(es.avance) + ';">' + es.avance + '%</div>'
+        + '</div>'
+        + '<div class="iv-barra" style="margin-top:6px;"><div style="width:' + es.avance + '%;background:'
+        + ivColor(es.avance) + ';"></div></div>'
+        + '<div class="iv-fases">'
+        + tira('Antes', 'antes', antes)
+        + tira('Durante', 'durante', durante)
+        + tira('Después', 'despues', despues)
+        + '</div></div>';
 }
 
-/* ---- Slider: pintar en vivo ---- */
-function cmMoverSlider(v) {
-    const el = document.getElementById('cm-pct');
-    if (el) { el.textContent = v + '%'; el.style.color = cmColor(+v); }
-}
+/* ===================================================================
+ * VISTA 2 · REPORTAR
+ * =================================================================== */
+function ivPintarReportar() {
+    const cont = document.getElementById('iv-reportar');
+    const a = IV.arbol;
+    if (!a) return;
 
-/* ---- Guardar avance (reusa los endpoints existentes) ---- */
-async function cmGuardar(v) {
-    const sub = CM_ITEM_ACTUAL._sub;
-    const pct = parseInt(v);
-    sub.avance = pct;
-
-    const esArea = sub.nivel === 'area_comun';
-    const url = esArea ? CM_URL + 'guardar_avance_area.php'
-        : (sub.nivel === 'ambiente' ? CM_URL + 'guardar_avance_ambiente.php'
-                                    : CM_URL + 'guardar_avance.php');
-    const payload = esArea
-        ? { area_comun_id: sub.refId, porcentaje: pct, edificio_id: CM_EDIF }
-        : (sub.nivel === 'ambiente'
-            ? { ambiente_id: sub.refId, porcentaje: pct, edificio_id: CM_EDIF }
-            : { apartamento_id: sub.refId, porcentaje: pct, edificio_id: CM_EDIF });
-
-    // Sin señal: se encola y sube al volver.
-    if (window.ObrasOffline && !navigator.onLine) {
-        await ObrasOffline.encolar('avance', url, payload, 'Avance ' + sub.titulo + ' → ' + pct + '%');
-        cmToast('Guardado en el teléfono');
-        cmActualizarPisoEnMemoria();
+    if (!IV.PUEDE_REPORTAR) {
+        cont.innerHTML = '<div class="iv-card"><div class="iv-vacio">'
+            + '<i class="bi bi-lock" style="color:#C9A227;"></i>'
+            + '<div style="font-size:15px;margin-top:10px;">Solo el sistematizador reporta la intervención.</div>'
+            + '</div></div>';
         return;
     }
-    try {
-        const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify(payload) });
-        const d = await res.json();
-        if (!d.ok) { cmToast(d.mensaje || 'No se pudo guardar'); return; }
-        if (typeof d.avance_edificio === 'number') {
-            document.getElementById('cm-avance-gen').textContent = d.avance_edificio + '%';
-        }
-        cmToast('✓ Guardado');
-        cmActualizarPisoEnMemoria();
-        // Si llegó a 100 y es área, repintar para ofrecer el "después".
-        if (pct >= 100 && esArea) cmMostrarItem(CM_ITEM_ACTUAL);
-    } catch (e) {
-        if (window.ObrasOffline) {
-            await ObrasOffline.encolar('avance', url, payload, 'Avance ' + sub.titulo);
-            cmToast('Guardado en el teléfono');
-        } else { cmToast('Sin conexión'); }
+    if (a.sin_plan) {
+        cont.innerHTML = '<div class="iv-card"><div class="iv-vacio">'
+            + '<i class="bi bi-clipboard-x" style="color:#C9A227;"></i>'
+            + '<div style="font-size:15px;margin-top:10px;">No hay partidas que reportar. '
+            + 'Primero hay que completar el levantamiento técnico.</div></div></div>';
+        return;
     }
+
+    // Barra de pisos, siempre visible.
+    let h = '<div class="iv-pisos">' + a.pisos.map((pi, i) => {
+        const pend = pi.contenedores.reduce((n, co) =>
+            n + co.espacios.filter(es => es.avance < 100).length, 0);
+        return '<button type="button" class="iv-piso-btn' + (i === IV.piso ? ' activo' : '')
+            + '" onclick="ivElegirPiso(' + i + ')">' + esc(pi.etiqueta)
+            + '<span class="mini">' + (pend > 0 ? pend + ' por hacer' : 'completo') + '</span></button>';
+    }).join('') + '</div>';
+
+    const piso = a.pisos[IV.piso];
+    if (!piso) { cont.innerHTML = h; return; }
+
+    if (IV.cont === null)      h += ivListaContenedores(piso);
+    else if (IV.esp === null)  h += ivListaEspacios(piso);
+    else                       h += ivPanelPartidas(piso);
+
+    cont.innerHTML = h;
 }
 
-/* Refresca chips y barra del piso sin recargar del servidor. */
-function cmActualizarPisoEnMemoria() {
-    const panel = document.getElementById('cm-panel');
-    const chips = panel.querySelector('.cm-chips');
-    if (chips) chips.outerHTML = cmChips();
-    cmPintarPisos();
+function ivElegirPiso(i) { IV.piso = i; IV.cont = null; IV.esp = null; ivPintarReportar(); }
+function ivAbrirCont(i)  { IV.cont = i; IV.esp = null; ivPintarReportar(); window.scrollTo({top:0,behavior:'smooth'}); }
+function ivAbrirEsp(i)   { IV.esp = i; ivPintarReportar(); window.scrollTo({top:0,behavior:'smooth'}); }
+function ivVolverCont()  { IV.cont = null; IV.esp = null; ivPintarReportar(); }
+function ivVolverEsp()   { IV.esp = null; ivPintarReportar(); }
+
+/* Nivel 1: apartamentos / locales / grupos del piso. */
+function ivListaContenedores(piso) {
+    return '<div class="iv-card">'
+        + '<div class="iv-migas"><b>' + esc(piso.etiqueta) + '</b> · elija dónde trabajó</div>'
+        + piso.contenedores.map((co, i) => {
+            const listos = co.espacios.filter(es => es.avance >= 100).length;
+            return '<div class="iv-fila" onclick="ivAbrirCont(' + i + ')">'
+                + '<div class="iv-fila-info">'
+                + '<div class="iv-fila-tit">' + esc(co.titulo) + '</div>'
+                + '<div class="iv-fila-sub">' + listos + ' de ' + co.espacios.length + ' espacios terminados</div>'
+                + '<div class="iv-barra" style="margin-top:6px;"><div style="width:' + co.avance
+                + '%;background:' + ivColor(co.avance) + ';"></div></div>'
+                + '</div>'
+                + '<div class="iv-pct" style="color:' + ivColor(co.avance) + ';">' + co.avance + '%</div>'
+                + '<i class="bi bi-chevron-right" style="color:#a3a9ba;"></i></div>';
+        }).join('') + '</div>';
 }
 
-/* ---- Fotos: elegir cámara o galería ---- */
-function cmFoto(parte) {
-    const sub = CM_ITEM_ACTUAL._sub;
-    CM_FOTO_DEST = { nivel: sub.nivel, refId: sub.refId, parte: parte };
-    // En campo casi siempre es cámara: se dispara directo.
-    document.getElementById('cm-file-cam').click();
+/* Nivel 2: ambientes / áreas / elementos del contenedor. */
+function ivListaEspacios(piso) {
+    const co = piso.contenedores[IV.cont];
+    return '<div class="iv-card">'
+        + '<div class="iv-migas">'
+        + '<span onclick="ivVolverCont()" style="cursor:pointer;color:#22366F;"><i class="bi bi-arrow-left"></i></span>'
+        + esc(piso.etiqueta) + ' · <b>' + esc(co.titulo) + '</b>'
+        + '</div>'
+        + co.espacios.map((es, i) => {
+            const n = es.partidas.length;
+            const fin = es.partidas.filter(p => p.estado === 'terminada').length;
+            return '<div class="iv-fila" onclick="ivAbrirEsp(' + i + ')">'
+                + '<div class="iv-fila-info">'
+                + '<div class="iv-fila-tit">' + esc(es.titulo) + '</div>'
+                + '<div class="iv-fila-sub">' + fin + ' de ' + n + ' partidas terminadas</div>'
+                + '<div class="iv-barra" style="margin-top:6px;"><div style="width:' + es.avance
+                + '%;background:' + ivColor(es.avance) + ';"></div></div>'
+                + '</div>'
+                + '<div class="iv-pct" style="color:' + ivColor(es.avance) + ';">' + es.avance + '%</div>'
+                + '<i class="bi bi-chevron-right" style="color:#a3a9ba;"></i></div>';
+        }).join('') + '</div>';
 }
-function cmVerAntes() {
-    const sub = CM_ITEM_ACTUAL._sub;
-    if (sub.nivel === 'ambiente') {
-        window.open(CM_URL + 'listar_fotos_ambiente.php?ambiente=' + sub.refId, '_blank');
-    } else {
-        cmToast('Las fotos del antes se ven en la ficha completa');
+
+/* Nivel 3: las partidas del espacio. Aquí se reporta. */
+function ivPanelPartidas(piso) {
+    const co = piso.contenedores[IV.cont];
+    const es = co.espacios[IV.esp];
+
+    let h = '<div class="iv-card">'
+        + '<div class="iv-migas">'
+        + '<span onclick="ivVolverEsp()" style="cursor:pointer;color:#22366F;"><i class="bi bi-arrow-left"></i></span>'
+        + esc(piso.etiqueta) + ' · ' + esc(co.titulo) + ' · <b>' + esc(es.titulo) + '</b>'
+        + '</div>'
+        + '<div style="padding:13px 15px;border-bottom:1px solid #eef0f5;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+        + '<span style="font-size:12.5px;color:#5b6478;">Avance de este espacio</span>'
+        + '<span style="font-size:20px;font-weight:800;color:' + ivColor(es.avance) + ';">' + es.avance + '%</span>'
+        + '</div>'
+        + '<div class="iv-barra" style="margin-top:7px;"><div style="width:' + es.avance + '%;background:'
+        + ivColor(es.avance) + ';"></div></div>'
+        + '<div class="iv-nota"><i class="bi bi-lock"></i> Lo calcula el sistema según las partidas que usted '
+        + 'reporte y los metros de cada una.</div>'
+        + '</div>';
+
+    es.partidas.forEach((pa, i) => { h += ivBloquePartida(es, pa, i); });
+    return h + '</div>';
+}
+
+/* Una partida: qué hay que hacer, en qué estado está, sus fotos y los
+ * botones para reportar. */
+function ivBloquePartida(es, pa, idx) {
+    const badge = pa.estado === 'terminada'
+        ? '<span class="iv-badge fin"><i class="bi bi-check-circle"></i> Terminada</span>'
+        : (pa.estado === 'en_proceso'
+            ? '<span class="iv-badge proc">En proceso</span>'
+            : '<span class="iv-badge sin">Sin iniciar</span>');
+
+    const durante = [], despues = [];
+    (pa.bitacora || []).forEach(b => (b.fotos || []).forEach(f => {
+        (b.fase === 'despues' ? despues : durante).push(f);
+    }));
+
+    const tira = (titulo, cls, fotos, borrable) =>
+        '<div class="iv-fase ' + cls + '">'
+        + '<div class="iv-fase-cab">' + titulo + '</div>'
+        + '<div class="iv-fase-cuerpo">'
+        + (fotos.length
+            ? fotos.slice(0, 6).map(f => '<img src="' + esc(f.ruta) + '" alt="' + titulo + '"'
+                + ' onclick="' + (borrable && f.id
+                    ? 'ivBorrarFoto(' + f.id + ')'
+                    : 'ivLupa(\'' + esc(f.ruta) + '\')') + '">').join('')
+            : '<div class="iv-fase-vacia">Sin fotos</div>')
+        + '</div></div>';
+
+    const yaDespues = pa.estado === 'terminada';
+
+    let h = '<div class="iv-partida">'
+        + '<div class="iv-partida-top">'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div class="iv-partida-nom">' + esc(pa.trabajo_txt) + '</div>'
+        + '<div class="iv-partida-sub">' + esc(pa.superficie_txt)
+        + (pa.m2 > 0 ? ' · ' + pa.m2.toLocaleString('es-VE') + ' m²' : ' · sin metros registrados')
+        + '</div></div>' + badge + '</div>'
+
+        + '<div class="iv-fases">'
+        + tira('Antes', 'antes', pa.fotos_antes || [], false)
+        + tira('Durante', 'durante', durante, true)
+        + tira('Después', 'despues', despues, true)
+        + '</div>'
+
+        + '<div class="iv-acciones">'
+        + '<button type="button" class="iv-btn iv-btn-dur" onclick="ivFoto(' + idx + ',\'durante\')">'
+        + '<i class="bi bi-camera"></i> Durante</button>'
+        + '<button type="button" class="iv-btn iv-btn-des" onclick="ivFoto(' + idx + ',\'despues\')">'
+        + '<i class="bi bi-check2-circle"></i> Después</button>'
+        + '</div>';
+
+    if (yaDespues) {
+        h += '<button type="button" class="iv-btn-txt" onclick="ivDeshacer(' + idx + ')">'
+           + 'Se cerró por error: reabrir esta partida</button>';
     }
+
+    // Bitácora de la partida.
+    if ((pa.bitacora || []).length) {
+        h += '<div class="iv-bit">';
+        pa.bitacora.forEach(b => {
+            h += '<div class="iv-bit-item">'
+               + '<span class="iv-bit-fecha">' + esc(b.fecha_txt || ivFechaCorta(b.fecha)) + '</span>'
+               + '<span>' + (b.fase === 'despues' ? 'Después' : 'Durante')
+               + ' · ' + (b.fotos || []).length + ' foto' + ((b.fotos || []).length === 1 ? '' : 's')
+               + (b.obs ? ' · ' + esc(b.obs) : '')
+               + (b.autor ? ' · ' + esc(b.autor) : '')
+               + (b.pendiente ? ' · <i class="bi bi-cloud-arrow-up"></i> por subir' : '')
+               + '</span></div>';
+        });
+        h += '</div>';
+    }
+
+    return h + '</div>';
 }
 
-/* ---- Subir la foto elegida (comprime + respalda + sube) ---- */
-async function cmOnFoto(input) {
-    if (!input.files || !input.files[0] || !CM_FOTO_DEST) { input.value=''; return; }
+/* ---------- Partida abierta en el panel, por posición ----------
+ * Se usa el índice y no la clave: la clave lleva el tipo de trabajo, que
+ * es texto libre en algunas instalaciones, y meterlo dentro de un
+ * onclick obliga a escaparlo dos veces (HTML y JavaScript). El índice
+ * siempre es un número. */
+function ivPartidaActual(idx) {
+    const piso = IV.arbol.pisos[IV.piso];
+    if (!piso || IV.cont === null || IV.esp === null) return null;
+    const co = piso.contenedores[IV.cont];
+    if (!co) return null;
+    const es = co.espacios[IV.esp];
+    if (!es || !es.partidas[idx]) return null;
+    return { es: es, pa: es.partidas[idx] };
+}
+
+/* ===================================================================
+ * CAPTURA DE FOTO
+ * =================================================================== */
+function ivFoto(idx, fase) {
+    const r = ivPartidaActual(idx);
+    if (!r) { ivToast('No se encontró la partida.'); return; }
+    IV.destino = { fase: fase, pa: r.pa };
+    document.getElementById('iv-file').click();
+}
+
+async function ivOnFoto(input) {
+    if (!input.files || !input.files[0] || !IV.destino) { input.value = ''; return; }
     let archivo = input.files[0];
-    const d = CM_FOTO_DEST;
+    const d = IV.destino;
     input.value = '';
 
-    try { archivo = await cmComprimir(archivo); } catch (e) { /* sube sin comprimir */ }
+    try { archivo = await ivComprimir(archivo); } catch (e) { /* se sube tal cual */ }
 
-    // Respaldo inmediato en el teléfono.
+    // Respaldo en el teléfono antes de intentar nada: una foto de cámara
+    // no queda en la galería y se perdería si falla la subida.
     let idLocal = null;
     if (window.ObrasFotos) {
-        idLocal = await ObrasFotos.respaldar(archivo, {
-            inspeccion_id: CM_INSP, nivel: d.nivel, ref_id: d.refId,
-            parte: d.parte, descripcion: d.parte + ' · ' + d.nivel + ' #' + d.refId,
-        });
+        try {
+            idLocal = await ObrasFotos.respaldar(archivo, {
+                inspeccion_id: IV_INSP, nivel: d.pa.nivel, ref_id: d.pa.ref_id,
+                parte: d.fase,
+                descripcion: d.fase + ' · ' + d.pa.trabajo_txt + ' · ' + d.pa.superficie_txt,
+            });
+        } catch (e) { /* seguir sin respaldo */ }
+    }
+
+    // La fecha se fija AQUÍ, no al sincronizar: si se trabaja el lunes
+    // sin señal y sube el miércoles, la bitácora debe decir lunes.
+    const datos = {
+        inspeccion: IV_INSP,
+        nivel: d.pa.nivel,
+        ref_id: d.pa.ref_id,
+        superficie: d.pa.superficie || '',
+        trabajo: d.pa.trabajo || '',
+        fase: d.fase,
+        fecha: ivHoy(),
+    };
+
+    const url = IV_URL + 'intervencion_foto.php';
+    const rotulo = (d.fase === 'despues' ? 'Después' : 'Durante') + ' · ' + d.pa.trabajo_txt;
+
+    if (window.ObrasOffline && !navigator.onLine) {
+        await ObrasOffline.encolar('foto', url,
+            Object.assign({}, datos, { foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' }),
+            rotulo);
+        ivAplicarLocal(d, archivo, true);
+        ivToast('Sin señal: guardado en el teléfono');
+        return;
     }
 
     const fd = new FormData();
-    fd.append('nivel', d.nivel);
-    fd.append('ref_id', d.refId);
-    fd.append('parte', d.parte);
+    Object.keys(datos).forEach(k => fd.append(k, datos[k]));
     fd.append('foto', archivo);
 
-    if (window.ObrasOffline && !navigator.onLine) {
-        await ObrasOffline.encolar('foto', CM_URL + 'subir_foto_rec.php',
-            { nivel: d.nivel, ref_id: d.refId, parte: d.parte,
-              foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' },
-            'Foto ' + d.parte);
-        cmMarcarFoto(d);
-        cmToast('Foto guardada en el teléfono');
-        return;
-    }
-
-    cmToast('Subiendo foto…');
+    ivToast('Subiendo foto…');
     try {
-        const res = await fetch(CM_URL + 'subir_foto_rec.php', { method:'POST', body: fd });
+        const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
         const data = await res.json();
-        if (!data.ok) { cmToast(data.mensaje || 'No se pudo subir'); return; }
+        if (!data.ok) { ivToast(data.mensaje || 'No se pudo guardar'); return; }
         if (idLocal && window.ObrasFotos) ObrasFotos.marcarSubida(idLocal);
-        cmMarcarFoto(d);
-        cmToast('✓ Foto lista');
+        ivAplicarLocal(d, archivo, false, data.foto);
+        ivToast('Reporte guardado');
     } catch (e) {
         if (window.ObrasOffline) {
-            await ObrasOffline.encolar('foto', CM_URL + 'subir_foto_rec.php',
-                { nivel: d.nivel, ref_id: d.refId, parte: d.parte,
-                  foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' }, 'Foto ' + d.parte);
-            cmMarcarFoto(d);
-            cmToast('Foto guardada en el teléfono');
-        } else { cmToast('Sin conexión'); }
+            await ObrasOffline.encolar('foto', url,
+                Object.assign({}, datos, { foto: archivo, nombre_archivo: archivo.name || 'foto.jpg' }),
+                rotulo);
+            ivAplicarLocal(d, archivo, true);
+            ivToast('Sin señal: guardado en el teléfono');
+        } else {
+            ivToast('No hay conexión y este navegador no puede guardar la foto.');
+        }
     }
 }
 
-/* Marca en memoria que ya hay foto y repinta el item. */
-function cmMarcarFoto(d) {
-    const sub = CM_ITEM_ACTUAL._sub;
-    if (d.parte === 'durante') { sub.tieneFotoDurante = true; sub.fotosDurante = (sub.fotosDurante||0)+1; }
-    if (d.parte === 'despues') { sub.fotosDespues = (sub.fotosDespues||0)+1; }
-    cmMostrarItem(CM_ITEM_ACTUAL);
+/* Refleja el reporte en pantalla sin esperar al servidor. Mantiene la
+ * regla del día: si ya hay asiento de esa fase hoy, la foto se le suma. */
+function ivAplicarLocal(destino, archivo, pendiente, fotoServidor) {
+    const pa = destino.pa;
+    const hoy = ivHoy();
+    pa.bitacora = pa.bitacora || [];
+
+    let asiento = pa.bitacora.find(b => b.fase === destino.fase && b.fecha === hoy);
+    if (!asiento) {
+        asiento = { fase: destino.fase, fecha: hoy, fecha_txt: ivFechaCorta(hoy),
+                    obs: '', autor: '', fotos: [], pendiente: !!pendiente };
+        pa.bitacora.unshift(asiento);
+    }
+    if (pendiente) asiento.pendiente = true;
+
+    asiento.fotos.push(fotoServidor && fotoServidor.ruta
+        ? { id: fotoServidor.id, ruta: fotoServidor.ruta, hora: fotoServidor.hora }
+        : { id: null, ruta: URL.createObjectURL(archivo), hora: '' });
+
+    ivRecalcular();
+    if (IV.vista === 'reportar') ivPintarReportar(); else ivPintarResultados();
 }
 
-/* ---- Navegación ---- */
-function cmSiguiente() {
-    const prox = cmSiguientePendiente(CM_ITEM_ACTUAL);
-    if (prox) { cmMostrarItem(prox); window.scrollTo({top:0,behavior:'smooth'}); }
-    else cmPisoListo();
-}
-function cmSaltar() {
-    const prox = cmSiguientePendiente(CM_ITEM_ACTUAL);
-    if (prox && prox.id !== CM_ITEM_ACTUAL.id) cmMostrarItem(prox);
-    else cmToast('No hay más pendientes en este piso');
-}
-function cmPisoListo() {
-    const panel = document.getElementById('cm-panel');
-    panel.innerHTML = '<div class="cm-card"><div class="cm-vacio">'
-        + '<i class="bi bi-check-circle"></i>'
-        + '<div style="font-size:17px;font-weight:700;color:#2a3140;margin-top:8px;">¡Piso completo!</div>'
-        + '<div style="margin-top:4px;">Ya no queda nada pendiente en ' + CM_PISO_ACTUAL.etiqueta + '.</div>'
-        + '<div style="margin-top:14px;">Elija otro piso arriba para seguir.</div>'
-        + '</div></div>';
-    cmPintarPisos();
+/* ---------- Deshacer un "después" cargado por error ---------- */
+async function ivDeshacer(idx) {
+    const r = ivPartidaActual(idx);
+    if (!r) return;
+    if (!confirm('Se borrarán las fotos del "después" de esta partida y volverá a quedar en proceso. ¿Continuar?')) return;
+
+    const pa = r.pa;
+    const fd = new FormData();
+    fd.append('accion', 'deshacer');
+    fd.append('nivel', pa.nivel);
+    fd.append('ref_id', pa.ref_id);
+    fd.append('superficie', pa.superficie || '');
+    fd.append('trabajo', pa.trabajo || '');
+    fd.append('fase', 'despues');
+
+    try {
+        const res = await fetch(IV_URL + 'intervencion_foto.php',
+            { method: 'POST', body: fd, credentials: 'same-origin' });
+        const d = await res.json();
+        if (!d.ok) { ivToast(d.mensaje || 'No se pudo deshacer'); return; }
+        pa.bitacora = (pa.bitacora || []).filter(b => b.fase !== 'despues');
+        ivRecalcular();
+        ivPintarReportar();
+        ivToast('Partida reabierta');
+    } catch (e) {
+        ivToast('Necesita conexión para deshacer un reporte.');
+    }
 }
 
-/* ---- Compresión de foto (espejo de comprimirFoto de levantamiento) ---- */
-async function cmComprimir(archivo) {
+/* ---------- Borrar una foto suelta ---------- */
+async function ivBorrarFoto(fotoId) {
+    if (!fotoId) { ivToast('Esa foto todavía no ha subido.'); return; }
+    if (!confirm('¿Eliminar esta foto del reporte?')) return;
+    const fd = new FormData();
+    fd.append('accion', 'eliminar_foto');
+    fd.append('foto_id', fotoId);
+    try {
+        const res = await fetch(IV_URL + 'intervencion_foto.php',
+            { method: 'POST', body: fd, credentials: 'same-origin' });
+        const d = await res.json();
+        if (!d.ok) { ivToast(d.mensaje || 'No se pudo eliminar'); return; }
+        IV.arbol.pisos.forEach(pi => pi.contenedores.forEach(co => co.espacios.forEach(es =>
+            es.partidas.forEach(pa => (pa.bitacora || []).forEach(b => {
+                b.fotos = (b.fotos || []).filter(f => f.id !== fotoId);
+            })))));
+        ivRecalcular();
+        ivPintarReportar();
+        ivToast('Foto eliminada');
+    } catch (e) {
+        ivToast('Necesita conexión para eliminar una foto.');
+    }
+}
+
+/* ---------- Compresión en el teléfono ---------- */
+async function ivComprimir(archivo) {
     if (!archivo || !archivo.type || archivo.type.indexOf('image/') !== 0) return archivo;
     const MAX = 1600, CALIDAD = 0.72;
     const dataUrl = await new Promise((res, rej) => {
@@ -438,33 +612,35 @@ async function cmComprimir(archivo) {
     return new File([blob], (archivo.name || 'foto').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
 }
 
-/* ---- Arranque ---- */
-async function cmCargar() {
+/* ---------- Arranque ---------- */
+async function ivCargar() {
+    const cargando = document.getElementById('iv-cargando');
     try {
-        const res = await fetch(CM_URL + 'arbol_avance.php?inspeccion=' + CM_INSP);
+        const res = await fetch(IV_URL + 'intervencion_arbol.php?inspeccion=' + IV_INSP,
+            { credentials: 'same-origin' });
         const d = await res.json();
-        if (!d.ok) { document.getElementById('cm-cargando').innerHTML =
-            '<div style="color:#A61C1C;">' + (d.mensaje || 'No se pudo cargar.') + '</div>'; return; }
-        CM_ARBOL = d;
-        CM_PISOS = cmNormalizar(d);
-        document.getElementById('cm-avance-gen').textContent = (d.avance_edificio || 0) + '%';
-        document.getElementById('cm-cargando').classList.add('cm-hidden');
-        cmPintarPisos();
-        // Abrir el primer piso que tenga pendientes.
-        const primero = CM_PISOS.find(p => p.items.some(cmPendiente)) || CM_PISOS[0];
-        if (primero) cmElegirPiso(primero.id);
-        else document.getElementById('cm-panel').innerHTML =
-            '<div class="cm-card"><div class="cm-vacio"><i class="bi bi-check-circle"></i>'
-            + '<div style="font-size:17px;font-weight:700;margin-top:8px;">Todo al día</div>'
-            + '<div style="margin-top:4px;">No hay trabajos pendientes en este edificio.</div></div></div>';
+        if (!d.ok) {
+            cargando.innerHTML = '<div style="color:#A61C1C;">' + esc(d.mensaje || 'No se pudo cargar.') + '</div>';
+            return;
+        }
+        IV.arbol = d;
+        IV.PUEDE_REPORTAR = d.puede_reportar && IV_PUEDE;
+
+        // Abrir por defecto el primer piso con trabajo pendiente.
+        const i = d.pisos.findIndex(pi =>
+            pi.contenedores.some(co => co.espacios.some(es => es.avance < 100)));
+        IV.piso = i >= 0 ? i : 0;
+        IV.abiertos[IV.piso] = true;
+
+        ivRecalcular();
+        cargando.classList.add('iv-oculto');
+        ivVista('resultados');
     } catch (e) {
-        document.getElementById('cm-cargando').innerHTML =
-            '<div style="color:#A61C1C;">Error al cargar. Revise su conexión.</div>';
+        cargando.innerHTML = '<div style="color:#A61C1C;">Error al cargar. Revise su conexión.</div>';
     }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    document.getElementById('cm-file-cam').addEventListener('change', function () { cmOnFoto(this); });
-    document.getElementById('cm-file-gal').addEventListener('change', function () { cmOnFoto(this); });
-    cmCargar();
+    document.getElementById('iv-file').addEventListener('change', function () { ivOnFoto(this); });
+    ivCargar();
 });

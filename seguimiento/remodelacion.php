@@ -103,14 +103,20 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="fs-wrap">
 
-    <?php if ($puedeCargar): ?>
+    <?php if ($edificioId > 0): ?>
+    <!-- Fase 2: intervención. La vista de resultados la abre cualquiera;
+         reportar sigue siendo exclusivo del sistematizador. -->
     <a href="<?= APP_URL_BASE ?>seguimiento/campo.php?inspeccion=<?= $inspeccionId ?>"
        style="display:flex;align-items:center;gap:12px;background:#22366F;color:#fff;text-decoration:none;
               border-radius:12px;padding:14px 18px;margin-bottom:14px;">
         <i class="bi bi-lightning-charge-fill" style="font-size:24px;"></i>
         <div style="flex:1;">
-            <div style="font-size:16px;font-weight:700;">Modo campo</div>
-            <div style="font-size:12.5px;opacity:.9;">Tomar fotos y cargar avance rápido, uno por uno</div>
+            <div style="font-size:16px;font-weight:700;">Modo campo · intervención</div>
+            <div style="font-size:12.5px;opacity:.9;">
+                <?= $puedeCargar
+                    ? 'Reportar el durante y el después de cada partida, y ver el avance'
+                    : 'Ver el avance de la obra y las fotos de antes, durante y después' ?>
+            </div>
         </div>
         <i class="bi bi-chevron-right" style="font-size:20px;"></i>
     </a>
