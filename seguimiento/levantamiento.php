@@ -992,6 +992,28 @@ include __DIR__ . '/../includes/header.php';
             <div class="cierre-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
         </div>
 
+        <?php // La impermeabilización es una condición de la azotea: se
+              // pregunta como un sí/no. Marcado = requiere; sin marcar = no.
+              // Es opcional (no bloquea el cierre).
+              if ($key === 'azotea'):
+                  $reqImper = trim((string)($ed['impermeabilizacion_estado'] ?? '')) !== '';
+        ?>
+        <label class="check-row" style="display:flex;align-items:flex-start;gap:9px;
+               background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:12px;cursor:pointer;">
+            <input type="checkbox" id="req-impermeabilizacion" style="margin-top:2px;"
+                   <?= $reqImper ? 'checked' : '' ?>>
+            <span>
+                <span style="font-weight:600;color:#2a3140;font-size:14px;">
+                    La azotea requiere impermeabilización
+                </span>
+                <span style="display:block;font-size:12.5px;color:#5b6478;margin-top:2px;">
+                    Marque esta casilla si la azotea necesita impermeabilizarse.
+                </span>
+            </span>
+        </label>
+        <?php endif; ?>
+        <?php endforeach; ?>
+
         <hr style="margin:18px 0;border:0;border-top:1px solid #eef0f5;">
         <div class="bloque-tit"><i class="bi bi-calendar-range"></i> Tiempo estimado de la reconstrucción</div>
         <div class="flex gap-8" style="flex-wrap:wrap;">
@@ -5015,35 +5037,26 @@ function agregarMiniFoto(cont, f) {
     const parte = f.parte
         ? '<div style="font-size:10px;color:#55617f;text-align:center;">' + f.parte + '</div>' : '';
     const alt = (f.parte || 'Foto').replace(/"/g, '&quot;').replace(/'/g, '');
-    const fid = f.id ? (' data-foto-id="' + f.id + '"') : '';
     cont.insertAdjacentHTML('beforeend',
-        '<div style="text-align:center;"' + fid + '>'
+        '<div style="text-align:center;">'
         + '<img src="' + f.ruta + '" title="Toque para ampliar" '
         + 'style="width:86px;height:86px;object-fit:cover;border-radius:7px;'
         + 'border:1px solid #d8dce6;cursor:zoom-in;transition:transform .12s;" '
         + 'onmouseover="this.style.transform=\'scale(1.06)\'" '
         + 'onmouseout="this.style.transform=\'\'" '
-        + 'onclick="ampliarFoto(\'' + f.ruta + '\', \'' + alt + '\', ' + (f.id ? f.id : 'null') + ')">'
+        + 'onclick="ampliarFoto(\'' + f.ruta + '\', \'' + alt + '\')">'
         + parte + '</div>');
 }
 
 /**
  * Visor a pantalla completa para revisar las fotos del levantamiento.
- * Permite acercar hasta 4 aumentos, descargar y borrar la imagen.
- * Si se pasa fotoId, se muestra el botón de eliminar.
+ * Permite acercar hasta 4 aumentos y descargar la imagen.
  */
-function ampliarFoto(ruta, titulo, fotoId) {
+function ampliarFoto(ruta, titulo) {
     const capa = document.createElement('div');
     capa.id = 'lev-visor';
     capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'
         + 'display:flex;flex-direction:column;';
-
-    // Botón de borrar: solo si sabemos qué foto es y se puede editar.
-    const btnBorrar = (fotoId && PUEDE_EDITAR)
-        ? '<button onclick="borrarFotoLev(' + fotoId + ')" title="Eliminar foto" '
-          + 'style="background:rgba(214,58,58,.9);border:0;color:#fff;width:38px;height:38px;'
-          + 'border-radius:9px;font-size:18px;cursor:pointer;"><i class="bi bi-trash"></i></button>'
-        : '';
 
     capa.innerHTML = `
         <div style="display:flex;align-items:center;gap:11px;padding:12px 16px;
@@ -5059,7 +5072,6 @@ function ampliarFoto(ruta, titulo, fotoId) {
                style="background:rgba(255,255,255,.15);color:#fff;width:38px;height:38px;
                       border-radius:9px;display:flex;align-items:center;justify-content:center;
                       text-decoration:none;"><i class="bi bi-download"></i></a>
-            ${btnBorrar}
             <button onclick="cerrarVisorLev()" title="Cerrar"
                     style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
                            border-radius:9px;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
@@ -5079,41 +5091,7 @@ function ampliarFoto(ruta, titulo, fotoId) {
     });
     document.body.appendChild(capa);
     window._zoomLev = 1;
-    window._fotoVisorId = fotoId || null;
     document.addEventListener('keydown', _escLev);
-}
-
-/**
- * Borra la foto abierta en el visor. Usa el endpoint que ya existe
- * (accion=eliminar). El servidor decide el permiso: las fotos del
- * levantamiento ("Antes") solo las borra un administrador.
- */
-async function borrarFotoLev(fotoId) {
-    if (!fotoId) return;
-    if (!confirm('¿Eliminar esta foto? No se puede deshacer.')) return;
-
-    const fd = new FormData();
-    fd.append('accion', 'eliminar');
-    fd.append('foto_id', fotoId);
-
-    try {
-        const res = await fetch(URL_BASE + 'subir_foto_rec.php', {
-            method: 'POST', body: fd, credentials: 'same-origin'
-        });
-        const d = await res.json();
-        if (!d.ok) { alert(d.mensaje || 'No se pudo eliminar la foto.'); return; }
-
-        // Quitar la miniatura de la pantalla (por su data-foto-id).
-        const mini = document.querySelector('[data-foto-id="' + fotoId + '"]');
-        if (mini) mini.remove();
-
-        cerrarVisorLev();
-        // El estado del apartamento/ambiente pudo cambiar (una reparación
-        // que se queda sin foto vuelve a estar incompleta): refrescar barra.
-        try { refrescarProgreso(); } catch (e) {}
-    } catch (e) {
-        alert('No se pudo eliminar la foto. Revise su conexión.');
-    }
 }
 
 function _escLev(e) { if (e.key === 'Escape') cerrarVisorLev(); }
@@ -5218,7 +5196,7 @@ async function guardarCierre(ev) {
     // Impermeabilización: es una condición de la azotea (sí/no). Marcado
     // guarda "Requiere"; sin marcar queda vacío. Es opcional.
     const chkImper = document.getElementById('req-impermeabilizacion');
-    payload.impermeabilizacion_estado = '';
+    payload.impermeabilizacion_estado = (chkImper && chkImper.checked) ? 'Requiere' : '';
     payload.fecha_inicio_estimada = form.querySelector('input[name="fecha_inicio_estimada"]').value;
     payload.fecha_fin_estimada = form.querySelector('input[name="fecha_fin_estimada"]').value;
 
