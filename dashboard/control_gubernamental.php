@@ -22,7 +22,11 @@ $parrF = trim($_GET['parroquia'] ?? '');
 if ($parrF !== '' && !puedeAccederParroquia($parrF)) $parrF = '';
 $filtros = $parrF !== '' ? ['parroquia' => $parrF] : [];
 
-$d = techDashboard($filtros);
+// Orden de la tabla por edificio: 'obra' (más metros primero, por
+// defecto) o 'aptos_asc' (menos apartamentos primero).
+$ordenEdif = ($_GET['orden_edif'] ?? '') === 'aptos_asc' ? 'aptos_asc' : 'obra';
+
+$d = techDashboard($filtros, $ordenEdif);
 $activeModule = 'control_gub';
 
 $cons = $d['consolidado'];
@@ -234,8 +238,27 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
 
   <!-- Por edificio -->
   <div style="background:#fff;border:1px solid #e0e4ee;border-radius:10px;padding:14px;margin-bottom:24px;">
-    <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
-      <i class="bi bi-buildings-fill"></i> Por edificio (los que más obra requieren)
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      <div style="font-weight:700;color:#22366F;">
+        <i class="bi bi-buildings-fill"></i>
+        <?= $ordenEdif === 'aptos_asc' ? 'Por edificio (los de menos apartamentos primero)' : 'Por edificio (los que más obra requieren)' ?>
+      </div>
+      <?php
+      // Enlaces de orden, conservando el filtro de parroquia si lo hay.
+      $baseQS = $parrF !== '' ? ('parroquia=' . urlencode($parrF) . '&') : '';
+      ?>
+      <div style="display:inline-flex;border:1px solid #d4d9e6;border-radius:8px;overflow:hidden;font-size:12.5px;">
+        <a href="?<?= $baseQS ?>orden_edif=obra"
+           style="padding:6px 12px;text-decoration:none;font-weight:600;
+                  <?= $ordenEdif !== 'aptos_asc' ? 'background:#22366F;color:#fff;' : 'color:#22366F;background:#fff;' ?>">
+          Más obra
+        </a>
+        <a href="?<?= $baseQS ?>orden_edif=aptos_asc"
+           style="padding:6px 12px;text-decoration:none;font-weight:600;border-left:1px solid #d4d9e6;
+                  <?= $ordenEdif === 'aptos_asc' ? 'background:#22366F;color:#fff;' : 'color:#22366F;background:#fff;' ?>">
+          Menos apartamentos
+        </a>
+      </div>
     </div>
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -243,6 +266,7 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
         <th style="text-align:left;padding:7px 9px;">Edificación</th>
         <th style="text-align:left;padding:7px 9px;">Parroquia</th>
         <th style="padding:7px 9px;">Pisos</th>
+        <th style="padding:7px 9px;">Apartamentos</th>
         <th style="padding:7px 9px;">Colapso</th>
         <th style="padding:7px 9px;">m² de trabajo</th>
       </tr></thead>
@@ -255,6 +279,7 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
           <td style="padding:6px 9px;font-weight:600;"><?= e($row['nombre']) ?></td>
           <td style="padding:6px 9px;"><?= e($row['parroquia']) ?></td>
           <td style="padding:6px 9px;text-align:center;"><?= (int)$row['num_pisos'] ?></td>
+          <td style="padding:6px 9px;text-align:center;<?= $ordenEdif === 'aptos_asc' ? 'font-weight:700;color:#22366F;' : '' ?>"><?= (int)$row['num_apartamentos'] ?></td>
           <td style="padding:6px 9px;text-align:center;color:<?= $colColor ?>;font-weight:600;"><?= e($row['colapso']) ?></td>
           <td style="padding:6px 9px;text-align:right;font-weight:600;"><?= num2($row['m2']) ?></td>
         </tr>

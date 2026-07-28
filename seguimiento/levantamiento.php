@@ -5015,26 +5015,35 @@ function agregarMiniFoto(cont, f) {
     const parte = f.parte
         ? '<div style="font-size:10px;color:#55617f;text-align:center;">' + f.parte + '</div>' : '';
     const alt = (f.parte || 'Foto').replace(/"/g, '&quot;').replace(/'/g, '');
+    const fid = f.id ? (' data-foto-id="' + f.id + '"') : '';
     cont.insertAdjacentHTML('beforeend',
-        '<div style="text-align:center;">'
+        '<div style="text-align:center;"' + fid + '>'
         + '<img src="' + f.ruta + '" title="Toque para ampliar" '
         + 'style="width:86px;height:86px;object-fit:cover;border-radius:7px;'
         + 'border:1px solid #d8dce6;cursor:zoom-in;transition:transform .12s;" '
         + 'onmouseover="this.style.transform=\'scale(1.06)\'" '
         + 'onmouseout="this.style.transform=\'\'" '
-        + 'onclick="ampliarFoto(\'' + f.ruta + '\', \'' + alt + '\')">'
+        + 'onclick="ampliarFoto(\'' + f.ruta + '\', \'' + alt + '\', ' + (f.id ? f.id : 'null') + ')">'
         + parte + '</div>');
 }
 
 /**
  * Visor a pantalla completa para revisar las fotos del levantamiento.
- * Permite acercar hasta 4 aumentos y descargar la imagen.
+ * Permite acercar hasta 4 aumentos, descargar y borrar la imagen.
+ * Si se pasa fotoId, se muestra el botón de eliminar.
  */
-function ampliarFoto(ruta, titulo) {
+function ampliarFoto(ruta, titulo, fotoId) {
     const capa = document.createElement('div');
     capa.id = 'lev-visor';
     capa.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,24,.94);z-index:3000;'
         + 'display:flex;flex-direction:column;';
+
+    // Botón de borrar: solo si sabemos qué foto es y se puede editar.
+    const btnBorrar = (fotoId && PUEDE_EDITAR)
+        ? '<button onclick="borrarFotoLev(' + fotoId + ')" title="Eliminar foto" '
+          + 'style="background:rgba(214,58,58,.9);border:0;color:#fff;width:38px;height:38px;'
+          + 'border-radius:9px;font-size:18px;cursor:pointer;"><i class="bi bi-trash"></i></button>'
+        : '';
 
     capa.innerHTML = `
         <div style="display:flex;align-items:center;gap:11px;padding:12px 16px;
@@ -5050,6 +5059,7 @@ function ampliarFoto(ruta, titulo) {
                style="background:rgba(255,255,255,.15);color:#fff;width:38px;height:38px;
                       border-radius:9px;display:flex;align-items:center;justify-content:center;
                       text-decoration:none;"><i class="bi bi-download"></i></a>
+            ${btnBorrar}
             <button onclick="cerrarVisorLev()" title="Cerrar"
                     style="background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;
                            border-radius:9px;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
@@ -5069,7 +5079,41 @@ function ampliarFoto(ruta, titulo) {
     });
     document.body.appendChild(capa);
     window._zoomLev = 1;
+    window._fotoVisorId = fotoId || null;
     document.addEventListener('keydown', _escLev);
+}
+
+/**
+ * Borra la foto abierta en el visor. Usa el endpoint que ya existe
+ * (accion=eliminar). El servidor decide el permiso: las fotos del
+ * levantamiento ("Antes") solo las borra un administrador.
+ */
+async function borrarFotoLev(fotoId) {
+    if (!fotoId) return;
+    if (!confirm('¿Eliminar esta foto? No se puede deshacer.')) return;
+
+    const fd = new FormData();
+    fd.append('accion', 'eliminar');
+    fd.append('foto_id', fotoId);
+
+    try {
+        const res = await fetch(URL_BASE + 'subir_foto_rec.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const d = await res.json();
+        if (!d.ok) { alert(d.mensaje || 'No se pudo eliminar la foto.'); return; }
+
+        // Quitar la miniatura de la pantalla (por su data-foto-id).
+        const mini = document.querySelector('[data-foto-id="' + fotoId + '"]');
+        if (mini) mini.remove();
+
+        cerrarVisorLev();
+        // El estado del apartamento/ambiente pudo cambiar (una reparación
+        // que se queda sin foto vuelve a estar incompleta): refrescar barra.
+        try { refrescarProgreso(); } catch (e) {}
+    } catch (e) {
+        alert('No se pudo eliminar la foto. Revise su conexión.');
+    }
 }
 
 function _escLev(e) { if (e.key === 'Escape') cerrarVisorLev(); }

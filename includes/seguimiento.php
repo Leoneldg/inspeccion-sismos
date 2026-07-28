@@ -4172,7 +4172,14 @@ function segConsolidadoMateriales(float $margen = 0): array
     // muestran la misma cifra.
     $margen = MARGEN_MATERIALES;
 
-    $conds = ['re.completado = 1', recSqlEdificioCompleto('re')];
+    // Se cuentan los levantamientos CERRADOS (completado = 1). Antes se
+    // exigía además que toda reparación tuviera metros+trabajo+foto
+    // (recSqlEdificioCompleto), pero eso dejaba fuera levantamientos que
+    // ya se habían cerrado cuando el sistema aún permitía cerrar sin foto.
+    // El criterio nuevo ya impide cerrar incompletos, así que "cerrado"
+    // basta. Las reparaciones a medias no inflan los materiales porque
+    // sus metros son 0 y no suman al total.
+    $conds = ['re.completado = 1'];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
     aplicarScopeParroquia($conds, $params, 'i');
@@ -5740,9 +5747,12 @@ function recDetalleTrabajos(int $edificioId): array
                    tt.nombre AS trabajo_nombre,
                    tt.orden,
                    SUM(rr.metros_cuadrados) AS m2,
-                   COUNT(DISTINCT rr.ref_id) AS ambientes,
+                   COUNT(DISTINCT CASE WHEN rr.nivel = 'ambiente'
+                                       THEN rr.ref_id END) AS ambientes,
                    COUNT(DISTINCT ap.id) AS apartamentos,
-                   COUNT(DISTINCT pi.id) AS pisos
+                   COUNT(DISTINCT pi.id) AS pisos,
+                   COUNT(DISTINCT CASE WHEN rr.nivel = 'area_comun'
+                                       THEN rr.ref_id END) AS areas_comunes
               FROM rec_reparacion rr
               JOIN rec_tipo_trabajo tt ON tt.clave = rr.tipo_trabajo AND tt.activo = 1
               LEFT JOIN rec_ambiente am ON rr.nivel = 'ambiente' AND am.id = rr.ref_id
@@ -5759,11 +5769,14 @@ function recDetalleTrabajos(int $edificioId): array
                        SELECT ep.id FROM rec_elemento_piso ep
                          JOIN rec_piso pi3 ON pi3.id = ep.piso_id
                         WHERE pi3.edificio_id = :e2))
+                OR (rr.nivel = 'area_comun' AND rr.ref_id IN (
+                       SELECT ac.id FROM rec_area_comun ac
+                        WHERE ac.edificio_id = :e3))
                )
              GROUP BY rr.tipo_trabajo
              ORDER BY tt.orden
         ");
-        $st->execute(['e' => $edificioId, 'e2' => $edificioId]);
+        $st->execute(['e' => $edificioId, 'e2' => $edificioId, 'e3' => $edificioId]);
 
         $out = [];
         foreach ($st->fetchAll() as $r) {
@@ -5781,13 +5794,14 @@ function recDetalleTrabajos(int $edificioId): array
             } catch (Throwable $e) {}
 
             $out[] = [
-                'clave'        => $r['tipo_trabajo'],
-                'nombre'       => $r['trabajo_nombre'],
-                'm2'           => round((float)$r['m2'], 2),
-                'ambientes'    => (int)$r['ambientes'],
-                'apartamentos' => (int)$r['apartamentos'],
-                'pisos'        => (int)$r['pisos'],
-                'materiales'   => $mats,
+                'clave'         => $r['tipo_trabajo'],
+                'nombre'        => $r['trabajo_nombre'],
+                'm2'            => round((float)$r['m2'], 2),
+                'ambientes'     => (int)$r['ambientes'],
+                'apartamentos'  => (int)$r['apartamentos'],
+                'pisos'         => (int)$r['pisos'],
+                'areas_comunes' => (int)$r['areas_comunes'],
+                'materiales'    => $mats,
             ];
         }
         return $out;
@@ -6076,6 +6090,7 @@ function recArbolAvance(int $edificioId): array
     $st = $pdo->prepare(
         "SELECT pi.id AS piso_id, pi.numero_piso,
                 ap.id AS apto_id, ap.identificador,
+                COALESCE(ap.es_local, 0) AS es_local,
                 ap.jefe_nombre, ap.jefe_cedula, ap.jefe_telefono,
                 ap.estado_visita, ap.visita_obs,
                 am.id AS amb_id, am.tipo AS amb_tipo, am.numero AS amb_numero,
@@ -6117,6 +6132,7 @@ function recArbolAvance(int $edificioId): array
             $pisos[$pid]['apartamentos'][] = [
                 'id'            => $aid,
                 'identificador' => $r['identificador'],
+                'es_local'      => (int)($r['es_local'] ?? 0) === 1,
                 'jefe_nombre'   => $r['jefe_nombre'],
                 'jefe_cedula'   => $r['jefe_cedula'],
                 'jefe_telefono' => $r['jefe_telefono'],
@@ -6165,6 +6181,25 @@ function recArbolAvance(int $edificioId): array
         $nPisos++;
     }
     $avanceEdificio = $nPisos > 0 ? (int)round($sumaPisos / $nPisos) : 0;
+
+    // El avance de las áreas comunes que necesitan reparación también
+    // suma al total del edificio, como pidió el usuario: se promedia
+    // junto con los pisos (cada grupo pesa lo mismo).
+    try {
+        recAsegurarTablasAvance();
+        $stAC = db()->prepare(
+            "SELECT COALESCE(av.porcentaje, 0) AS pct
+               FROM rec_area_comun ac
+               LEFT JOIN rec_avance_area_comun av ON av.area_comun_id = ac.id
+              WHERE ac.edificio_id = :e AND ac.necesita_reparacion = 1");
+        $stAC->execute(['e' => $edificioId]);
+        $pctAreas = $stAC->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if ($pctAreas) {
+            // Promedio de las áreas comunes como un "piso" más.
+            $avanceAreas = (int)round(array_sum($pctAreas) / count($pctAreas));
+            $avanceEdificio = (int)round(($sumaPisos + $avanceAreas) / ($nPisos + 1));
+        }
+    } catch (Throwable $e) { /* si falla, queda el promedio solo de pisos */ }
 
     // Fotos de los elementos del piso (escaleras, pasillos, fachada…),
     // que el levantamiento guarda aparte de las de cada ambiente.
@@ -6357,15 +6392,81 @@ function recArbolAvance(int $edificioId): array
         'ingeniero'       => recIngenieroDe($edificioId),
         'areas_comunes'   => (function() use ($edificioId) {
             try {
+                recAsegurarTablasAvance();
+                // Avance guardado de cada área común (id => %).
+                $avances = [];
+                try {
+                    $stAv = db()->prepare(
+                        "SELECT av.area_comun_id, av.porcentaje
+                           FROM rec_avance_area_comun av
+                           JOIN rec_area_comun ac ON ac.id = av.area_comun_id
+                          WHERE ac.edificio_id = :e");
+                    $stAv->execute(['e' => $edificioId]);
+                    foreach ($stAv->fetchAll() as $r) {
+                        $avances[(int)$r['area_comun_id']] = (int)$r['porcentaje'];
+                    }
+                } catch (Throwable $e) { /* sin avances aún */ }
+
                 $out = [];
                 foreach (recAreasComunesConNombre($edificioId) as $a) {
                     if (empty($a['necesita_reparacion'])) continue;
+                    $acId = (int)$a['id'];
+
+                    // Fotos del ANTES: las guardó el levantamiento a nivel
+                    // edificio con parte = clave del área.
+                    $fAntes = [];
+                    try {
+                        $stF = db()->prepare(
+                            "SELECT id, ruta, descripcion, creado_en
+                               FROM rec_foto
+                              WHERE nivel = 'edificio' AND ref_id = :e AND parte = :p
+                              ORDER BY creado_en");
+                        $stF->execute(['e' => $edificioId, 'p' => $a['tipo']]);
+                        foreach ($stF->fetchAll() as $f) {
+                            $fAntes[] = [
+                                'id'    => (int)$f['id'],
+                                'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
+                                'fecha' => !empty($f['creado_en'])
+                                    ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
+                            ];
+                        }
+                    } catch (Throwable $e) { /* sin fotos del antes */ }
+
+                    // Fotos del DURANTE y DESPUÉS: se guardan a nivel
+                    // area_comun (ref = id del área) para no mezclarlas.
+                    $fDurante = []; $fDespues = [];
+                    try {
+                        $stD = db()->prepare(
+                            "SELECT id, ruta, parte, creado_en
+                               FROM rec_foto
+                              WHERE nivel = 'area_comun' AND ref_id = :r
+                              ORDER BY creado_en");
+                        $stD->execute(['r' => $acId]);
+                        foreach ($stD->fetchAll() as $f) {
+                            $item = [
+                                'id'    => (int)$f['id'],
+                                'ruta'  => APP_URL_BASE . ltrim($f['ruta'], '/'),
+                                'fecha' => !empty($f['creado_en'])
+                                    ? date('d/m/Y H:i', strtotime($f['creado_en'])) : '',
+                            ];
+                            if (($f['parte'] ?? '') === 'despues') $fDespues[] = $item;
+                            else $fDurante[] = $item;
+                        }
+                    } catch (Throwable $e) { /* sin fotos durante/después */ }
+
                     $out[] = [
-                        'nombre'   => $a['etiqueta'],
-                        'estado'   => $a['estado'] ?? '',
-                        'trabajo'  => $a['tipo_trabajo'] ?? '',
-                        'm2'       => (float)($a['metros_cuadrados'] ?? 0),
-                        'obs'      => $a['observaciones'] ?? '',
+                        'id'            => $acId,
+                        'tipo'          => $a['tipo'] ?? '',
+                        'nombre'        => $a['etiqueta'],
+                        'estado'        => $a['estado'] ?? '',
+                        'trabajo'       => $a['tipo_trabajo'] ?? '',
+                        'm2'            => (float)($a['metros_cuadrados'] ?? 0),
+                        'obs'           => $a['observaciones'] ?? '',
+                        'avance'        => $avances[$acId] ?? 0,
+                        'fotos_antes'   => $fAntes,
+                        'fotos_durante' => $fDurante,
+                        'fotos_despues' => $fDespues,
+                        'tiene_foto_durante' => count($fDurante) > 0,
                     ];
                 }
                 return $out;
@@ -6385,6 +6486,25 @@ function recArbolAvance(int $edificioId): array
         'fotos_edificio'  => $fotosEdificio,
         'fotos_piso'      => $fotosPiso,
     ];
+}
+
+/**
+ * Guarda el % de avance de un área común. Espejo del de ambientes,
+ * para que el seguimiento de un área común funcione igual.
+ */
+function recGuardarAvanceAreaComun(int $areaComunId, int $porcentaje, ?string $obs = null): array
+{
+    recAsegurarTablasAvance();
+    $porcentaje = max(0, min(100, $porcentaje));
+    db()->prepare(
+        'INSERT INTO rec_avance_area_comun (area_comun_id, porcentaje, observaciones, actualizado_por)
+         VALUES (:a, :p, :o, :u)
+         ON DUPLICATE KEY UPDATE porcentaje=VALUES(porcentaje),
+             observaciones=VALUES(observaciones), actualizado_por=VALUES(actualizado_por)'
+    )->execute(['a' => $areaComunId, 'p' => $porcentaje, 'o' => $obs,
+                'u' => $_SESSION['user_id'] ?? null]);
+
+    return ['ok' => true, 'area_comun_id' => $areaComunId, 'porcentaje' => $porcentaje];
 }
 
 /** Guarda el % de un ambiente y recalcula el del apartamento. */
@@ -6559,6 +6679,18 @@ function recAsegurarTablasAvance(): void
             actualizado_por INT UNSIGNED DEFAULT NULL,
             actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
             PRIMARY KEY (id), UNIQUE KEY uq_avance_ambiente (ambiente_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Avance de las áreas comunes: espejo del de ambientes, para que
+        // el seguimiento de un área común funcione igual que el de un
+        // apartamento (registrar %, observación y quién lo actualizó).
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_avance_area_comun (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            area_comun_id INT UNSIGNED NOT NULL,
+            porcentaje TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            observaciones VARCHAR(400) DEFAULT NULL,
+            actualizado_por INT UNSIGNED DEFAULT NULL,
+            actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_avance_area_comun (area_comun_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (Throwable $e) { /* seguir */ }
 }
@@ -6961,7 +7093,6 @@ function esSistematizador(?int $userId = null): bool
 // =====================================================================
 // MAPA POR PARROQUIA (rendimiento): conteo agregado + puntos bajo demanda
 // =====================================================================
-
 /**
  * Conteo de edificaciones por parroquia (para las burbujas del mapa).
  * Rápido: no trae los puntos, solo cuántos hay por parroquia y su color
