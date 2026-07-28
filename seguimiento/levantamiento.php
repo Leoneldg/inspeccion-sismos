@@ -992,28 +992,6 @@ include __DIR__ . '/../includes/header.php';
             <div class="cierre-fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
         </div>
 
-        <?php // La impermeabilización es una condición de la azotea: se
-              // pregunta como un sí/no. Marcado = requiere; sin marcar = no.
-              // Es opcional (no bloquea el cierre).
-              if ($key === 'azotea'):
-                  $reqImper = trim((string)($ed['impermeabilizacion_estado'] ?? '')) !== '';
-        ?>
-        <label class="check-row" style="display:flex;align-items:flex-start;gap:9px;
-               background:#f7f9fd;border-radius:9px;padding:11px 13px;margin-bottom:12px;cursor:pointer;">
-            <input type="checkbox" id="req-impermeabilizacion" style="margin-top:2px;"
-                   <?= $reqImper ? 'checked' : '' ?>>
-            <span>
-                <span style="font-weight:600;color:#2a3140;font-size:14px;">
-                    La azotea requiere impermeabilización
-                </span>
-                <span style="display:block;font-size:12.5px;color:#5b6478;margin-top:2px;">
-                    Marque esta casilla si la azotea necesita impermeabilizarse.
-                </span>
-            </span>
-        </label>
-        <?php endif; ?>
-        <?php endforeach; ?>
-
         <hr style="margin:18px 0;border:0;border-top:1px solid #eef0f5;">
         <div class="bloque-tit"><i class="bi bi-calendar-range"></i> Tiempo estimado de la reconstrucción</div>
         <div class="flex gap-8" style="flex-wrap:wrap;">
@@ -5196,7 +5174,7 @@ async function guardarCierre(ev) {
     // Impermeabilización: es una condición de la azotea (sí/no). Marcado
     // guarda "Requiere"; sin marcar queda vacío. Es opcional.
     const chkImper = document.getElementById('req-impermeabilizacion');
-    payload.impermeabilizacion_estado = (chkImper && chkImper.checked) ? 'Requiere' : '';
+    payload.impermeabilizacion_estado = '';
     payload.fecha_inicio_estimada = form.querySelector('input[name="fecha_inicio_estimada"]').value;
     payload.fecha_fin_estimada = form.querySelector('input[name="fecha_fin_estimada"]').value;
 
