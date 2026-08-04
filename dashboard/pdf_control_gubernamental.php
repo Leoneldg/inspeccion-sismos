@@ -26,7 +26,11 @@ $parrF = trim($_GET['parroquia'] ?? '');
 if ($parrF !== '' && !puedeAccederParroquia($parrF)) $parrF = '';
 $filtros = $parrF !== '' ? ['parroquia' => $parrF] : [];
 
-$d = techDashboard($filtros);
+$ordenesValidos = ['obra', 'obra_asc', 'aptos_asc', 'pisos_desc', 'pisos_asc'];
+$ordenEdif = in_array($_GET['orden_edif'] ?? '', $ordenesValidos, true)
+    ? $_GET['orden_edif'] : 'obra';
+
+$d = techDashboard($filtros, $ordenEdif);
 $cons = $d['consolidado'];
 $dano = $d['dano'];
 $materiales = $cons['materiales'] ?? [];
@@ -164,40 +168,30 @@ ob_start();
 
 <!-- Segunda página -->
 <div class="hoja salto">
-  <div class="dos">
-    <div>
-      <h2>Por parroquia</h2>
-      <table class="t">
-        <thead><tr><th>Parroquia</th><th class="c">Edif.</th><th class="r">m²</th></tr></thead>
-        <tbody>
-          <?php foreach ($parrList as $row): ?>
-          <tr>
-            <td><?= esc($row['nombre']) ?></td>
-            <td class="c"><?= e0($row['edificios'] ?? 0) ?></td>
-            <td class="r"><?= n2($row['m2'] ?? 0) ?></td>
-          </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-    <div>
-      <h2>Por cantidad de pisos</h2>
-      <table class="t">
-        <thead><tr><th>Altura</th><th class="c">Edif.</th><th class="r">m²</th></tr></thead>
-        <tbody>
-          <?php foreach ($d['pisos'] as $row): ?>
-          <tr>
-            <td><?= esc($row['etiqueta']) ?></td>
-            <td class="c"><?= e0($row['edificios']) ?></td>
-            <td class="r"><?= n2($row['m2']) ?></td>
-          </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-  </div>
+  <h2>Por parroquia</h2>
+  <table class="t">
+    <thead><tr><th>Parroquia</th><th class="c">Edif.</th><th class="r">m²</th></tr></thead>
+    <tbody>
+      <?php foreach ($parrList as $row): ?>
+      <tr>
+        <td><?= esc($row['nombre']) ?></td>
+        <td class="c"><?= e0($row['edificios'] ?? 0) ?></td>
+        <td class="r"><?= n2($row['m2'] ?? 0) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+  </table>
 
-  <h2>Por edificio (los que más obra requieren)</h2>
+  <?php
+  $tituloOrdenPdf = [
+    'obra'      => 'los que más obra requieren',
+    'obra_asc'  => 'los que menos obra requieren',
+    'pisos_desc'=> 'los de más pisos primero',
+    'pisos_asc' => 'los de menos pisos primero',
+    'aptos_asc' => 'los de menos apartamentos primero',
+  ];
+  ?>
+  <h2>Por edificio (<?= $tituloOrdenPdf[$ordenEdif] ?? 'listado' ?>)</h2>
   <table class="t">
     <thead><tr>
       <th>Edificación</th><th>Parroquia</th><th class="c">Pisos</th>

@@ -122,7 +122,7 @@ try {
 
         $decision = $ed['decision_final'] ?? '';
         $meta = $cat[$decision] ?? ['color' => '#767c94', 'corto' => '—'];
-        $fase = function_exists('segFaseDe') ? segFaseDe($ed['estado_obra'] ?? null, $ed['avance_pct'] ?? 0) : 0;
+        $fase = function_exists('segFaseDe') ? segFaseDe($ed['estado_obra'] ?? null, $ed['avance_pct'] ?? 0, $ed['completado'] ?? null) : 0;
 
         $puntos[] = [
             'id'            => (int)$ed['inspeccion_id'],

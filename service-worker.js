@@ -16,7 +16,7 @@
  */
 'use strict';
 
-const VERSION = 'obras-pwa-v6';
+const VERSION = 'obras-pwa-v7';
 const CACHE_ESTATICO = VERSION + '-estatico';
 const CACHE_PAGINAS  = VERSION + '-paginas';
 
@@ -70,6 +70,8 @@ function noCachear(request, url) {
   if (url.pathname.endsWith('save.php')) return true;
   // Endpoints del modulo de seguimiento (siempre datos frescos).
   if (/\/(guardar_|listar_|buscar_|subir_|calcular_|asignar_|arbol_|puntos_|ficha_|pdf_|paquete_|progreso_)/.test(url.pathname)) return true;
+  // Endpoints del modo campo / intervención (árbol y fotos): datos frescos.
+  if (/(intervencion_arbol|intervencion_foto)\.php/.test(url.pathname)) return true;
   if (url.pathname.includes('/api_') || url.pathname.endsWith('_json.php')) return true;
   if (url.pathname.endsWith('guardar_ingeniero.php')) return true;
   return false;

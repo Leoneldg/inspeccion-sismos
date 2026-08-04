@@ -3,6 +3,7 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/seguimiento.php';
 
 if (isLoggedIn()) {
     header('Location: ' . APP_URL_BASE . 'index.php');
@@ -23,8 +24,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             [$ok, $msg] = intentarLogin($usuario, $password);
             if ($ok) {
-                $next = $_GET['next'] ?? (APP_URL_BASE . 'index.php');
-                header('Location: ' . (strpos($next, 'login.php') !== false ? APP_URL_BASE . 'index.php' : $next));
+                // Destino por defecto según el rol:
+                //  · Sistematizador de campo → su panel de trabajo.
+                //  · Todos los demás (admin, gobernador…) → Sala de situación.
+                $rolNom = mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8');
+                $esSistem = function_exists('esSistematizador') && esSistematizador();
+                $esMaster = function_exists('usuarioEsMaster') && usuarioEsMaster();
+                $esAdminRol = $esMaster || str_contains($rolNom, 'administrador');
+
+                if ($esSistem && !$esAdminRol) {
+                    $destino = APP_URL_BASE . 'seguimiento/mi_trabajo.php';
+                } else {
+                    $destino = APP_URL_BASE . 'dashboard/sala_situacion.php';
+                }
+
+                $next = $_GET['next'] ?? $destino;
+                header('Location: ' . (strpos($next, 'login.php') !== false ? $destino : $next));
                 exit;
             }
             $error = $msg;

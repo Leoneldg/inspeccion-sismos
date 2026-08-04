@@ -676,14 +676,104 @@ function segFasesRecuperacion(): array
 
 /**
  * Deduce la fase de recuperación (0-3) a partir del estado de obra y el avance.
- * Recibe la fila tal como la devuelve segListaEdificios().
+ *
+ * Definición de fases (acordada con el equipo):
+ *   Fase 1 = inspeccionada (aún sin levantamiento técnico cerrado).
+ *   Fase 2 = en intervención. Agrupa DOS momentos (ver segSubfase2):
+ *              · con levantamiento técnico cerrado (avance < 1%)
+ *              · en reconstrucción (avance >= 1%)
+ *   Fase 3 = recuperada (avance al 100% / obra culminada).
+ *
+ * @param ?string $estadoObra  estado de la obra ('Culminada', etc.)
+ * @param mixed   $avancePct   porcentaje de avance de obra (0-100)
+ * @param mixed   $completado  1 si el levantamiento técnico está cerrado
  */
-function segFaseDe(?string $estadoObra, $avancePct = 0): int
+function segFaseDe(?string $estadoObra, $avancePct = 0, $completado = null): int
 {
-    if ($estadoObra === null || $estadoObra === '' || $estadoObra === 'Sin iniciar') return 0;
-    if ($estadoObra === 'Culminada') return 3;
-    // "En ejecución" o "Suspendida": si ya hay avance registrado, va en fase 2.
-    return ((float)$avancePct > 0) ? 2 : 1;
+    $av = (float)$avancePct;
+
+    // Culminada o avance total → recuperada.
+    if ($estadoObra === 'Culminada' || $av >= 100) return 3;
+
+    // En reconstrucción: basta 1% de avance para estar en Fase 2.
+    if ($av >= 1) return 2;
+
+    // Con levantamiento técnico cerrado (aunque el avance siga en 0) → Fase 2.
+    if ((int)$completado === 1) return 2;
+
+    // Si hay una obra iniciada pero sin avance ni levantamiento, sigue en Fase 1.
+    if ($estadoObra !== null && $estadoObra !== '' && $estadoObra !== 'Sin iniciar') return 1;
+
+    // Solo inspeccionada.
+    return 1;
+}
+
+/**
+ * Sub-estado dentro de la Fase 2, que junta dos momentos distintos:
+ *   'levantamiento' = tiene el levantamiento técnico cerrado, avance < 1%.
+ *   'reconstruccion' = ya tiene avance de obra (>= 1%).
+ * Devuelve '' si el edificio no está en Fase 2.
+ */
+function segSubfase2($avancePct = 0, $completado = null): string
+{
+    $av = (float)$avancePct;
+    if ($av >= 100) return '';           // ya es Fase 3
+    if ($av >= 1)  return 'reconstruccion';
+    if ((int)$completado === 1) return 'levantamiento';
+    return '';
+}
+
+/**
+ * Cuenta los edificios en cada fase y, dentro de la Fase 2, separa los dos
+ * momentos: con levantamiento técnico vs en reconstrucción (con avance).
+ * Respeta el scope territorial del usuario. Acepta filtro opcional de parroquia.
+ *
+ * Devuelve: [
+ *   'fase1' => int,               // inspeccionadas, sin levantamiento
+ *   'fase2_levantamiento' => int, // levantamiento cerrado, avance < 1%
+ *   'fase2_reconstruccion' => int,// avance >= 1%, < 100%
+ *   'fase2_total' => int,         // suma de los dos de arriba
+ *   'fase3' => int,               // recuperadas (100% o culminada)
+ * ]
+ */
+function segConteoFases(array $filtros = []): array
+{
+    $r = ['fase1' => 0, 'fase2_levantamiento' => 0, 'fase2_reconstruccion' => 0,
+          'fase2_total' => 0, 'fase3' => 0];
+    try {
+        $conds = []; $params = [];
+        if (function_exists('aplicarScopeEstado'))    aplicarScopeEstado($conds, $params, 'i');
+        if (function_exists('aplicarScopeParroquia'))  aplicarScopeParroquia($conds, $params, 'i');
+        if (!empty($filtros['parroquia'])) {
+            $conds[] = 'i.parroquia = :parr';
+            $params['parr'] = $filtros['parroquia'];
+        }
+        $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
+
+        // Traemos por edificio: si tiene levantamiento cerrado y su avance.
+        $sql = "SELECT re.completado AS completado,
+                       COALESCE(so.avance_pct, 0) AS avance,
+                       so.estado_obra AS estado_obra
+                  FROM inspecciones i
+                  JOIN rec_edificio re ON re.inspeccion_id = i.id
+                  LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+                  $where";
+        $st = db()->prepare($sql);
+        $st->execute($params);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $fase = segFaseDe($row['estado_obra'] ?? null, $row['avance'] ?? 0, $row['completado'] ?? null);
+            if ($fase === 3) { $r['fase3']++; continue; }
+            if ($fase === 2) {
+                $sub = segSubfase2($row['avance'] ?? 0, $row['completado'] ?? null);
+                if ($sub === 'reconstruccion') $r['fase2_reconstruccion']++;
+                else                           $r['fase2_levantamiento']++;
+                $r['fase2_total']++;
+                continue;
+            }
+            $r['fase1']++;
+        }
+    } catch (Throwable $e) { /* si falta alguna tabla, devuelve ceros */ }
+    return $r;
 }
 
 /**
@@ -4904,6 +4994,12 @@ function segEnReconstruccion(array $filtros = []): array
         $conds[] = '(i.nombre_edificio LIKE :txt OR i.codigo LIKE :txt)';
         $params['txt'] = '%' . $filtros['texto'] . '%';
     }
+    // Filtro opcional: solo los levantamientos creados por un usuario.
+    // Lo usa la vista del sistematizador para mostrar "los suyos".
+    if (!empty($filtros['creado_por'])) {
+        $conds[] = 're.creado_por = :creador';
+        $params['creador'] = (int)$filtros['creado_por'];
+    }
     // Si no hay condiciones, el WHERE debe quedar vacío: 'WHERE ' solo
     // es SQL inválido y hace que la consulta no devuelva nada.
     $where = $conds ? ('WHERE ' . implode(' AND ', $conds)) : '';
@@ -6257,9 +6353,72 @@ function recArbolAvance(int $edificioId): array
         $m2 = ['por_apartamento' => [], 'por_piso' => [], 'elementos_piso' => [],
                'por_tipo' => [], 'areas_comunes' => 0, 'total' => 0];
     }
+    // Avance guardado de cada elemento del piso (id => %), en una consulta.
+    $avanceElem = [];
+    try {
+        recAsegurarTablasAvance();
+        $stAvE = db()->prepare(
+            "SELECT ave.elemento_piso_id, ave.porcentaje
+               FROM rec_avance_elemento_piso ave
+               JOIN rec_elemento_piso ep ON ep.id = ave.elemento_piso_id
+               JOIN rec_piso pi ON pi.id = ep.piso_id
+              WHERE pi.edificio_id = :e");
+        $stAvE->execute(['e' => $edificioId]);
+        foreach ($stAvE->fetchAll() as $r) {
+            $avanceElem[(int)$r['elemento_piso_id']] = (int)$r['porcentaje'];
+        }
+    } catch (Throwable $e) { /* sin avances de elementos aún */ }
+
+    // Nombres legibles para los tipos de elemento del piso.
+    $nombresElem = [
+        'pasillo' => 'Pasillo', 'escaleras' => 'Escaleras', 'ascensor' => 'Ascensor',
+        'iluminacion' => 'Iluminación', 'jardinera' => 'Jardinera',
+        'bajante_basura' => 'Bajante de basura', 'fachada' => 'Fachada',
+        'techo' => 'Techo', 'tanque' => 'Tanque',
+    ];
+
     foreach ($pisos as $pid => $p) {
         $pisos[$pid]['m2'] = round($m2['por_piso'][$pid]['m2'] ?? 0, 2);
         $pisos[$pid]['fotos_elementos'] = $fotosPiso[$pid] ?? [];
+
+        // Elementos del piso que necesitan reparación (pasillo, escaleras…),
+        // para que el sistematizador les reporte avance en el modo campo.
+        $pisos[$pid]['elementos'] = [];
+        try {
+            $stEp = db()->prepare(
+                "SELECT id, tipo, necesita_reparacion
+                   FROM rec_elemento_piso
+                  WHERE piso_id = :p AND necesita_reparacion = 1
+                  ORDER BY tipo");
+            $stEp->execute(['p' => $pid]);
+            foreach ($stEp->fetchAll() as $ep) {
+                $eid = (int)$ep['id'];
+                // Fotos del "durante" y "antes" de este elemento.
+                $fA = 0; $fD = 0;
+                try {
+                    $stFe = db()->prepare(
+                        "SELECT parte, COUNT(*) AS n FROM rec_foto
+                          WHERE nivel = 'elemento_piso' AND ref_id = :r
+                          GROUP BY parte");
+                    $stFe->execute(['r' => $eid]);
+                    foreach ($stFe->fetchAll() as $fr) {
+                        if ($fr['parte'] === 'antes')   $fA = (int)$fr['n'];
+                        if ($fr['parte'] === 'durante')  $fD = (int)$fr['n'];
+                    }
+                } catch (Throwable $e) { /* sin fotos */ }
+                $pisos[$pid]['elementos'][] = [
+                    'id'            => $eid,
+                    'tipo'          => $ep['tipo'],
+                    'etiqueta'      => $nombresElem[$ep['tipo']] ?? ucfirst(str_replace('_', ' ', $ep['tipo'])),
+                    'necesita_reparacion' => true,
+                    'avance'        => $avanceElem[$eid] ?? 0,
+                    'fotos_antes'   => $fA,
+                    'fotos_durante' => $fD,
+                    'tiene_foto_durante' => $fD > 0,
+                ];
+            }
+        } catch (Throwable $e) { /* sin elementos */ }
+
         foreach ($p['apartamentos'] as $i => $ap) {
             $pisos[$pid]['apartamentos'][$i]['m2'] =
                 round($m2['por_apartamento'][(int)$ap['id']] ?? 0, 2);
@@ -6507,6 +6666,25 @@ function recGuardarAvanceAreaComun(int $areaComunId, int $porcentaje, ?string $o
     return ['ok' => true, 'area_comun_id' => $areaComunId, 'porcentaje' => $porcentaje];
 }
 
+/**
+ * Guarda el avance (%) de un elemento del piso (pasillo, escaleras, etc.).
+ * Espejo de recGuardarAvanceAreaComun.
+ */
+function recGuardarAvanceElementoPiso(int $elementoId, int $porcentaje, ?string $obs = null): array
+{
+    recAsegurarTablasAvance();
+    $porcentaje = max(0, min(100, $porcentaje));
+    db()->prepare(
+        'INSERT INTO rec_avance_elemento_piso (elemento_piso_id, porcentaje, observaciones, actualizado_por)
+         VALUES (:a, :p, :o, :u)
+         ON DUPLICATE KEY UPDATE porcentaje=VALUES(porcentaje),
+             observaciones=VALUES(observaciones), actualizado_por=VALUES(actualizado_por)'
+    )->execute(['a' => $elementoId, 'p' => $porcentaje, 'o' => $obs,
+                'u' => $_SESSION['user_id'] ?? null]);
+
+    return ['ok' => true, 'elemento_piso_id' => $elementoId, 'porcentaje' => $porcentaje];
+}
+
 /** Guarda el % de un ambiente y recalcula el del apartamento. */
 function recGuardarAvanceAmbiente(int $ambienteId, int $porcentaje, ?string $obs = null): array
 {
@@ -6691,6 +6869,18 @@ function recAsegurarTablasAvance(): void
             actualizado_por INT UNSIGNED DEFAULT NULL,
             actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
             PRIMARY KEY (id), UNIQUE KEY uq_avance_area_comun (area_comun_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Avance de los elementos del piso (pasillos, escaleras, fachada…):
+        // mismo esquema, para que se les pueda reportar avance como a un
+        // ambiente o un área común.
+        db()->exec("CREATE TABLE IF NOT EXISTS rec_avance_elemento_piso (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            elemento_piso_id INT UNSIGNED NOT NULL,
+            porcentaje TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            observaciones VARCHAR(400) DEFAULT NULL,
+            actualizado_por INT UNSIGNED DEFAULT NULL,
+            actualizado_en DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+            PRIMARY KEY (id), UNIQUE KEY uq_avance_elemento_piso (elemento_piso_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (Throwable $e) { /* seguir */ }
 }
@@ -7101,6 +7291,14 @@ function esSistematizador(?int $userId = null): bool
 function segConteoPorParroquia(): array
 {
     $pdo = db();
+    // ¿Existe la tabla de reportes de intervención? Si el modo campo aún no
+    // se ha usado, puede no existir. El conteo se adapta para no fallar.
+    $hayInterv = false;
+    try {
+        $pdo->query("SELECT 1 FROM rec_interv_reporte LIMIT 1");
+        $hayInterv = true;
+    } catch (Throwable $e) { $hayInterv = false; }
+
     $conds = ["i.parroquia IS NOT NULL", "i.parroquia <> ''"];
     $params = [];
     aplicarScopeEstado($conds, $params, 'i');
@@ -7110,15 +7308,39 @@ function segConteoPorParroquia(): array
     // "total" sigue siendo el total de inspecciones, para no perder el dato.
     // "en_obra" cuenta solo las que tienen el levantamiento cerrado: es lo
     // que se muestra en el mapa, porque son las que están en reconstrucción.
+    // Expresión segura: si no hay tabla de intervención, cuenta como sin reporte.
+    $ivExpr = $hayInterv ? 'COALESCE(iv.tiene_reporte,0)' : '0';
+
     $sql = "SELECT i.estado, i.parroquia,
                    COUNT(*) AS total,
                    SUM(CASE WHEN re.completado = 1 THEN 1 ELSE 0 END) AS en_obra,
                    SUM(i.decision_final = 'Edificación Insegura - Acceso No Permitido') AS rojos,
                    SUM(i.decision_final = 'Acceso Restringido - Precaución al Entrar') AS amarillos,
                    SUM(i.decision_final = 'Edificación Inspeccionada - Acceso Permitido') AS verdes,
-                   SUM(i.decision_final = 'Derrumbado') AS derrumbados
+                   SUM(i.decision_final = 'Derrumbado') AS derrumbados,
+                   -- Fases con la definición acordada:
+                   -- El avance puede venir de dos lados: seguimiento_obras.avance_pct
+                   -- (flujo viejo) o de tener reportes de intervención (modo campo).
+                   SUM(CASE WHEN COALESCE(so.avance_pct,0) >= 100 OR so.estado_obra = 'Culminada'
+                            THEN 1 ELSE 0 END) AS fase3,
+                   SUM(CASE WHEN COALESCE(so.avance_pct,0) < 100
+                                 AND (COALESCE(so.avance_pct,0) >= 1 OR $ivExpr = 1)
+                            THEN 1 ELSE 0 END) AS fase2_reconstr,
+                   SUM(CASE WHEN COALESCE(so.avance_pct,0) < 1 AND $ivExpr = 0
+                                 AND re.completado = 1
+                            THEN 1 ELSE 0 END) AS fase2_levant,
+                   SUM(CASE WHEN (re.completado IS NULL OR re.completado = 0)
+                                 AND COALESCE(so.avance_pct,0) < 1
+                                 AND $ivExpr = 0
+                            THEN 1 ELSE 0 END) AS fase1
               FROM inspecciones i
               LEFT JOIN rec_edificio re ON re.inspeccion_id = i.id
+              LEFT JOIN seguimiento_obras so ON so.inspeccion_id = i.id
+              " . ($hayInterv ? "LEFT JOIN (
+                    SELECT edificio_id, 1 AS tiene_reporte
+                      FROM rec_interv_reporte
+                     GROUP BY edificio_id
+              ) iv ON iv.edificio_id = re.id" : "") . "
               $where
              GROUP BY i.estado, i.parroquia";
     $st = $pdo->prepare($sql);

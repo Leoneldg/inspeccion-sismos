@@ -36,5 +36,43 @@ window._USER_ID = <?= (int)($_SESSION['user_id'] ?? 0) ?>;</script>
 <script src="<?= APP_URL_BASE ?>assets/js/obras-catalogo.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/main.js?v=<?= ASSET_VERSION ?>"></script>
 <script src="<?= APP_URL_BASE ?>assets/js/qr.js?v=<?= ASSET_VERSION ?>"></script>
+<?php if (isset($_GET['embed']) && $_GET['embed'] == '1'): ?>
+<script>
+/* Modo embebido (dentro de una pestaña de fase): la página se carga sin
+ * sidebar. Para que al navegar a otra ficha NO reaparezca la app completa
+ * "en miniatura", propagamos ?embed=1 a todos los enlaces internos. */
+(function () {
+  function esInterno(url) {
+    try {
+      var u = new URL(url, window.location.href);
+      return u.origin === window.location.origin;
+    } catch (e) { return false; }
+  }
+  function agregarEmbed(url) {
+    try {
+      var u = new URL(url, window.location.href);
+      if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
+      return u.pathname + u.search + u.hash;
+    } catch (e) { return url; }
+  }
+  function procesar(a) {
+    var href = a.getAttribute('href');
+    if (!href) return;
+    if (href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+    if (a.target && a.target !== '_self') return;      // PDFs que abren en pestaña nueva: se dejan
+    if (a.hasAttribute('download')) return;
+    if (!esInterno(href)) return;
+    a.setAttribute('href', agregarEmbed(href));
+  }
+  function todos() { document.querySelectorAll('a[href]').forEach(procesar); }
+  document.addEventListener('DOMContentLoaded', todos);
+  // También al vuelo, por si el contenido se pinta con JS después.
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest && ev.target.closest('a[href]');
+    if (a) procesar(a);
+  }, true);
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

@@ -8,8 +8,8 @@
  *
  * Todas respetan el scope territorial del usuario (estado/parroquia).
  */
-require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/territorial.php';
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/territorial.php';
 
 /**
  * Arma el WHERE con el scope del usuario y filtros opcionales.

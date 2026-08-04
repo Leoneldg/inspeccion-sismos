@@ -152,15 +152,27 @@ function techPorEdificio(array $filtros = [], int $limite = 40, string $orden = 
     }
 
     // Ordenar según lo pedido. Por defecto, los que más obra requieren;
-    // en 'aptos_asc', los de menos apartamentos primero (a igualdad de
-    // apartamentos, el de menos metros de trabajo va antes).
-    if ($orden === 'aptos_asc') {
-        usort($filas, function ($a, $b) {
-            return [$a['num_apartamentos'], $a['m2']]
-               <=> [$b['num_apartamentos'], $b['m2']];
-        });
-    } else {
-        usort($filas, fn($a, $b) => $b['m2'] <=> $a['m2']);
+    // Ordenamientos disponibles para el listado por edificio.
+    switch ($orden) {
+        case 'aptos_asc':   // menos apartamentos primero
+            usort($filas, fn($a, $b) =>
+                [$a['num_apartamentos'], $a['m2']] <=> [$b['num_apartamentos'], $b['m2']]);
+            break;
+        case 'obra_asc':    // menos obra (menos m²) primero
+            usort($filas, fn($a, $b) => $a['m2'] <=> $b['m2']);
+            break;
+        case 'pisos_desc':  // más pisos primero (a igualdad, más obra)
+            usort($filas, fn($a, $b) =>
+                [$b['num_pisos'], $b['m2']] <=> [$a['num_pisos'], $a['m2']]);
+            break;
+        case 'pisos_asc':   // menos pisos primero (a igualdad, menos obra)
+            usort($filas, fn($a, $b) =>
+                [$a['num_pisos'], $a['m2']] <=> [$b['num_pisos'], $b['m2']]);
+            break;
+        case 'obra':        // más obra (más m²) primero — por defecto
+        default:
+            usort($filas, fn($a, $b) => $b['m2'] <=> $a['m2']);
+            break;
     }
     return array_slice($filas, 0, $limite);
 }

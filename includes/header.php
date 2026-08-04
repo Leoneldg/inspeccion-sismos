@@ -35,12 +35,44 @@ $flashes = obtenerFlashes();
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('<?= APP_URL_BASE ?>service-worker.js')
+        .then(function (reg) {
+          // Buscar una versión nueva en cada carga.
+          reg.update();
+          // Si hay una versión nueva esperando, tomarla.
+          reg.addEventListener('updatefound', function () {
+            var nuevo = reg.installing;
+            if (!nuevo) return;
+            nuevo.addEventListener('statechange', function () {
+              // Ya instalado y hay un SW controlando: es una actualización.
+              if (nuevo.state === 'installed' && navigator.serviceWorker.controller) {
+                // La próxima navegación ya usará la versión nueva.
+                console.info('Nueva versión de la app lista. Se aplicará al recargar.');
+              }
+            });
+          });
+        })
         .catch(function (e) { console.warn('No se pudo registrar el service worker:', e); });
+
+      // Cuando el SW nuevo toma control, recargar una vez para usar datos frescos.
+      var recargado = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (recargado) return;
+        recargado = true;
+        window.location.reload();
+      });
     });
   }
 </script>
 </head>
-<body<?= $activeModule === 'dashboard' ? ' class="modo-tv"' : '' ?>>
+<?php
+// Detección de rol para decidir el chrome (sidebar de campo, barra móvil).
+// Se calcula aquí, antes del <body>, para poder marcar su clase.
+$esAdmin = usuarioEsMaster()
+        || str_contains(mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8'), 'administrador');
+$esSistemPuro = !$esAdmin
+             && function_exists('esSistematizador') && esSistematizador();
+?>
+<body class="<?= ($activeModule === 'dashboard' ? 'modo-tv' : '') ?><?= (isset($_GET['embed']) && $_GET['embed'] == '1') ? ' modo-embed' : '' ?><?= $esSistemPuro ? ' tiene-barra-campo' : '' ?>">
 <div class="offline-banner">
     <i class="bi bi-wifi-off"></i>
     Sin conexión: lo que guardes se sube automáticamente al recuperar señal.
@@ -68,145 +100,82 @@ $flashes = obtenerFlashes();
              GRUPO 1: Operaciones de campo
              ══════════════════════════════════════════════ -->
         <?php
-        // El menú se redujo a lo que se usa a diario. Lo que ya tiene
-        // botón dentro de otra pantalla se quitó de aquí: repetirlo
-        // solo alarga la lista y hace más lenta la navegación.
-        $esAdmin = usuarioEsMaster()
-                || str_contains(mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8'), 'administrador');
+        // $esAdmin y $esSistemPuro ya se calcularon antes del <body>.
+        // El menú se redujo a lo que se usa a diario.
         ?>
 
-        <?php if (puede('seguimiento','ver')): ?>
-        <div class="nav-group open" data-group="trabajo">
+        <?php if ($esSistemPuro): ?>
+        <!-- ══════════════════════════════════════════════
+             SIDEBAR DE CAMPO · para el sistematizador.
+             Solo su trabajo de terreno, sin las fases del gobernador.
+             ══════════════════════════════════════════════ -->
+        <div class="nav-group open" data-group="campo">
             <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-clipboard-check"></i>
-                <span>Trabajo diario</span>
+                <i class="bi bi-person-workspace"></i>
+                <span>Mi trabajo de campo</span>
                 <i class="bi bi-chevron-down nav-chevron"></i>
             </div>
             <div class="nav-group-items">
-
-                <?php if (function_exists('usuarioLimitadoAFrente') && usuarioLimitadoAFrente()): ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/mi_frente.php" class="nav-item <?= $activeModule==='mi_frente'?'active':'' ?>" title="Mi frente de trabajo">
-                    <i class="bi bi-people-fill"></i> <span>Mi frente</span>
+                <a href="<?= APP_URL_BASE ?>seguimiento/mi_trabajo.php" class="nav-item <?= $activeModule==='mi_trabajo'?'active':'' ?>" title="Resumen de tu trabajo">
+                    <i class="bi bi-house-door-fill"></i> <span>Inicio</span>
                 </a>
-                <?php endif; ?>
-
-                <?php if (function_exists('usuarioLimitadoAParroquia') && usuarioLimitadoAParroquia()): ?>
-                <a href="<?= APP_URL_BASE ?>seguimiento/mi_parroquia.php" class="nav-item <?= $activeModule==='mi_parroquia'?'active':'' ?>" title="Mi parroquia">
-                    <i class="bi bi-geo-alt-fill"></i> <span>Mi parroquia</span>
+                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= in_array($activeModule, ['seguimiento'], true)?'active':'' ?>" title="Buscar un edificio nuevo entre todos y levantarlo">
+                    <i class="bi bi-search"></i> <span>Levantamiento</span>
                 </a>
-                <?php endif; ?>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="nav-item <?= $activeModule==='seguimiento'?'active':'' ?>" title="Buscar edificaciones y asignar obra">
-                    <i class="bi bi-map-fill"></i> <span>Edificaciones</span>
+                <a href="<?= APP_URL_BASE ?>seguimiento/mi_seguimiento.php" class="nav-item <?= in_array($activeModule, ['mi_seguimiento','reconstruccion'], true)?'active':'' ?>" title="Tus edificios levantados: dale seguimiento al avance">
+                    <i class="bi bi-clipboard-check"></i> <span>Seguimiento</span>
                 </a>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php" class="nav-item <?= $activeModule==='reconstruccion'?'active':'' ?>" title="Levantamientos en curso">
-                    <i class="bi bi-hammer"></i> <span>Levantamientos</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/requisiciones.php" class="nav-item <?= $activeModule==='requisiciones'?'active':'' ?>" title="Solicitud de material para la reconstruccion">
+                <a href="<?= APP_URL_BASE ?>seguimiento/requisiciones.php" class="nav-item <?= $activeModule==='requisiciones'?'active':'' ?>" title="Solicitar material para la obra">
                     <i class="bi bi-file-earmark-text"></i> <span>Requisiciones</span>
                 </a>
-
-                <a href="<?= APP_URL_BASE ?>dashboard/control_gubernamental.php" class="nav-item <?= $activeModule==='control_gub'?'active':'' ?>" title="Panorama técnico de obra: materiales, metros² y daño estructural">
-                    <i class="bi bi-bricks"></i> <span>Panorama técnico</span>
-                </a>
-
-                <?php if (!empty($_SESSION['es_master']) || str_contains(mb_strtolower($_SESSION['rol_nombre'] ?? '', 'UTF-8'), 'administrador')): ?>
-                <a href="<?= APP_URL_BASE ?>dashboard/panel_directivo.php" class="nav-item <?= $activeModule==='panel_directivo'?'active':'' ?>" title="Avance de la obra de un vistazo, para directivos">
-                    <i class="bi bi-speedometer2"></i> <span>Panel directivo</span>
-                </a>
-                <?php endif; ?>
-
             </div>
         </div>
-        <?php endif; ?>
+        <?php else: ?>
 
+        <!-- ══════════════════════════════════════════════
+             BLOQUE DIRECTIVO · lo que abre el gobernador
+             Sala de situación + las 3 fases + ficha de prensa.
+             ══════════════════════════════════════════════ -->
         <?php if (puede('seguimiento','ver')): ?>
-        <div class="nav-group <?= in_array($activeModule, ['reporte','reporte_global']) ? 'open tiene-activo' : '' ?>" data-group="informes">
+        <div class="nav-group open" data-group="directivo">
             <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-graph-up-arrow"></i>
-                <span>Reportes</span>
+                <i class="bi bi-bank"></i>
+                <span>Gobernación</span>
                 <i class="bi bi-chevron-down nav-chevron"></i>
             </div>
             <div class="nav-group-items">
 
-                <a href="<?= APP_URL_BASE ?>seguimiento/reporte.php" class="nav-item <?= $activeModule==='reporte'?'active':'' ?>" title="Estado del programa con gráficos">
+                <a href="<?= APP_URL_BASE ?>dashboard/sala_situacion.php" class="nav-item <?= $activeModule==='sala_situacion'?'active':'' ?>" title="Cifras macro, impacto social y mapa de afectación">
+                    <i class="bi bi-grid-1x2-fill"></i> <span>Sala de situación</span>
+                </a>
+
+                <!-- FASE 1 · Inspecciones (Edificaciones va dentro, en pestaña) -->
+                <a href="<?= APP_URL_BASE ?>dashboard/fase1_inspecciones.php" class="nav-item <?= in_array($activeModule, ['fase1','seguimiento'], true)?'active':'' ?>" title="Fase 1: inspecciones y edificaciones">
+                    <i class="bi bi-1-circle-fill"></i> <span>Fase 1 · Inspecciones</span>
+                </a>
+
+                <!-- FASE 2 · Reconstrucción (Levantamientos, Durante y Requisiciones van dentro, en pestañas) -->
+                <a href="<?= APP_URL_BASE ?>dashboard/control_gubernamental.php" class="nav-item <?= in_array($activeModule, ['control_gub','fase2','reconstruccion','durante','requisiciones'], true)?'active':'' ?>" title="Fase 2: obras, levantamientos, durante y requisiciones">
+                    <i class="bi bi-2-circle-fill"></i> <span>Fase 2 · Reconstrucción</span>
+                </a>
+
+                <!-- FASE 3 · Culminadas -->
+                <a href="<?= APP_URL_BASE ?>dashboard/fase3_culminadas.php" class="nav-item <?= $activeModule==='fase3'?'active':'' ?>" title="Fase 3: edificaciones ya terminadas">
+                    <i class="bi bi-3-circle-fill"></i> <span>Fase 3 · Culminadas</span>
+                </a>
+
+                <!-- Reportes como botones simples de PDF -->
+                <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php" target="_blank" class="nav-item nav-pdf" title="Ficha de prensa: PDF ejecutivo de una página">
+                    <i class="bi bi-file-earmark-pdf-fill"></i> <span>Ficha de prensa (PDF)</span>
+                </a>
+                <a href="<?= APP_URL_BASE ?>seguimiento/reporte.php" class="nav-item nav-pdf <?= $activeModule==='reporte'?'active':'' ?>" title="Estado del programa con gráficos">
                     <i class="bi bi-bar-chart-fill"></i> <span>Reporte ejecutivo</span>
                 </a>
 
-                <a href="<?= APP_URL_BASE ?>seguimiento/reporte_global.php" class="nav-item <?= $activeModule==='reporte_global'?'active':'' ?>" title="Consolidado por responsable">
-                    <i class="bi bi-globe-americas"></i> <span>Reporte global</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php" target="_blank" class="nav-item" title="Resumen de una página en PDF">
-                    <i class="bi bi-file-earmark-pdf-fill"></i> <span>Resumen en PDF</span>
-                </a>
-
             </div>
         </div>
         <?php endif; ?>
-
-        <?php if ($esAdmin || puede('configuracion','ver') || puede('usuarios','ver')): ?>
-        <div class="nav-group <?= in_array($activeModule, ['usuarios','roles','materiales','ingenieros','sistematizadores','configuracion','entes','frentes','representantes','sin_etiqueta','agregadas','limpiar','import_export','correcciones','informes']) ? 'open tiene-activo' : '' ?>" data-group="admin">
-            <div class="nav-group-header" onclick="toggleNavGroup(this)">
-                <i class="bi bi-gear-fill"></i>
-                <span>Administración</span>
-                <i class="bi bi-chevron-down nav-chevron"></i>
-            </div>
-            <div class="nav-group-items">
-
-                <?php if (puede('usuarios','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item <?= $activeModule==='usuarios'?'active':'' ?>" title="Usuarios del sistema">
-                    <i class="bi bi-person-badge"></i> <span>Usuarios</span>
-                </a>
-                <?php endif; ?>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="nav-item <?= $activeModule==='frentes'?'active':'' ?>" title="Frentes de trabajo y brigadas">
-                    <i class="bi bi-diagram-3-fill"></i> <span>Frentes de trabajo</span>
-                </a>
-
-                <?php if (puede('configuracion','ver') || $esAdmin): ?>
-                <a href="<?= APP_URL_BASE ?>admin/materiales.php" class="nav-item <?= $activeModule==='materiales'?'active':'' ?>" title="Materiales y rendimientos">
-                    <i class="bi bi-box-seam"></i> <span>Materiales</span>
-                </a>
-                <?php endif; ?>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/sin_etiqueta.php" class="nav-item <?= $activeModule==='sin_etiqueta'?'active':'' ?>" title="Edificaciones marcadas sin etiqueta">
-                    <i class="bi bi-tag"></i> <span>Sin etiqueta</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/agregadas.php" class="nav-item <?= $activeModule==='agregadas'?'active':'' ?>" title="Edificaciones registradas en campo">
-                    <i class="bi bi-plus-square"></i> <span>Agregadas en campo</span>
-                </a>
-
-                <?php if ($esAdmin): ?>
-                <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item <?= $activeModule==='roles'?'active':'' ?>" title="Roles y permisos">
-                    <i class="bi bi-shield-lock"></i> <span>Roles y permisos</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item <?= $activeModule==='ingenieros'?'active':'' ?>" title="Ingenieros e inspectores">
-                    <i class="bi bi-person-vcard"></i> <span>Ingenieros</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item <?= $activeModule==='import_export'?'active':'' ?>" title="Importar y exportar datos">
-                    <i class="bi bi-arrow-down-up"></i> <span>Importar / Exportar</span>
-                </a>
-
-                <a href="<?= APP_URL_BASE ?>seguimiento/limpiar_pruebas.php" class="nav-item <?= $activeModule==='limpiar'?'active':'' ?>" title="Borrar levantamientos de prueba">
-                    <i class="bi bi-trash3"></i> <span>Limpiar pruebas</span>
-                </a>
-                <?php endif; ?>
-
-                <?php if (puede('configuracion','ver')): ?>
-                <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="nav-item <?= $activeModule==='configuracion'?'active':'' ?>" title="Configuración del sistema">
-                    <i class="bi bi-sliders"></i> <span>Configuración</span>
-                </a>
-                <?php endif; ?>
-
-            </div>
-        </div>
-        <?php endif; ?>
+        <?php endif; /* fin: sistematizador puro vs directivo */ ?>
 
         <!-- ==============================================
              Usuario y cierre de sesión.
@@ -219,6 +188,11 @@ $flashes = obtenerFlashes();
                 <strong><?= e($_SESSION['nombre'] ?? '') ?></strong>
                 <span><?= e($_SESSION['rol_nombre'] ?? '') ?></span>
             </div>
+            <?php if ($esAdmin || puede('configuracion','ver')): ?>
+            <a href="<?= APP_URL_BASE ?>admin/configuracion.php" class="logout" title="Ajustes y configuración" aria-label="Ajustes" style="margin-right:4px;">
+                <i class="bi bi-gear-fill"></i>
+            </a>
+            <?php endif; ?>
             <a href="<?= APP_URL_BASE ?>logout.php" class="logout" title="Cerrar sesión" aria-label="Cerrar sesión">
                 <i class="bi bi-box-arrow-right"></i>
             </a>
@@ -230,6 +204,26 @@ $flashes = obtenerFlashes();
     <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
     <div class="main-col">
+
+    <?php if ($esSistemPuro): ?>
+    <!-- Barra inferior de navegación · SOLO móvil, solo sistematizador.
+         El CSS la muestra únicamente en pantallas angostas. -->
+    <nav class="barra-campo" aria-label="Navegación de campo">
+        <a href="<?= APP_URL_BASE ?>seguimiento/mi_trabajo.php" class="bc-item <?= $activeModule==='mi_trabajo'?'on':'' ?>">
+            <i class="bi bi-house-door<?= $activeModule==='mi_trabajo'?'-fill':'' ?>"></i><span>Inicio</span>
+        </a>
+        <a href="<?= APP_URL_BASE ?>seguimiento/index.php" class="bc-item <?= $activeModule==='seguimiento'?'on':'' ?>">
+            <i class="bi bi-search"></i><span>Levantar</span>
+        </a>
+        <a href="<?= APP_URL_BASE ?>seguimiento/mi_seguimiento.php" class="bc-item <?= in_array($activeModule,['mi_seguimiento','reconstruccion'],true)?'on':'' ?>">
+            <i class="bi bi-clipboard-check"></i><span>Seguir</span>
+        </a>
+        <a href="<?= APP_URL_BASE ?>seguimiento/requisiciones.php" class="bc-item <?= $activeModule==='requisiciones'?'on':'' ?>">
+            <i class="bi bi-file-earmark-text"></i><span>Requis.</span>
+        </a>
+    </nav>
+    <?php endif; ?>
+
 <script>
 function toggleNavGroup(header) {
     var group = header.closest('.nav-group');

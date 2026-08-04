@@ -281,7 +281,63 @@ a:hover { color: var(--azul-800); }
 .sidebar a.nav-item i { font-size: 16px; width: 18px; text-align: center; color: #8f9ac2; }
 .sidebar a.nav-item:hover { background: rgba(255,255,255,0.06); color: white; }
 .sidebar a.nav-item.active { background: rgba(240,166,58,0.14); color: white; }
+/* Modo embed: cuando una página se carga dentro de un iframe (?embed=1),
+   se oculta el sidebar y el chrome para que la herramienta se vea limpia. */
+body.modo-embed .sidebar,
+body.modo-embed .sidebar-backdrop,
+body.modo-embed .offline-banner { display: none !important; }
+body.modo-embed .main-col { margin-left: 0 !important; width: 100% !important; }
+body.modo-embed .app-shell { display: block !important; }
+
+/* ── Barra inferior de campo · solo móvil, solo sistematizador ── */
+.barra-campo { display: none; }
+@media (max-width: 768px) {
+    .barra-campo {
+        display: flex;
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: #fff;
+        border-top: 0.5px solid #e6e9f0;
+        padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+        z-index: 1200;
+        box-shadow: 0 -2px 10px rgba(0,0,0,.05);
+    }
+    .barra-campo .bc-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        text-decoration: none;
+        color: #9aa1b4;
+        font-size: 10px;
+        font-weight: 500;
+    }
+    .barra-campo .bc-item i { font-size: 21px; }
+    .barra-campo .bc-item.on { color: #22366F; }
+    /* Deja aire abajo para que la barra no tape el contenido. */
+    body.tiene-barra-campo .main-col { padding-bottom: 74px; }
+}
+
 .sidebar a.nav-item.active i { color: var(--ambar-500); }
+
+/* Sub-items: herramientas que cuelgan de una fase (sangría + línea guía) */
+.sidebar a.nav-item.nav-sub {
+    margin-left: 14px;
+    padding-left: 14px;
+    font-size: 13px;
+    border-left: 2px solid rgba(255,255,255,0.10);
+    border-radius: 0 var(--radio-sm) var(--radio-sm) 0;
+}
+.sidebar a.nav-item.nav-sub i { font-size: 14px; }
+
+/* Botones de reporte PDF: separados con una línea arriba */
+.sidebar a.nav-item.nav-pdf {
+    margin-top: 6px;
+    color: #a9b4d8;
+}
+.sidebar a.nav-item.nav-pdf:first-of-type { border-top: 1px solid rgba(255,255,255,0.10); padding-top: 12px; margin-top: 8px; }
+
 
 .sidebar .user-card {
     margin-top: auto;

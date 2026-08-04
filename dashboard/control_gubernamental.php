@@ -21,10 +21,13 @@ requierePermiso('seguimiento', 'ver');
 $parrF = trim($_GET['parroquia'] ?? '');
 if ($parrF !== '' && !puedeAccederParroquia($parrF)) $parrF = '';
 $filtros = $parrF !== '' ? ['parroquia' => $parrF] : [];
+$conteoFases = function_exists('segConteoFases') ? segConteoFases($filtros) : ['fase2_levantamiento'=>0,'fase2_reconstruccion'=>0,'fase2_total'=>0];
 
 // Orden de la tabla por edificio: 'obra' (más metros primero, por
 // defecto) o 'aptos_asc' (menos apartamentos primero).
-$ordenEdif = ($_GET['orden_edif'] ?? '') === 'aptos_asc' ? 'aptos_asc' : 'obra';
+$ordenesValidos = ['obra', 'obra_asc', 'aptos_asc', 'pisos_desc', 'pisos_asc'];
+$ordenEdif = in_array($_GET['orden_edif'] ?? '', $ordenesValidos, true)
+    ? $_GET['orden_edif'] : 'obra';
 
 $d = techDashboard($filtros, $ordenEdif);
 $activeModule = 'control_gub';
@@ -67,7 +70,7 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
         <i class="bi bi-bricks"></i> Panorama técnico de obra
       </h1>
       <div style="color:#5b6478;font-size:13px;">
-        Materiales, metros² de trabajo y daño estructural<?= $parrF ? ' · ' . e($parrF) : '' ?>
+        Materiales y metros² de trabajo<?= $parrF ? ' · ' . e($parrF) : '' ?>
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
@@ -85,7 +88,55 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
     </div>
   </div>
 
+  <!-- PESTAÑAS: unifican las herramientas de la fase -->
+  <div class="fase-tabs" style="display:flex;gap:4px;border-bottom:1px solid #e6e9f0;margin-bottom:16px;flex-wrap:wrap;">
+    <button class="fase-tab on" data-tab="resumen" onclick="faseTab('resumen',this)">Resumen</button>
+    <button class="fase-tab" data-tab="levantamientos" onclick="faseTab('levantamientos',this)">Levantamientos</button>
+    <?php if (function_exists('esSistematizador') && esSistematizador()): ?>
+    <button class="fase-tab" data-tab="requisiciones" onclick="faseTab('requisiciones',this)">Requisiciones</button>
+    <?php endif; ?>
+  </div>
+
+  <style>
+    .fase-tab { padding:9px 15px; font-size:13px; color:#5b6478; background:none; border:0; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; font-weight:500; }
+    .fase-tab.on { color:#22366F; border-bottom-color:#22366F; }
+    .fase-tab:hover { color:#22366F; }
+    .fase-panel { display:none; }
+    .fase-panel.on { display:block; }
+    .fase-frame { width:100%; height:calc(100vh - 220px); min-height:520px; border:1px solid #e6e9f0; border-radius:11px; }
+  </style>
+
+  <!-- PANEL: Resumen (el contenido original de la fase) -->
+  <div class="fase-panel on" id="panel-resumen">
+
+  <!-- Los dos momentos de la Fase 2, mostrados por separado -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+    <div onclick="kpiAbrir('levantamiento')" style="border:1px solid #e0e4ee;border-radius:12px;padding:16px;background:#fff;cursor:pointer;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px;">
+        <div style="width:36px;height:36px;border-radius:9px;background:#EEF2FB;color:#22366F;display:flex;align-items:center;justify-content:center;font-size:18px;">
+          <i class="bi bi-rulers"></i>
+        </div>
+        <div style="font-size:12.5px;color:#5b6478;font-weight:600;">Con levantamiento técnico</div>
+      </div>
+      <div style="font-size:30px;font-weight:800;color:#22366F;line-height:1;margin-top:6px;"><?= number_format($conteoFases['fase2_levantamiento'],0,',','.') ?></div>
+      <div style="font-size:11.5px;color:#9aa1b4;margin-top:3px;">Medidos, listos para reconstruir (avance 0%)</div>
+      <div style="font-size:11.5px;color:#22366F;font-weight:600;margin-top:7px;"><i class="bi bi-list-ul"></i> Ver lista por parroquia</div>
+    </div>
+    <div onclick="kpiAbrir('reconstruccion')" style="border:1px solid #C9A22733;border-radius:12px;padding:16px;background:#FFFDF5;cursor:pointer;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px;">
+        <div style="width:36px;height:36px;border-radius:9px;background:#F7EFD6;color:#A66A00;display:flex;align-items:center;justify-content:center;font-size:18px;">
+          <i class="bi bi-hammer"></i>
+        </div>
+        <div style="font-size:12.5px;color:#5b6478;font-weight:600;">En reconstrucción</div>
+      </div>
+      <div style="font-size:30px;font-weight:800;color:#A66A00;line-height:1;margin-top:6px;"><?= number_format($conteoFases['fase2_reconstruccion'],0,',','.') ?></div>
+      <div style="font-size:11.5px;color:#9aa1b4;margin-top:3px;">Con avance de obra registrado (≥ 1%)</div>
+      <div style="font-size:11.5px;color:#A66A00;font-weight:600;margin-top:7px;"><i class="bi bi-list-ul"></i> Ver lista por parroquia</div>
+    </div>
+  </div>
+
   <!-- KPIs constructivos -->
+
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
     <div style="background:#22366F;color:#fff;border-radius:10px;padding:14px;">
       <div style="font-size:26px;font-weight:800;"><?= ent2($cons['edificios'] ?? 0) ?></div>
@@ -102,27 +153,6 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
     <div style="background:#5b6478;color:#fff;border-radius:10px;padding:14px;">
       <div style="font-size:26px;font-weight:800;"><?= num2($cons['pintura'] ?? 0) ?></div>
       <div style="font-size:12px;opacity:.95;">m² de pintura</div>
-    </div>
-  </div>
-
-  <!-- Daño estructural -->
-  <div style="background:#fff;border:1px solid #e0e4ee;border-radius:10px;padding:14px;margin-bottom:14px;">
-    <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
-      <i class="bi bi-exclamation-octagon-fill"></i> Daño estructural (colapso)
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
-      <div style="border:1px solid #eceef4;border-radius:8px;padding:11px;text-align:center;">
-        <div style="font-size:24px;font-weight:800;color:#A61C1C;"><?= ent2($dano['colapso_total']) ?></div>
-        <div style="font-size:12px;color:#5b6478;">Colapso total</div>
-      </div>
-      <div style="border:1px solid #eceef4;border-radius:8px;padding:11px;text-align:center;">
-        <div style="font-size:24px;font-weight:800;color:#C9A227;"><?= ent2($dano['colapso_parcial']) ?></div>
-        <div style="font-size:12px;color:#5b6478;">Colapso parcial</div>
-      </div>
-      <div style="border:1px solid #eceef4;border-radius:8px;padding:11px;text-align:center;">
-        <div style="font-size:24px;font-weight:800;color:#2E7D32;"><?= ent2($dano['sin_colapso']) ?></div>
-        <div style="font-size:12px;color:#5b6478;">Sin colapso</div>
-      </div>
     </div>
   </div>
 
@@ -213,50 +243,48 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
     </div>
   </div>
 
-  <!-- Por cantidad de pisos -->
-  <div style="background:#fff;border:1px solid #e0e4ee;border-radius:10px;padding:14px;margin-bottom:14px;">
-    <div style="font-weight:700;color:#22366F;margin-bottom:10px;">
-      <i class="bi bi-building"></i> Por cantidad de pisos
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="background:#22366F;color:#fff;">
-        <th style="text-align:left;padding:7px 9px;">Altura</th>
-        <th style="padding:7px 9px;">Edificaciones</th>
-        <th style="padding:7px 9px;">m² de trabajo</th>
-      </tr></thead>
-      <tbody>
-        <?php foreach ($d['pisos'] as $i => $row): ?>
-        <tr style="border-bottom:1px solid #eef0f5;<?= $i%2?'background:#fafbfe;':'' ?>">
-          <td style="padding:6px 9px;"><?= e($row['etiqueta']) ?></td>
-          <td style="padding:6px 9px;text-align:center;"><?= ent2($row['edificios']) ?></td>
-          <td style="padding:6px 9px;text-align:right;"><?= num2($row['m2']) ?></td>
-        </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-
   <!-- Por edificio -->
   <div style="background:#fff;border:1px solid #e0e4ee;border-radius:10px;padding:14px;margin-bottom:24px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <div style="font-weight:700;color:#22366F;">
         <i class="bi bi-buildings-fill"></i>
-        <?= $ordenEdif === 'aptos_asc' ? 'Por edificio (los de menos apartamentos primero)' : 'Por edificio (los que más obra requieren)' ?>
+        <?php
+        $tituloOrden = [
+          'obra'      => 'los que más obra requieren',
+          'obra_asc'  => 'los que menos obra requieren',
+          'pisos_desc'=> 'los de más pisos primero',
+          'pisos_asc' => 'los de menos pisos primero',
+          'aptos_asc' => 'los de menos apartamentos primero',
+        ];
+        ?>
+        Por edificio (<?= $tituloOrden[$ordenEdif] ?? 'listado' ?>)
       </div>
       <?php
-      // Enlaces de orden, conservando el filtro de parroquia si lo hay.
+      // Conservar el filtro de parroquia al cambiar de orden / exportar.
       $baseQS = $parrF !== '' ? ('parroquia=' . urlencode($parrF) . '&') : '';
+      $filtrosOrden = [
+        'obra'       => 'Más obra',
+        'obra_asc'   => 'Menos obra',
+        'pisos_desc' => 'Más pisos',
+        'pisos_asc'  => 'Menos pisos',
+      ];
       ?>
-      <div style="display:inline-flex;border:1px solid #d4d9e6;border-radius:8px;overflow:hidden;font-size:12.5px;">
-        <a href="?<?= $baseQS ?>orden_edif=obra"
-           style="padding:6px 12px;text-decoration:none;font-weight:600;
-                  <?= $ordenEdif !== 'aptos_asc' ? 'background:#22366F;color:#fff;' : 'color:#22366F;background:#fff;' ?>">
-          Más obra
-        </a>
-        <a href="?<?= $baseQS ?>orden_edif=aptos_asc"
-           style="padding:6px 12px;text-decoration:none;font-weight:600;border-left:1px solid #d4d9e6;
-                  <?= $ordenEdif === 'aptos_asc' ? 'background:#22366F;color:#fff;' : 'color:#22366F;background:#fff;' ?>">
-          Menos apartamentos
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div style="display:inline-flex;border:1px solid #d4d9e6;border-radius:8px;overflow:hidden;font-size:12.5px;">
+          <?php $primero = true; foreach ($filtrosOrden as $val => $txt):
+            $activo = ($ordenEdif === $val); ?>
+          <a href="?<?= $baseQS ?>orden_edif=<?= $val ?>"
+             style="padding:6px 12px;text-decoration:none;font-weight:600;<?= $primero ? '' : 'border-left:1px solid #d4d9e6;' ?>
+                    <?= $activo ? 'background:#22366F;color:#fff;' : 'color:#22366F;background:#fff;' ?>">
+            <?= $txt ?>
+          </a>
+          <?php $primero = false; endforeach; ?>
+        </div>
+        <a href="<?= APP_URL_BASE ?>dashboard/pdf_control_gubernamental.php?<?= $baseQS ?>orden_edif=<?= $ordenEdif ?>"
+           target="_blank"
+           style="display:inline-flex;align-items:center;gap:6px;padding:6px 13px;background:#A61C1C;color:#fff;
+                  text-decoration:none;border-radius:8px;font-size:12.5px;font-weight:600;">
+          <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
         </a>
       </div>
     </div>
@@ -289,6 +317,34 @@ function ent2($v) { return number_format((int)$v, 0, ',', '.'); }
     </div>
   </div>
 
+  </div><!-- /panel-resumen -->
+
+  <!-- PANEL: Levantamientos (herramienta integrada) -->
+  <div class="fase-panel" id="panel-levantamientos">
+    <iframe class="fase-frame" data-src="<?= APP_URL_BASE ?>seguimiento/en_reconstruccion.php?embed=1" title="Levantamientos"></iframe>
+  </div>
+
+  <!-- PANEL: Requisiciones -->
+  <div class="fase-panel" id="panel-requisiciones">
+    <iframe class="fase-frame" data-src="<?= APP_URL_BASE ?>seguimiento/requisiciones.php?embed=1" title="Requisiciones"></iframe>
+  </div>
+
+  <script>
+  function faseTab(tab, btn) {
+    document.querySelectorAll('.fase-tab').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    document.querySelectorAll('.fase-panel').forEach(p => p.classList.remove('on'));
+    var panel = document.getElementById('panel-' + tab);
+    if (panel) {
+      panel.classList.add('on');
+      // Cargar el iframe solo la primera vez que se abre la pestaña (lazy).
+      var fr = panel.querySelector('iframe.fase-frame');
+      if (fr && !fr.src && fr.dataset.src) fr.src = fr.dataset.src;
+    }
+  }
+  </script>
+
 </div>
 
+<?php include __DIR__ . '/_kpi_modal.php'; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

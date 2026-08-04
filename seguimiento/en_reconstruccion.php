@@ -24,9 +24,26 @@ $puedeBorrar = usuarioEsMaster()
 recAsegurarIngeniero();
 $ingenieros = recIngenierosActivos();
 
-// Filtro por parroquia.
+// Filtro por parroquia y texto.
 $parrF = trim($_GET['parroquia'] ?? '');
-$lista = segEnReconstruccion($parrF !== '' ? ['parroquia' => $parrF] : []);
+$textoF = trim($_GET['q'] ?? '');
+
+// Para el sistematizador de campo: por defecto ve SOLO sus levantamientos.
+// Pero si busca (por parroquia o texto), puede ver los de otros, para
+// hacerle seguimiento a otro edificio cuando haga falta.
+$esSistemCampo = !usuarioEsMaster()
+              && !str_contains($rolAct, 'administrador')
+              && function_exists('esSistematizador') && esSistematizador();
+$estaBuscando = ($parrF !== '' || $textoF !== '');
+
+$filtros = [];
+if ($parrF !== '')  $filtros['parroquia'] = $parrF;
+if ($textoF !== '') $filtros['texto']     = $textoF;
+if ($esSistemCampo && !$estaBuscando) {
+    // Sin búsqueda activa: solo los suyos.
+    $filtros['creado_por'] = (int)($_SESSION['user_id'] ?? 0);
+}
+$lista = segEnReconstruccion($filtros);
 
 // Parroquias que tienen levantamientos, para el selector.
 $parroquiasDisp = [];
@@ -156,6 +173,20 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
+<?php if ($esSistemCampo): ?>
+<div style="background:<?= $estaBuscando ? '#FDF7E7' : '#E9EEF9' ?>;border:1px solid <?= $estaBuscando ? '#C9A22755' : '#22366F33' ?>;
+            border-radius:9px;padding:10px 13px;margin-bottom:12px;font-size:12.5px;
+            color:<?= $estaBuscando ? '#A66A00' : '#22366F' ?>;display:flex;align-items:center;gap:8px;">
+    <i class="bi bi-<?= $estaBuscando ? 'search' : 'person-check-fill' ?>"></i>
+    <?php if ($estaBuscando): ?>
+        Mostrando resultados de la búsqueda<?= $parrF ? ' en <strong>'.e($parrF).'</strong>' : '' ?>.
+        <a href="?" style="color:#22366F;font-weight:600;margin-left:auto;">Ver solo los míos</a>
+    <?php else: ?>
+        Estás viendo <strong>tus levantamientos</strong>. Para hacerle seguimiento a otro, usa el buscador o filtra por parroquia.
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <!-- Listado por día -->
 <div class="rc-card">
     <div style="display:flex;justify-content:space-between;align-items:center;
@@ -178,7 +209,10 @@ include __DIR__ . '/../includes/header.php';
             </select>
             <?php endif; ?>
             <input type="text" id="rc-buscar" class="form-control" style="width:200px;"
-                   placeholder="Buscar edificación…" oninput="filtrarLista()">
+                   value="<?= e($textoF) ?>"
+                   placeholder="Buscar edificación…"
+                   oninput="filtrarLista()"
+                   onkeydown="if(event.key==='Enter'){location.href='?q='+encodeURIComponent(this.value)<?= $parrF ? "+'&parroquia='+encodeURIComponent(".json_encode($parrF).")" : '' ?>;}">
             <a href="<?= APP_URL_BASE ?>seguimiento/pdf_ejecutivo.php"
                target="_blank" class="btn btn-primary btn-sm"
                title="Resumen global: materiales, edificaciones y parroquias">
@@ -376,6 +410,10 @@ include __DIR__ . '/../includes/header.php';
                        style="border-color:#22366F55;color:#22366F;"
                        title="Requisición de material: electricidad, plomería, cal...">
                         <i class="bi bi-file-earmark-text"></i>
+                    </a>
+                    <a href="<?= APP_URL_BASE ?>seguimiento/campo.php?inspeccion=<?= (int)$e['id'] ?>"
+                       class="btn btn-primary btn-sm" title="Modo campo: reportar avance con fotos">
+                        <i class="bi bi-clipboard-check"></i>
                     </a>
                     <a href="<?= APP_URL_BASE ?>seguimiento/remodelacion.php?inspeccion=<?= (int)$e['id'] ?>"
                        class="btn btn-outline btn-sm" title="Abrir la ficha">

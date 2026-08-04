@@ -48,6 +48,36 @@ try {
 include __DIR__ . '/../includes/header.php';
 ?>
 
+<?php if ($esAdmin ?? false): ?>
+<div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><h2><i class="bi bi-sliders"></i> Administración del sistema</h2></div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+            <a href="<?= APP_URL_BASE ?>admin/usuarios.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-person-badge" style="font-size:19px;"></i> Usuarios
+            </a>
+            <a href="<?= APP_URL_BASE ?>admin/roles.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-shield-lock" style="font-size:19px;"></i> Roles y permisos
+            </a>
+            <a href="<?= APP_URL_BASE ?>admin/ingenieros.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-person-vcard" style="font-size:19px;"></i> Ingenieros
+            </a>
+            <a href="<?= APP_URL_BASE ?>admin/materiales.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-box-seam" style="font-size:19px;"></i> Materiales
+            </a>
+            <a href="<?= APP_URL_BASE ?>seguimiento/frentes.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-diagram-3-fill" style="font-size:19px;"></i> Frentes de trabajo
+            </a>
+            <?php if (usuarioEsMaster()): ?>
+            <a href="<?= APP_URL_BASE ?>dashboard/import_export.php" class="nav-item" style="border:1px solid #e6e9f0;border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;color:#22366F;text-decoration:none;font-weight:600;">
+                <i class="bi bi-arrow-down-up" style="font-size:19px;"></i> Importar / Exportar
+            </a>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="card" style="margin-bottom:16px;">
     <div class="card-header"><h2><i class="bi bi-clipboard2-check-fill"></i> Secciones del formulario de inspección</h2></div>
     <div class="card-body">
